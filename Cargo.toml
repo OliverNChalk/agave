@@ -6,6 +6,7 @@ members = [
     "accounts-db",
     "accounts-db/store-histogram",
     "accounts-db/store-tool",
+    "adversary",
     "banking-bench",
     "banking-stage-ingress-types",
     "banks-client",

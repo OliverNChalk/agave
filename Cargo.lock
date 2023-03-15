@@ -7133,6 +7133,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-adversary"
+version = "3.1.0"
+
+[[package]]
 name = "solana-atomic-u64"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
