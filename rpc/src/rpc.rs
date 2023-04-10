@@ -4619,7 +4619,10 @@ pub mod tests {
         ClusterInfo::new(contact_info, keypair, SocketAddrSpace::Unspecified)
     }
 
-    fn create_test_request(method: &str, params: Option<serde_json::Value>) -> serde_json::Value {
+    pub(crate) fn create_test_request(
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> serde_json::Value {
         json!({
             "jsonrpc": "2.0",
             "id": 1u64,
@@ -4628,7 +4631,8 @@ pub mod tests {
         })
     }
 
-    fn parse_success_result<T: DeserializeOwned>(response: Response) -> T {
+    #[track_caller]
+    pub(crate) fn parse_success_result<T: DeserializeOwned>(response: Response) -> T {
         if let Response::Single(output) = response {
             match output {
                 Output::Success(success) => serde_json::from_value(success.result).unwrap(),
@@ -4641,6 +4645,7 @@ pub mod tests {
         }
     }
 
+    #[track_caller]
     fn parse_failure_response(response: Response) -> (i64, String) {
         if let Response::Single(output) = response {
             match output {

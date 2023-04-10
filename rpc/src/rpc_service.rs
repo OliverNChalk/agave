@@ -812,6 +812,8 @@ impl JsonRpcService {
                 let mut io = MetaIoHandler::default();
 
                 io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
+                use crate::rpc_adversary::*;
+                io.extend_with(AdversaryImpl.to_delegate());
                 if full_api {
                     io.extend_with(rpc_bank::BankDataImpl.to_delegate());
                     io.extend_with(rpc_accounts::AccountsDataImpl.to_delegate());

@@ -7135,6 +7135,10 @@ dependencies = [
 [[package]]
 name = "solana-adversary"
 version = "3.1.0"
+dependencies = [
+ "serde",
+ "serde_derive",
+]
 
 [[package]]
 name = "solana-atomic-u64"
@@ -10022,6 +10026,7 @@ dependencies = [
  "solana-account-decoder",
  "solana-accounts-db",
  "solana-address-lookup-table-interface",
+ "solana-adversary",
  "solana-cli-output",
  "solana-client",
  "solana-clock",
