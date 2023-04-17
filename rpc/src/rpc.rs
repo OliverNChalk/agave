@@ -109,7 +109,7 @@ use {
         cmp::{max, min, Reverse},
         collections::{BinaryHeap, HashMap, HashSet},
         convert::TryFrom,
-        net::SocketAddr,
+        net::{SocketAddr, UdpSocket},
         str::FromStr,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -123,6 +123,7 @@ use {
 use {
     solana_gossip::contact_info::ContactInfo,
     solana_ledger::get_tmp_ledger_path,
+    solana_net_utils::bind_to_unspecified,
     solana_runtime::commitment::CommitmentSlots,
     solana_send_transaction_service::{
         send_transaction_service::Config as SendTransactionServiceConfig,
@@ -255,6 +256,7 @@ pub struct JsonRpcRequestProcessor {
     max_complete_transaction_status_slot: Arc<AtomicU64>,
     prioritization_fee_cache: Arc<PrioritizationFeeCache>,
     runtime: Arc<Runtime>,
+    serve_repair_socket: Arc<UdpSocket>,
 }
 impl Metadata for JsonRpcRequestProcessor {}
 
@@ -418,6 +420,7 @@ impl JsonRpcRequestProcessor {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         runtime: Arc<Runtime>,
+        serve_repair_socket: Arc<UdpSocket>,
     ) -> (Self, Receiver<TransactionInfo>) {
         let (transaction_sender, transaction_receiver) = unbounded();
         (
@@ -440,6 +443,7 @@ impl JsonRpcRequestProcessor {
                 max_complete_transaction_status_slot,
                 prioritization_fee_cache,
                 runtime,
+                serve_repair_socket,
             },
             transaction_receiver,
         )
@@ -525,7 +529,20 @@ impl JsonRpcRequestProcessor {
             max_complete_transaction_status_slot: Arc::new(AtomicU64::default()),
             prioritization_fee_cache: Arc::new(PrioritizationFeeCache::default()),
             runtime,
+            serve_repair_socket: Arc::new(bind_to_unspecified().unwrap()),
         }
+    }
+
+    pub fn cluster_info(&self) -> Arc<ClusterInfo> {
+        self.cluster_info.clone()
+    }
+
+    pub fn serve_repair_socket(&self) -> Arc<UdpSocket> {
+        self.serve_repair_socket.clone()
+    }
+
+    pub fn validator_exit(&self) -> Arc<RwLock<Exit>> {
+        self.validator_exit.clone()
     }
 
     pub async fn get_account_info(
@@ -4840,6 +4857,7 @@ pub mod tests {
                 max_complete_transaction_status_slot.clone(),
                 Arc::new(PrioritizationFeeCache::default()),
                 service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
+                Arc::new(bind_to_unspecified().unwrap()),
             )
             .0;
 
@@ -6894,6 +6912,7 @@ pub mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             runtime.clone(),
+            Arc::new(bind_to_unspecified().unwrap()),
         );
 
         let client = Client::create_client(Some(runtime.handle().clone()), my_tpu_address, None, 1);
@@ -7221,6 +7240,7 @@ pub mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             runtime,
+            Arc::new(bind_to_unspecified().unwrap()),
         );
 
         SendTransactionService::new_with_client(
@@ -8973,6 +8993,7 @@ pub mod tests {
             max_complete_transaction_status_slot,
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
+            Arc::new(bind_to_unspecified().unwrap()),
         );
 
         let mut io = MetaIoHandler::default();

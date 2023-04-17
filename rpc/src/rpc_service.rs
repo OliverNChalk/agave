@@ -48,7 +48,7 @@ use {
     solana_storage_bigtable::CredentialType,
     solana_validator_exit::Exit,
     std::{
-        net::SocketAddr,
+        net::{SocketAddr, UdpSocket},
         path::{Path, PathBuf},
         pin::Pin,
         sync::{
@@ -489,6 +489,7 @@ pub struct JsonRpcServiceConfig<'a> {
     pub max_complete_transaction_status_slot: Arc<AtomicU64>,
     pub prioritization_fee_cache: Arc<PrioritizationFeeCache>,
     pub client_option: ClientOption<'a>,
+    pub serve_repair_socket: Arc<UdpSocket>,
 }
 
 impl JsonRpcService {
@@ -540,6 +541,7 @@ impl JsonRpcService {
                     config.max_complete_transaction_status_slot,
                     config.prioritization_fee_cache,
                     runtime,
+                    config.serve_repair_socket,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -589,6 +591,7 @@ impl JsonRpcService {
                     config.max_complete_transaction_status_slot,
                     config.prioritization_fee_cache,
                     runtime,
+                    config.serve_repair_socket,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -617,6 +620,7 @@ impl JsonRpcService {
         connection_cache: Arc<ConnectionCache>,
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
+        serve_repair_socket: Arc<UdpSocket>,
     ) -> Result<Self, String> {
         let runtime = service_runtime(
             config.rpc_threads,
@@ -664,6 +668,7 @@ impl JsonRpcService {
             max_complete_transaction_status_slot,
             prioritization_fee_cache,
             runtime,
+            serve_repair_socket,
         )?;
         Ok(json_rpc_service)
     }
@@ -697,6 +702,7 @@ impl JsonRpcService {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         runtime: Arc<TokioRuntime>,
+        serve_repair_socket: Arc<UdpSocket>,
     ) -> Result<Self, String> {
         info!("rpc bound to {rpc_addr:?}");
         info!("rpc configuration: {config:?}");
@@ -788,6 +794,7 @@ impl JsonRpcService {
             max_complete_transaction_status_slot,
             prioritization_fee_cache,
             Arc::clone(&runtime),
+            serve_repair_socket,
         );
 
         let _send_transaction_service = Arc::new(SendTransactionService::new_with_client(
@@ -945,6 +952,7 @@ mod tests {
             genesis_utils::{create_genesis_config, GenesisConfigInfo},
             get_tmp_ledger_path_auto_delete,
         },
+        solana_net_utils::bind_to_unspecified,
         solana_rpc_client_api::config::RpcContextConfig,
         solana_runtime::bank::Bank,
         solana_signer::Signer,
@@ -1004,6 +1012,7 @@ mod tests {
             connection_cache,
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
+            Arc::new(bind_to_unspecified().unwrap()),
         )
         .expect("assume successful JsonRpcService start");
         let thread = rpc_service.thread_hdl.thread();

@@ -1178,6 +1178,8 @@ impl Validator {
             ))
         };
 
+        let serve_repair_socket = Arc::new(node.sockets.serve_repair);
+
         // test-validator crate may start the validator in a tokio runtime
         // context which forces us to use the same runtime because a nested
         // runtime will cause panic at drop. Outside test-validator crate, we
@@ -1257,6 +1259,7 @@ impl Validator {
                 max_complete_transaction_status_slot: max_complete_transaction_status_slot.clone(),
                 prioritization_fee_cache: prioritization_fee_cache.clone(),
                 client_option,
+                serve_repair_socket: serve_repair_socket.clone(),
             };
             let json_rpc_service =
                 JsonRpcService::new_with_config(rpc_svc_config).map_err(ValidatorError::Other)?;
@@ -1522,7 +1525,7 @@ impl Validator {
             repair_request_quic_sender,
             repair_request_quic_receiver,
             repair_quic_async_senders.repair_response_quic_sender,
-            node.sockets.serve_repair,
+            serve_repair_socket,
             socket_addr_space,
             stats_reporter_sender,
             exit.clone(),

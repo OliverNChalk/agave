@@ -26,13 +26,12 @@ impl ServeRepairService {
         remote_request_sender: Sender<RemoteRequest>,
         remote_request_receiver: Receiver<RemoteRequest>,
         repair_response_quic_sender: AsyncSender<(SocketAddr, Bytes)>,
-        serve_repair_socket: UdpSocket,
+        serve_repair_socket: Arc<UdpSocket>,
         socket_addr_space: SocketAddrSpace,
         stats_reporter_sender: Sender<Box<dyn FnOnce() + Send>>,
         exit: Arc<AtomicBool>,
     ) -> Self {
         let (request_sender, request_receiver) = unbounded();
-        let serve_repair_socket = Arc::new(serve_repair_socket);
         trace!(
             "ServeRepairService: id: {}, listening on: {:?}",
             &serve_repair.my_id(),
