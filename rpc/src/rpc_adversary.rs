@@ -2,7 +2,13 @@ use {
     crate::rpc::JsonRpcRequestProcessor,
     jsonrpc_core::Result,
     jsonrpc_derive::rpc,
-    solana_adversary::adversary_feature_set::{self, example, AdversaryFeatureConfig},
+    solana_adversary::{
+        adversary_context,
+        adversary_feature_set::{
+            self, example, repair_minimal_packet_flood, AdversaryFeatureConfig,
+        },
+        repair::RepairMinimalPacketFlood,
+    },
 };
 
 #[rpc]
@@ -17,6 +23,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: example::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "configureRepairMinimalPacketFlood")]
+    fn configure_repair_minimal_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: repair_minimal_packet_flood::AdversarialConfig,
     ) -> Result<()>;
 }
 
@@ -34,6 +47,45 @@ impl Adversary for AdversaryImpl {
         config: example::AdversarialConfig,
     ) -> Result<()> {
         example::set_config(config);
+        Ok(())
+    }
+
+    fn configure_repair_minimal_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: repair_minimal_packet_flood::AdversarialConfig,
+    ) -> Result<()> {
+        let enable = config.enable;
+        let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
+            .repair_minimal_packet_flood
+            .write()
+            .unwrap();
+        repair_minimal_packet_flood::set_config(config);
+        if enable {
+            if adversary_repair.is_none() {
+                *adversary_repair = Some(RepairMinimalPacketFlood::new(
+                    meta.serve_repair_socket(),
+                    meta.cluster_info(),
+                ));
+                meta.validator_exit()
+                    .write()
+                    .unwrap()
+                    .register_exit(Box::new(move || {
+                        let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
+                            .repair_minimal_packet_flood
+                            .write()
+                            .unwrap();
+                        repair_minimal_packet_flood::set_config(
+                            repair_minimal_packet_flood::AdversarialConfig::default(),
+                        );
+                        if let Some(context) = adversary_repair.take() {
+                            context.join().unwrap();
+                        }
+                    }));
+            }
+        } else if let Some(context) = adversary_repair.take() {
+            context.join().unwrap();
+        }
         Ok(())
     }
 }
@@ -84,6 +136,13 @@ pub mod tests {
             [{
                 "exampleAdversarialConfig": {
                     "exampleNum": 0,
+                },
+            },
+            {
+                "repairMinimalPacketFloodAdversarialConfig": {
+                    "enable": false,
+                    "iterationDelayUs": 0,
+                    "packetsPerPeerPerIteration": 0,
                 },
             }]
         );

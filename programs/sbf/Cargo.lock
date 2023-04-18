@@ -5833,8 +5833,13 @@ dependencies = [
 name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
+ "log",
  "serde",
  "serde_derive",
+ "solana-gossip",
+ "solana-signature",
+ "solana-signer",
+ "solana-streamer",
 ]
 
 [[package]]

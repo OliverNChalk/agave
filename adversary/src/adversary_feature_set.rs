@@ -19,8 +19,6 @@ use {
 // the `AdversaryFeatureConfig` enum.
 macro_rules! adversarial_feature_impl {
     ($enum_variant:ident) => {
-        // TODO: Remove below allow attribute once enum has more than one variant
-        #[allow(unreachable_patterns)]
         fn extract_config(config: super::AdversaryFeatureConfig) -> AdversarialConfig {
             match config {
                 super::AdversaryFeatureConfig::$enum_variant(config) => config,
@@ -52,21 +50,44 @@ pub mod example {
     }
 }
 
+pub mod repair_minimal_packet_flood {
+    pub const ID: &str = "repair_minimal_packet_flood";
+    adversarial_feature_impl!(RepairMinimalPacketFlood);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub enable: bool,
+        pub packets_per_peer_per_iteration: u32,
+        pub iteration_delay_us: u64,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
 pub enum AdversaryFeatureConfig {
     #[serde(rename = "exampleAdversarialConfig")]
     Example(example::AdversarialConfig),
+    #[serde(rename = "repairMinimalPacketFloodAdversarialConfig")]
+    RepairMinimalPacketFlood(repair_minimal_packet_flood::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
     LazyLock::new(|| {
         Arc::new(RwLock::new(
-            [(
-                example::ID.to_string(),
-                AdversaryFeatureConfig::Example(example::AdversarialConfig::default()),
-            )]
+            [
+                (
+                    example::ID.to_string(),
+                    AdversaryFeatureConfig::Example(example::AdversarialConfig::default()),
+                ),
+                (
+                    repair_minimal_packet_flood::ID.to_string(),
+                    AdversaryFeatureConfig::RepairMinimalPacketFlood(
+                        repair_minimal_packet_flood::AdversarialConfig::default(),
+                    ),
+                ),
+            ]
             .iter()
             .cloned()
             .collect(),
