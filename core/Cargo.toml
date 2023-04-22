@@ -29,6 +29,7 @@ frozen-abi = [
     "solana-frozen-abi/frozen-abi",
     "solana-gossip/frozen-abi",
     "solana-ledger/frozen-abi",
+    "solana-net-protocol/frozen-abi",
     "solana-packet/frozen-abi",
     "solana-perf/frozen-abi",
     "solana-program-runtime/frozen-abi",
@@ -124,6 +125,7 @@ solana-measure = { workspace = true }
 solana-message = { workspace = true }
 solana-metrics = { workspace = true }
 solana-native-token = { workspace = true }
+solana-net-protocol = { path = "../net-protocol" }
 solana-net-utils = { workspace = true, features = ["agave-unstable-api"] }
 solana-nonce = { workspace = true }
 solana-nonce-account = { workspace = true }

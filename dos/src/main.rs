@@ -49,7 +49,6 @@ use {
     solana_bench_tps::bench::generate_and_fund_keypairs,
     solana_client::{connection_cache::ConnectionCache, tpu_client::TpuClientWrapper},
     solana_connection_cache::client_connection::ClientConnection as TpuConnection,
-    solana_core::repair::serve_repair::{RepairProtocol, RepairRequestHeader, ServeRepair},
     solana_dos::cli::*,
     solana_gossip::{
         contact_info::{ContactInfo, Protocol},
@@ -59,6 +58,7 @@ use {
     solana_keypair::Keypair,
     solana_measure::measure::Measure,
     solana_message::{compiled_instruction::CompiledInstruction, Message},
+    solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
     solana_net_utils::bind_to_unspecified,
     solana_pubkey::Pubkey,
     solana_rpc_client::rpc_client::RpcClient,
@@ -675,7 +675,7 @@ fn run_dos<T: 'static + TpsClient + Send + Sync>(
                     slot,
                     shred_index: 0,
                 };
-                ServeRepair::repair_proto_to_bytes(&req, &keypair).unwrap()
+                RepairProtocol::repair_proto_to_bytes(&req, &keypair).unwrap()
             }
             DataType::RepairShred => {
                 let slot = 100;
@@ -686,14 +686,14 @@ fn run_dos<T: 'static + TpsClient + Send + Sync>(
                     slot,
                     shred_index: 0,
                 };
-                ServeRepair::repair_proto_to_bytes(&req, &keypair).unwrap()
+                RepairProtocol::repair_proto_to_bytes(&req, &keypair).unwrap()
             }
             DataType::RepairOrphan => {
                 let slot = 100;
                 let keypair = Keypair::new();
                 let header = RepairRequestHeader::new(keypair.pubkey(), target_id, timestamp(), 0);
                 let req = RepairProtocol::Orphan { header, slot };
-                ServeRepair::repair_proto_to_bytes(&req, &keypair).unwrap()
+                RepairProtocol::repair_proto_to_bytes(&req, &keypair).unwrap()
             }
             DataType::Random => {
                 vec![0; params.data_size]

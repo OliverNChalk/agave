@@ -13,8 +13,7 @@ use {
             outstanding_requests::OutstandingRequests,
             repair_weight::RepairWeight,
             serve_repair::{
-                self, RepairPeers, RepairProtocol, RepairRequestHeader, ServeRepair,
-                ShredRepairType, REPAIR_PEERS_CACHE_CAPACITY,
+                self, RepairPeers, ServeRepair, ShredRepairType, REPAIR_PEERS_CACHE_CAPACITY,
             },
         },
     },
@@ -32,6 +31,7 @@ use {
         shred,
     },
     solana_measure::measure::Measure,
+    solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
     solana_pubkey::Pubkey,
     solana_runtime::{
         bank::Bank,
@@ -1058,7 +1058,7 @@ impl RepairService {
             shred_index,
         };
         let packet_buf =
-            ServeRepair::repair_proto_to_bytes(&request_proto, &identity_keypair).unwrap();
+            RepairProtocol::repair_proto_to_bytes(&request_proto, &identity_keypair).unwrap();
 
         // Prepare packet batch to send
         let reqs = [(&packet_buf, address)];

@@ -16,7 +16,7 @@ use {
             result::{Error, RepairVerifyError, Result},
         },
     },
-    bincode::{serialize, Options},
+    bincode::Options,
     bytes::Bytes,
     crossbeam_channel::{Receiver, RecvTimeoutError},
     lru::LruCache,
@@ -30,13 +30,16 @@ use {
     solana_gossip::{
         cluster_info::{ClusterInfo, ClusterInfoError},
         contact_info::{ContactInfo, Protocol},
-        ping_pong::{self, Pong},
+        ping_pong::Pong,
         weighted_shuffle::WeightedShuffle,
     },
-    solana_hash::{Hash, HASH_BYTES},
+    solana_hash::HASH_BYTES,
     solana_keypair::{signable::Signable, Keypair},
-    solana_ledger::shred::{self, Nonce, ShredFetchStats, SIZE_OF_NONCE},
-    solana_packet::PACKET_DATA_SIZE,
+    solana_ledger::shred::{self, Nonce, ShredFetchStats},
+    solana_net_protocol::repair::{
+        AncestorHashesResponse, PingCache, RepairProtocol, RepairRequestHeader, RepairResponse,
+        MAX_ANCESTOR_RESPONSES, MAX_ORPHAN_REPAIR_RESPONSES, REPAIR_RESPONSE_SERIALIZED_PING_BYTES,
+    },
     solana_perf::{
         data_budget::DataBudget,
         packet::{Packet, PacketBatch, PacketBatchRecycler, PinnedPacketBatch},
@@ -65,30 +68,13 @@ use {
     tokio::sync::mpsc::Sender as AsyncSender,
 };
 
-/// the number of slots to respond with when responding to `Orphan` requests
-pub const MAX_ORPHAN_REPAIR_RESPONSES: usize = 11;
 // Number of slots to cache their respective repair peers and sampling weights.
 pub(crate) const REPAIR_PEERS_CACHE_CAPACITY: usize = 128;
 // Limit cache entries ttl in order to avoid re-using outdated data.
 const REPAIR_PEERS_CACHE_TTL: Duration = Duration::from_secs(10);
-
-#[cfg(test)]
-static_assertions::const_assert_eq!(MAX_ANCESTOR_BYTES_IN_PACKET, 1220);
-pub const MAX_ANCESTOR_BYTES_IN_PACKET: usize =
-    PACKET_DATA_SIZE -
-    SIZE_OF_NONCE -
-    4 /*(response version enum discriminator)*/ -
-    4 /*slot_hash length*/;
-
-pub const MAX_ANCESTOR_RESPONSES: usize =
-    MAX_ANCESTOR_BYTES_IN_PACKET / std::mem::size_of::<(Slot, Hash)>();
-/// Number of bytes in the randomly generated token sent with ping messages.
-const REPAIR_PING_TOKEN_SIZE: usize = HASH_BYTES;
 pub const REPAIR_PING_CACHE_CAPACITY: usize = 65536;
 pub const REPAIR_PING_CACHE_TTL: Duration = Duration::from_secs(1280);
 const REPAIR_PING_CACHE_RATE_LIMIT_DELAY: Duration = Duration::from_secs(2);
-pub(crate) const REPAIR_RESPONSE_SERIALIZED_PING_BYTES: usize =
-    4 /*enum discriminator*/ + PUBKEY_BYTES + REPAIR_PING_TOKEN_SIZE + SIGNATURE_BYTES;
 const SIGNED_REPAIR_TIME_WINDOW: Duration = Duration::from_secs(60 * 10); // 10 min
 
 #[cfg(test)]
@@ -150,12 +136,6 @@ impl AncestorHashesRepairType {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum AncestorHashesResponse {
-    Hashes(Vec<(Slot, Hash)>),
-    Ping(Ping),
-}
-
 impl RequestResponse for AncestorHashesRepairType {
     type Response = AncestorHashesResponse;
     fn num_expected_responses(&self) -> u32 {
@@ -201,67 +181,6 @@ struct ServeRepairStats {
     err_id_mismatch: usize,
 }
 
-#[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
-#[derive(Debug, Deserialize, Serialize)]
-pub struct RepairRequestHeader {
-    signature: Signature,
-    sender: Pubkey,
-    recipient: Pubkey,
-    timestamp: u64,
-    nonce: Nonce,
-}
-
-impl RepairRequestHeader {
-    pub fn new(sender: Pubkey, recipient: Pubkey, timestamp: u64, nonce: Nonce) -> Self {
-        Self {
-            signature: Signature::default(),
-            sender,
-            recipient,
-            timestamp,
-            nonce,
-        }
-    }
-}
-
-type Ping = ping_pong::Ping<REPAIR_PING_TOKEN_SIZE>;
-type PingCache = ping_pong::PingCache<REPAIR_PING_TOKEN_SIZE>;
-
-/// Window protocol messages
-#[cfg_attr(
-    feature = "frozen-abi",
-    derive(AbiEnumVisitor, AbiExample),
-    frozen_abi(digest = "fFcqrZWZX4WcorTUxfMCVWeh2QcwamXKdLTzsDj58Kn")
-)]
-#[derive(Debug, Deserialize, Serialize)]
-pub enum RepairProtocol {
-    LegacyWindowIndex,
-    LegacyHighestWindowIndex,
-    LegacyOrphan,
-    LegacyWindowIndexWithNonce,
-    LegacyHighestWindowIndexWithNonce,
-    LegacyOrphanWithNonce,
-    LegacyAncestorHashes,
-    Pong(ping_pong::Pong),
-    WindowIndex {
-        header: RepairRequestHeader,
-        slot: Slot,
-        shred_index: u64,
-    },
-    HighestWindowIndex {
-        header: RepairRequestHeader,
-        slot: Slot,
-        shred_index: u64,
-    },
-    Orphan {
-        header: RepairRequestHeader,
-        slot: Slot,
-    },
-    AncestorHashes {
-        header: RepairRequestHeader,
-        slot: Slot,
-    },
-}
-
 const REPAIR_REQUEST_PONG_SERIALIZED_BYTES: usize = PUBKEY_BYTES + HASH_BYTES + SIGNATURE_BYTES;
 const REPAIR_REQUEST_MIN_BYTES: usize = REPAIR_REQUEST_PONG_SERIALIZED_BYTES;
 
@@ -273,68 +192,6 @@ fn discard_malformed_repair_requests(
     requests.retain(|request| request.bytes.len() >= REPAIR_REQUEST_MIN_BYTES);
     stats.err_malformed += num_requests - requests.len();
     requests.len()
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum RepairResponse {
-    Ping(Ping),
-}
-
-impl RepairProtocol {
-    fn sender(&self) -> Option<&Pubkey> {
-        match self {
-            Self::LegacyWindowIndex
-            | Self::LegacyHighestWindowIndex
-            | Self::LegacyOrphan
-            | Self::LegacyWindowIndexWithNonce
-            | Self::LegacyHighestWindowIndexWithNonce
-            | Self::LegacyOrphanWithNonce
-            | Self::LegacyAncestorHashes => None,
-            Self::Pong(pong) => Some(pong.from()),
-            Self::WindowIndex { header, .. } => Some(&header.sender),
-            Self::HighestWindowIndex { header, .. } => Some(&header.sender),
-            Self::Orphan { header, .. } => Some(&header.sender),
-            Self::AncestorHashes { header, .. } => Some(&header.sender),
-        }
-    }
-
-    fn supports_signature(&self) -> bool {
-        match self {
-            Self::LegacyWindowIndex
-            | Self::LegacyHighestWindowIndex
-            | Self::LegacyOrphan
-            | Self::LegacyWindowIndexWithNonce
-            | Self::LegacyHighestWindowIndexWithNonce
-            | Self::LegacyOrphanWithNonce
-            | Self::LegacyAncestorHashes => false,
-            Self::Pong(_)
-            | Self::WindowIndex { .. }
-            | Self::HighestWindowIndex { .. }
-            | Self::Orphan { .. }
-            | Self::AncestorHashes { .. } => true,
-        }
-    }
-
-    fn max_response_packets(&self) -> usize {
-        match self {
-            RepairProtocol::WindowIndex { .. }
-            | RepairProtocol::HighestWindowIndex { .. }
-            | RepairProtocol::AncestorHashes { .. } => 1,
-            RepairProtocol::Orphan { .. } => MAX_ORPHAN_REPAIR_RESPONSES,
-            RepairProtocol::Pong(_) => 0, // no response
-            RepairProtocol::LegacyWindowIndex
-            | RepairProtocol::LegacyHighestWindowIndex
-            | RepairProtocol::LegacyOrphan
-            | RepairProtocol::LegacyWindowIndexWithNonce
-            | RepairProtocol::LegacyHighestWindowIndexWithNonce
-            | RepairProtocol::LegacyOrphanWithNonce
-            | RepairProtocol::LegacyAncestorHashes => 0, // unsupported
-        }
-    }
-
-    fn max_response_bytes(&self) -> usize {
-        self.max_response_packets() * PACKET_DATA_SIZE
-    }
 }
 
 pub struct ServeRepair {
@@ -1083,7 +940,7 @@ impl ServeRepair {
             header,
             slot: request_slot,
         };
-        Self::repair_proto_to_bytes(&request, keypair)
+        RepairProtocol::repair_proto_to_bytes(&request, keypair).map_err(Error::Serialize)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1193,13 +1050,7 @@ impl ServeRepair {
         nonce: Nonce,
         identity_keypair: &Keypair,
     ) -> Result<Vec<u8>> {
-        let header = RepairRequestHeader {
-            signature: Signature::default(),
-            sender: self.my_id(),
-            recipient: *repair_peer_id,
-            timestamp: timestamp(),
-            nonce,
-        };
+        let header = RepairRequestHeader::new(self.my_id(), *repair_peer_id, timestamp(), nonce);
         let request_proto = match repair_request {
             ShredRepairType::Shred(slot, shred_index) => {
                 repair_stats
@@ -1229,7 +1080,8 @@ impl ServeRepair {
                 }
             }
         };
-        Self::repair_proto_to_bytes(&request_proto, identity_keypair)
+        RepairProtocol::repair_proto_to_bytes(&request_proto, identity_keypair)
+            .map_err(Error::Serialize)
     }
 
     /// Distinguish and process `RepairResponse` ping packets ignoring other
@@ -1278,15 +1130,6 @@ impl ServeRepair {
                 }
             }
         }
-    }
-
-    pub fn repair_proto_to_bytes(request: &RepairProtocol, keypair: &Keypair) -> Result<Vec<u8>> {
-        debug_assert!(request.supports_signature());
-        let mut payload = serialize(&request)?;
-        let signable_data = [&payload[..4], &payload[4 + SIGNATURE_BYTES..]].concat();
-        let signature = keypair.sign_message(&signable_data[..]);
-        payload[4..4 + SIGNATURE_BYTES].copy_from_slice(signature.as_ref());
-        Ok(payload)
     }
 
     fn repair_peers(
@@ -1364,8 +1207,10 @@ mod tests {
             get_tmp_ledger_path_auto_delete,
             shred::{
                 max_ticks_per_n_shreds, ProcessShredsStats, ReedSolomonCache, Shred, Shredder,
+                SIZE_OF_NONCE,
             },
         },
+        solana_net_protocol::repair::Ping,
         solana_perf::packet::{deserialize_from_with_limit, Packet, PacketFlags, PacketRef},
         solana_pubkey::Pubkey,
         solana_runtime::bank::Bank,

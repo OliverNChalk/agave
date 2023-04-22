@@ -8,9 +8,7 @@ use {
             outstanding_requests::OutstandingRequests,
             packet_threshold::DynamicPacketToProcessThreshold,
             repair_service::{AncestorDuplicateSlotsSender, RepairInfo, RepairStatsGroup},
-            serve_repair::{
-                self, AncestorHashesRepairType, AncestorHashesResponse, RepairProtocol, ServeRepair,
-            },
+            serve_repair::{self, AncestorHashesRepairType, ServeRepair},
             standard_repair_handler::StandardRepairHandler,
         },
         replay_stage::DUPLICATE_THRESHOLD,
@@ -24,6 +22,7 @@ use {
     solana_gossip::{cluster_info::ClusterInfo, contact_info::Protocol, ping_pong::Pong},
     solana_keypair::{signable::Signable, Keypair},
     solana_ledger::blockstore::Blockstore,
+    solana_net_protocol::repair::{AncestorHashesResponse, RepairProtocol},
     solana_perf::{
         packet::{deserialize_from_with_limit, PacketBatch, PacketFlags, PacketRef},
         recycler::Recycler,
@@ -903,7 +902,6 @@ mod test {
             repair::{
                 cluster_slot_state_verifier::{DuplicateSlotsToRepair, PurgeRepairSlotCounter},
                 duplicate_repair_status::DuplicateAncestorDecision,
-                serve_repair::MAX_ANCESTOR_RESPONSES,
                 serve_repair_service::adapt_repair_requests_packets,
             },
             replay_stage::{
@@ -923,6 +921,7 @@ mod test {
             blockstore::make_many_slot_entries, get_tmp_ledger_path,
             get_tmp_ledger_path_auto_delete, shred::Nonce,
         },
+        solana_net_protocol::repair::MAX_ANCESTOR_RESPONSES,
         solana_net_utils::sockets::bind_to_localhost_unique,
         solana_perf::packet::Packet,
         solana_runtime::bank_forks::BankForks,
