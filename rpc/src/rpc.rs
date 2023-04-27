@@ -533,6 +533,10 @@ impl JsonRpcRequestProcessor {
         }
     }
 
+    pub fn bank_forks(&self) -> Arc<RwLock<BankForks>> {
+        self.bank_forks.clone()
+    }
+
     pub fn cluster_info(&self) -> Arc<ClusterInfo> {
         self.cluster_info.clone()
     }
