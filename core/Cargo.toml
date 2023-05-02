@@ -88,6 +88,7 @@ slab = { workspace = true }
 solana-account = { workspace = true }
 solana-accounts-db = { workspace = true }
 solana-address-lookup-table-interface = { workspace = true }
+solana-adversary = { workspace = true }
 solana-bincode = { workspace = true }
 solana-bloom = { workspace = true }
 solana-builtins-default-costs = { workspace = true }

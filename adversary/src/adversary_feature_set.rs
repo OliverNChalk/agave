@@ -63,6 +63,18 @@ pub mod repair_minimal_packet_flood {
     }
 }
 
+pub mod repair_parameters {
+    pub const ID: &str = "repair_parameters";
+    adversarial_feature_impl!(RepairParameters);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub serve_repair_max_requests_per_iteration: Option<usize>,
+        pub serve_repair_oversampled_requests_per_iteration: Option<usize>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -71,6 +83,8 @@ pub enum AdversaryFeatureConfig {
     Example(example::AdversarialConfig),
     #[serde(rename = "repairMinimalPacketFloodAdversarialConfig")]
     RepairMinimalPacketFlood(repair_minimal_packet_flood::AdversarialConfig),
+    #[serde(rename = "repairParametersConfig")]
+    RepairParameters(repair_parameters::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
@@ -85,6 +99,12 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     repair_minimal_packet_flood::ID.to_string(),
                     AdversaryFeatureConfig::RepairMinimalPacketFlood(
                         repair_minimal_packet_flood::AdversarialConfig::default(),
+                    ),
+                ),
+                (
+                    repair_parameters::ID.to_string(),
+                    AdversaryFeatureConfig::RepairParameters(
+                        repair_parameters::AdversarialConfig::default(),
                     ),
                 ),
             ]

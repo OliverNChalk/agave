@@ -8156,6 +8156,7 @@ dependencies = [
  "solana-account",
  "solana-accounts-db",
  "solana-address-lookup-table-interface",
+ "solana-adversary",
  "solana-bincode",
  "solana-bloom",
  "solana-bpf-loader-program",

@@ -5,7 +5,7 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, example, repair_minimal_packet_flood, AdversaryFeatureConfig,
+            self, example, repair_minimal_packet_flood, repair_parameters, AdversaryFeatureConfig,
         },
         repair::RepairMinimalPacketFlood,
     },
@@ -30,6 +30,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: repair_minimal_packet_flood::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "configureRepairParameters")]
+    fn configure_repair_parameters(
+        &self,
+        meta: Self::Metadata,
+        config: repair_parameters::AdversarialConfig,
     ) -> Result<()>;
 }
 
@@ -88,6 +95,15 @@ impl Adversary for AdversaryImpl {
         }
         Ok(())
     }
+
+    fn configure_repair_parameters(
+        &self,
+        _meta: Self::Metadata,
+        config: repair_parameters::AdversarialConfig,
+    ) -> Result<()> {
+        repair_parameters::set_config(config);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +159,12 @@ pub mod tests {
                     "enable": false,
                     "iterationDelayUs": 0,
                     "packetsPerPeerPerIteration": 0,
+                },
+            },
+            {
+                "repairParametersConfig": {
+                    "serveRepairMaxRequestsPerIteration": null,
+                    "serveRepairOversampledRequestsPerIteration": null,
                 },
             }]
         );

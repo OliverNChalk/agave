@@ -674,6 +674,15 @@ impl ServeRepair {
             2 * max_requests_per_iteration
         };
 
+        let adv_repair_parameters =
+            solana_adversary::adversary_feature_set::repair_parameters::get_config();
+        let max_requests_per_iteration = adv_repair_parameters
+            .serve_repair_max_requests_per_iteration
+            .unwrap_or(max_requests_per_iteration);
+        let max_buffered_packets = adv_repair_parameters
+            .serve_repair_max_requests_per_iteration
+            .unwrap_or(max_buffered_packets);
+
         let mut dropped_requests = 0;
         let mut well_formed_requests = discard_malformed_repair_requests(&mut requests, stats);
         loop {
