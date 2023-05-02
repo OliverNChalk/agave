@@ -657,9 +657,9 @@ impl ServeRepair {
         stats: &mut ServeRepairStats,
         data_budget: &DataBudget,
     ) -> std::result::Result<(), RecvTimeoutError> {
+        const DEFAULT_MAX_REQUESTS_PER_ITERATION: usize = 1024;
         const TIMEOUT: Duration = Duration::from_secs(1);
         let mut requests = vec![requests_receiver.recv_timeout(TIMEOUT)?];
-        const MAX_REQUESTS_PER_ITERATION: usize = 1024;
         let mut total_requests = requests.len();
 
         let socket_addr_space = *self.cluster_info.socket_addr_space();
@@ -667,11 +667,11 @@ impl ServeRepair {
         let epoch_staked_nodes = root_bank.epoch_staked_nodes(root_bank.epoch());
         let identity_keypair = self.cluster_info.keypair();
         let my_id = identity_keypair.pubkey();
-
+        let max_requests_per_iteration = DEFAULT_MAX_REQUESTS_PER_ITERATION;
         let max_buffered_packets = if !self.repair_whitelist.read().unwrap().is_empty() {
-            4 * MAX_REQUESTS_PER_ITERATION
+            4 * max_requests_per_iteration
         } else {
-            2 * MAX_REQUESTS_PER_ITERATION
+            2 * max_requests_per_iteration
         };
 
         let mut dropped_requests = 0;
@@ -713,12 +713,12 @@ impl ServeRepair {
         };
         let whitelisted_request_count = decoded_requests.iter().filter(|r| r.whitelisted).count();
         stats.decode_time_us += decode_start.elapsed().as_micros() as u64;
-        stats.whitelisted_requests += whitelisted_request_count.min(MAX_REQUESTS_PER_ITERATION);
+        stats.whitelisted_requests += whitelisted_request_count.min(max_requests_per_iteration);
 
-        if decoded_requests.len() > MAX_REQUESTS_PER_ITERATION {
-            stats.dropped_requests_low_stake += decoded_requests.len() - MAX_REQUESTS_PER_ITERATION;
+        if decoded_requests.len() > max_requests_per_iteration {
+            stats.dropped_requests_low_stake += decoded_requests.len() - max_requests_per_iteration;
             decoded_requests.sort_unstable_by_key(|r| Reverse((r.whitelisted, r.stake)));
-            decoded_requests.truncate(MAX_REQUESTS_PER_ITERATION);
+            decoded_requests.truncate(max_requests_per_iteration);
         }
 
         let handle_requests_start = Instant::now();
