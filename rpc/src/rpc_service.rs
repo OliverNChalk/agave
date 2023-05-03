@@ -880,6 +880,7 @@ impl JsonRpcService {
             .register_exit(Box::new(move || {
                 close_handle_.close();
             }));
+        solana_adversary::adversary_context::AdversaryContext::register_cleanup(&validator_exit);
         Ok(Self {
             thread_hdl,
             #[cfg(test)]

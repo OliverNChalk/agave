@@ -21,3 +21,4 @@ solana-gossip = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-streamer = { workspace = true }
+solana-validator-exit = { workspace = true }

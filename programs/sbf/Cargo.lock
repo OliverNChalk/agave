@@ -5840,6 +5840,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-streamer",
+ "solana-validator-exit",
 ]
 
 [[package]]

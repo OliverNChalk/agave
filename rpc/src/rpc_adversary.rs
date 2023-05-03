@@ -74,21 +74,6 @@ impl Adversary for AdversaryImpl {
                     meta.serve_repair_socket(),
                     meta.cluster_info(),
                 ));
-                meta.validator_exit()
-                    .write()
-                    .unwrap()
-                    .register_exit(Box::new(move || {
-                        let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
-                            .repair_minimal_packet_flood
-                            .write()
-                            .unwrap();
-                        repair_minimal_packet_flood::set_config(
-                            repair_minimal_packet_flood::AdversarialConfig::default(),
-                        );
-                        if let Some(context) = adversary_repair.take() {
-                            context.join().unwrap();
-                        }
-                    }));
             }
         } else if let Some(context) = adversary_repair.take() {
             context.join().unwrap();
