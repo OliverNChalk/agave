@@ -1,12 +1,12 @@
 use {
-    crate::{adversary_feature_set::repair_minimal_packet_flood, repair::RepairMinimalPacketFlood},
+    crate::{adversary_feature_set::repair_packet_flood, repair::RepairPacketFlood},
     solana_validator_exit::Exit,
     std::sync::{LazyLock, RwLock},
 };
 
 #[derive(Default)]
 pub struct AdversaryContext {
-    pub repair_minimal_packet_flood: RwLock<Option<RepairMinimalPacketFlood>>,
+    pub repair_packet_flood: RwLock<Option<RepairPacketFlood>>,
 }
 
 impl AdversaryContext {
@@ -15,13 +15,8 @@ impl AdversaryContext {
             .write()
             .unwrap()
             .register_exit(Box::new(move || {
-                let mut adversary_repair = ADVERSARY_CONTEXT
-                    .repair_minimal_packet_flood
-                    .write()
-                    .unwrap();
-                repair_minimal_packet_flood::set_config(
-                    repair_minimal_packet_flood::AdversarialConfig::default(),
-                );
+                let mut adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.write().unwrap();
+                repair_packet_flood::set_config(repair_packet_flood::AdversarialConfig::default());
                 if let Some(context) = adversary_repair.take() {
                     context.join().unwrap();
                 }
@@ -30,5 +25,5 @@ impl AdversaryContext {
 }
 
 pub static ADVERSARY_CONTEXT: LazyLock<AdversaryContext> = LazyLock::new(|| AdversaryContext {
-    repair_minimal_packet_flood: RwLock::new(None),
+    repair_packet_flood: RwLock::new(None),
 });

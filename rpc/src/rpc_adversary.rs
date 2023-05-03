@@ -1,13 +1,15 @@
 use {
-    crate::rpc::JsonRpcRequestProcessor,
+    crate::rpc::{verify_pubkey, JsonRpcRequestProcessor},
     jsonrpc_core::Result,
     jsonrpc_derive::rpc,
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, example, repair_minimal_packet_flood, repair_parameters, AdversaryFeatureConfig,
+            self, example,
+            repair_packet_flood::{self, PeerIdentifier},
+            repair_parameters, AdversaryFeatureConfig,
         },
-        repair::RepairMinimalPacketFlood,
+        repair::RepairPacketFlood,
     },
 };
 
@@ -25,11 +27,11 @@ pub trait Adversary {
         config: example::AdversarialConfig,
     ) -> Result<()>;
 
-    #[rpc(meta, name = "configureRepairMinimalPacketFlood")]
-    fn configure_repair_minimal_packet_flood(
+    #[rpc(meta, name = "configureRepairPacketFlood")]
+    fn configure_repair_packet_flood(
         &self,
         meta: Self::Metadata,
-        config: repair_minimal_packet_flood::AdversarialConfig,
+        config: repair_packet_flood::AdversarialConfig,
     ) -> Result<()>;
 
     #[rpc(meta, name = "configureRepairParameters")]
@@ -57,26 +59,30 @@ impl Adversary for AdversaryImpl {
         Ok(())
     }
 
-    fn configure_repair_minimal_packet_flood(
+    fn configure_repair_packet_flood(
         &self,
         meta: Self::Metadata,
-        config: repair_minimal_packet_flood::AdversarialConfig,
+        config: repair_packet_flood::AdversarialConfig,
     ) -> Result<()> {
-        let enable = config.enable;
+        for config in &config.configs {
+            if let Some(PeerIdentifier::Pubkey(pubkey)) = &config.target {
+                verify_pubkey(pubkey.as_str())?;
+            }
+        }
         let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
-            .repair_minimal_packet_flood
+            .repair_packet_flood
             .write()
             .unwrap();
-        repair_minimal_packet_flood::set_config(config);
-        if enable {
-            if adversary_repair.is_none() {
-                *adversary_repair = Some(RepairMinimalPacketFlood::new(
-                    meta.serve_repair_socket(),
-                    meta.cluster_info(),
-                ));
-            }
-        } else if let Some(context) = adversary_repair.take() {
+        if let Some(context) = adversary_repair.take() {
             context.join().unwrap();
+        }
+        repair_packet_flood::set_config(config.clone());
+        if !config.configs.is_empty() {
+            *adversary_repair = Some(RepairPacketFlood::new(
+                meta.serve_repair_socket(),
+                meta.cluster_info(),
+                config.configs,
+            ));
         }
         Ok(())
     }
@@ -98,12 +104,17 @@ pub mod tests {
         crate::rpc::tests::{create_test_request, parse_success_result},
         jsonrpc_core::{MetaIoHandler, Response, Value},
         serial_test::serial,
+        solana_adversary::{
+            adversary_context::ADVERSARY_CONTEXT,
+            adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
+        },
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::bank::Bank,
         solana_send_transaction_service::{
             tpu_info::NullTpuInfo, transaction_client::ConnectionCacheClient,
         },
         solana_streamer::socket::SocketAddrSpace,
+        std::net::IpAddr,
     };
 
     fn setup_test_meta() -> JsonRpcRequestProcessor {
@@ -140,10 +151,8 @@ pub mod tests {
                 },
             },
             {
-                "repairMinimalPacketFloodAdversarialConfig": {
-                    "enable": false,
-                    "iterationDelayUs": 0,
-                    "packetsPerPeerPerIteration": 0,
+                "repairPacketFloodAdversarialConfig": {
+                    "configs": [],
                 },
             },
             {
@@ -183,5 +192,107 @@ pub mod tests {
         assert_eq!(result, json!(null));
 
         assert_eq!(default_config, example::get_config());
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_repair_packet_flood() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = repair_packet_flood::AdversarialConfig {
+            configs: vec![FloodConfig {
+                flood_strategy: FloodStrategy::MinimalPackets,
+                packets_per_peer_per_iteration: 1,
+                iteration_delay_us: 1_000_000,
+                target: Some(PeerIdentifier::Pubkey(
+                    "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string(),
+                )),
+            }],
+        };
+
+        {
+            // Update the config for example, ensuring that request succeeds
+            let meta = meta.clone();
+            let request = create_test_request("configureRepairPacketFlood", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        {
+            let adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.read().unwrap();
+            assert!(adversary_repair.is_some());
+        }
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, repair_packet_flood::get_config());
+
+        // Reset the config
+        let config = repair_packet_flood::AdversarialConfig::default();
+        let request = create_test_request("configureRepairPacketFlood", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
+        {
+            let adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.read().unwrap();
+            assert!(adversary_repair.is_none());
+        }
+    }
+
+    #[test]
+    fn test_adversary_repair_packet_flood_decode() {
+        let encoded_config = json!(repair_packet_flood::AdversarialConfig {
+            configs: vec![FloodConfig {
+                flood_strategy: FloodStrategy::MinimalPackets,
+                packets_per_peer_per_iteration: 123,
+                iteration_delay_us: 456,
+                target: Some(PeerIdentifier::Ip(IpAddr::V4("10.0.0.9".parse().unwrap()))),
+            }],
+        });
+        let expected_config = json!({
+            "configs": [{
+                "floodStrategy": "minimalPackets",
+                "iterationDelayUs": 456,
+                "packetsPerPeerPerIteration": 123,
+                "target": {"ip": "10.0.0.9"},
+            }]
+        });
+        assert_eq!(encoded_config, expected_config);
+
+        let encoded_config = json!(repair_packet_flood::AdversarialConfig {
+            configs: vec![FloodConfig {
+                flood_strategy: FloodStrategy::SignedPackets,
+                packets_per_peer_per_iteration: 123,
+                iteration_delay_us: 456,
+                target: Some(PeerIdentifier::Ip(IpAddr::V6("::1".parse().unwrap()))),
+            }],
+        });
+        let expected_config = json!({
+            "configs": [{
+                "floodStrategy": "signedPackets",
+                "iterationDelayUs": 456,
+                "packetsPerPeerPerIteration": 123,
+                "target": {"ip": "::1"},
+            }]
+        });
+        assert_eq!(encoded_config, expected_config);
+
+        let pubkey_str = "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq";
+        let encoded_config = json!(repair_packet_flood::AdversarialConfig {
+            configs: vec![FloodConfig {
+                flood_strategy: FloodStrategy::MinimalPackets,
+                packets_per_peer_per_iteration: 123,
+                iteration_delay_us: 456,
+                target: Some(PeerIdentifier::Pubkey(pubkey_str.to_string())),
+            }],
+        });
+        let expected_config = json!({
+            "configs": [{
+                "floodStrategy": "minimalPackets",
+                "iterationDelayUs": 456,
+                "packetsPerPeerPerIteration": 123,
+                "target": {"pubkey": "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq"},
+            }]
+        });
+        assert_eq!(encoded_config, expected_config);
     }
 }

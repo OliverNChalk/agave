@@ -50,16 +50,38 @@ pub mod example {
     }
 }
 
-pub mod repair_minimal_packet_flood {
-    pub const ID: &str = "repair_minimal_packet_flood";
-    adversarial_feature_impl!(RepairMinimalPacketFlood);
+pub mod repair_packet_flood {
+    use std::net::IpAddr;
+    pub const ID: &str = "repair_packet_flood";
+    adversarial_feature_impl!(RepairPacketFlood);
+
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub enum PeerIdentifier {
+        Pubkey(String),
+        Ip(IpAddr),
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub enum FloodStrategy {
+        MinimalPackets,
+        SignedPackets,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FloodConfig {
+        pub flood_strategy: FloodStrategy,
+        pub packets_per_peer_per_iteration: u32,
+        pub iteration_delay_us: u64,
+        pub target: Option<PeerIdentifier>,
+    }
 
     #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct AdversarialConfig {
-        pub enable: bool,
-        pub packets_per_peer_per_iteration: u32,
-        pub iteration_delay_us: u64,
+        pub configs: Vec<FloodConfig>,
     }
 }
 
@@ -81,8 +103,8 @@ pub mod repair_parameters {
 pub enum AdversaryFeatureConfig {
     #[serde(rename = "exampleAdversarialConfig")]
     Example(example::AdversarialConfig),
-    #[serde(rename = "repairMinimalPacketFloodAdversarialConfig")]
-    RepairMinimalPacketFlood(repair_minimal_packet_flood::AdversarialConfig),
+    #[serde(rename = "repairPacketFloodAdversarialConfig")]
+    RepairPacketFlood(repair_packet_flood::AdversarialConfig),
     #[serde(rename = "repairParametersConfig")]
     RepairParameters(repair_parameters::AdversarialConfig),
 }
@@ -96,9 +118,9 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     AdversaryFeatureConfig::Example(example::AdversarialConfig::default()),
                 ),
                 (
-                    repair_minimal_packet_flood::ID.to_string(),
-                    AdversaryFeatureConfig::RepairMinimalPacketFlood(
-                        repair_minimal_packet_flood::AdversarialConfig::default(),
+                    repair_packet_flood::ID.to_string(),
+                    AdversaryFeatureConfig::RepairPacketFlood(
+                        repair_packet_flood::AdversarialConfig::default(),
                     ),
                 ),
                 (

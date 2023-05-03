@@ -5837,9 +5837,12 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-gossip",
+ "solana-net-protocol",
+ "solana-pubkey",
  "solana-signature",
  "solana-signer",
  "solana-streamer",
+ "solana-time-utils",
  "solana-validator-exit",
 ]
 
