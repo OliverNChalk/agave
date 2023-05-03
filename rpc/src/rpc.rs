@@ -541,10 +541,6 @@ impl JsonRpcRequestProcessor {
         self.serve_repair_socket.clone()
     }
 
-    pub fn validator_exit(&self) -> Arc<RwLock<Exit>> {
-        self.validator_exit.clone()
-    }
-
     pub async fn get_account_info(
         &self,
         pubkey: Pubkey,
