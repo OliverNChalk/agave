@@ -67,6 +67,7 @@ pub mod repair_packet_flood {
     pub enum FloodStrategy {
         MinimalPackets,
         SignedPackets,
+        PingCacheOverflow,
     }
 
     #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

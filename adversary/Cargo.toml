@@ -15,11 +15,15 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 log = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 solana-gossip = { workspace = true }
+solana-keypair = { workspace = true }
 solana-net-protocol = { path = "../net-protocol" }
 solana-pubkey = { workspace = true }
+solana-rayon-threadlimit = { workspace = true }
+solana-runtime = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-streamer = { workspace = true }

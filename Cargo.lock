@@ -7137,11 +7137,15 @@ name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
  "log",
+ "rayon",
  "serde",
  "serde_derive",
  "solana-gossip",
+ "solana-keypair",
  "solana-net-protocol",
  "solana-pubkey",
+ "solana-rayon-threadlimit",
+ "solana-runtime",
  "solana-signature",
  "solana-signer",
  "solana-streamer",

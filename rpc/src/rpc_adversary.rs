@@ -80,6 +80,7 @@ impl Adversary for AdversaryImpl {
         if !config.configs.is_empty() {
             *adversary_repair = Some(RepairPacketFlood::new(
                 meta.serve_repair_socket(),
+                meta.bank_forks(),
                 meta.cluster_info(),
                 config.configs,
             ));
