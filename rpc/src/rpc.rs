@@ -541,6 +541,10 @@ impl JsonRpcRequestProcessor {
         self.cluster_info.clone()
     }
 
+    pub fn leader_schedule_cache(&self) -> Arc<LeaderScheduleCache> {
+        self.leader_schedule_cache.clone()
+    }
+
     pub fn serve_repair_socket(&self) -> Arc<UdpSocket> {
         self.serve_repair_socket.clone()
     }
