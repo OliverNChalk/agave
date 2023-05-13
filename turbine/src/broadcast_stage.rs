@@ -14,14 +14,18 @@ use {
     },
     bytes::Bytes,
     crossbeam_channel::{unbounded, Receiver, RecvError, RecvTimeoutError, Sender},
-    itertools::{Either, Itertools},
+    itertools::Itertools,
+    solana_adversary::adversary_feature_set,
     solana_clock::Slot,
     solana_gossip::{
         cluster_info::{ClusterInfo, ClusterInfoError},
         contact_info::Protocol,
     },
     solana_keypair::Keypair,
-    solana_ledger::{blockstore::Blockstore, shred::Shred},
+    solana_ledger::{
+        blockstore::Blockstore,
+        shred::{Payload, Shred},
+    },
     solana_measure::measure::Measure,
     solana_metrics::{inc_new_counter_error, inc_new_counter_info},
     solana_poh::poh_recorder::WorkingBankEntry,
@@ -498,37 +502,65 @@ pub fn broadcast_shreds(
         let bank_forks = bank_forks.read().unwrap();
         (bank_forks.root_bank(), bank_forks.working_bank())
     };
-    let (packets, quic_packets): (Vec<_>, Vec<_>) = shreds
-        .iter()
-        .group_by(|shred| shred.slot())
-        .into_iter()
-        .flat_map(|(slot, shreds)| {
+    let (udp_packets, quic_packets) = {
+        let mut udp_packets = vec![];
+        let mut quic_packets = vec![];
+        // It would be nice to use a closure here, but Rust does not allow us to explicitly specify
+        // lifetimes.  And we need it if we want to keep using references to the payload.
+        // We are still pretty far away from the necessary support, as of 2025:
+        // https://github.com/rust-lang/rfcs/pull/3216
+        // https://github.com/rust-lang/rust/pull/98705
+        // https://github.com/rust-lang/rust/issues/97362
+        fn add_shred_payload<'packets, 'shred>(
+            udp_packets: &'packets mut Vec<(&'shred Payload, SocketAddr)>,
+            quic_packets: &'packets mut Vec<(&'shred Payload, SocketAddr)>,
+            shred: &'shred Shred,
+            address: SocketAddr,
+        ) {
+            match cluster_nodes::get_broadcast_protocol(&shred.id()) {
+                Protocol::UDP => udp_packets.push((shred.payload(), address)),
+                Protocol::QUIC => quic_packets.push((shred.payload(), address)),
+            }
+        }
+
+        if let Some(attack_target) =
+            adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
+        {
+            for shred in shreds.iter() {
+                add_shred_payload(&mut udp_packets, &mut quic_packets, shred, attack_target);
+            }
+        }
+
+        for (slot, shreds) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
             let cluster_nodes =
                 cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
             update_peer_stats(&cluster_nodes, last_datapoint_submit);
-            shreds.filter_map(move |shred| {
+
+            for shred in shreds {
                 let key = shred.id();
                 let protocol = cluster_nodes::get_broadcast_protocol(&key);
-                cluster_nodes
-                    .get_broadcast_peer(&key)?
-                    .tvu(protocol)
-                    .filter(|addr| socket_addr_space.check(addr))
-                    .map(|addr| {
-                        (match protocol {
-                            Protocol::QUIC => Either::Right,
-                            Protocol::UDP => Either::Left,
-                        })((shred.payload(), addr))
-                    })
-            })
-        })
-        .partition_map(std::convert::identity);
+
+                if let Some(peer) = cluster_nodes
+                    .get_broadcast_peer(&key)
+                    .and_then(|peer| peer.tvu(protocol))
+                {
+                    if socket_addr_space.check(&peer) {
+                        add_shred_payload(&mut udp_packets, &mut quic_packets, shred, peer);
+                    }
+                }
+            }
+        }
+
+        (udp_packets, quic_packets)
+    };
+
     shred_select.stop();
     transmit_stats.shred_select += shred_select.as_us();
-    let num_udp_packets = packets.len();
+    let num_udp_packets = udp_packets.len();
     match socket {
         BroadcastSocket::Udp(s) => {
             let mut send_mmsg_time = Measure::start("send_mmsg");
-            match batch_send(s, packets) {
+            match batch_send(s, udp_packets) {
                 Ok(()) => (),
                 Err(SendPktsError::IoError(ioerr, num_failed)) => {
                     transmit_stats.dropped_packets_udp += num_failed;
@@ -540,7 +572,7 @@ pub fn broadcast_shreds(
         }
         BroadcastSocket::Xdp(s) => {
             let mut send_xdp_time = Measure::start("send_xdp");
-            for (idx, (payload, addr)) in packets.into_iter().enumerate() {
+            for (idx, (payload, addr)) in udp_packets.into_iter().enumerate() {
                 if let Err(e) = s.try_send(idx, addr, payload.clone()) {
                     log::warn!("xdp channel full: {e:?}");
                     transmit_stats.dropped_packets_xdp += 1;

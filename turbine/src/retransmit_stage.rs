@@ -12,6 +12,7 @@ use {
     lru::LruCache,
     rand::Rng,
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
+    solana_adversary::adversary_feature_set,
     solana_clock::Slot,
     solana_gossip::{cluster_info::ClusterInfo, contact_info::Protocol},
     solana_ledger::{
@@ -466,8 +467,43 @@ fn retransmit_shred(
         return None;
     }
     let mut compute_turbine_peers = Measure::start("turbine_start");
-    let (root_distance, addrs) =
+    let (root_distance, mut addrs) =
         get_retransmit_addrs(&key, root_bank, cache, addr_cache, socket_addr_space, stats)?;
+    if let Some(addr) =
+        adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
+    {
+        match addrs {
+            Cow::Owned(ref mut owned_addrs) => {
+                owned_addrs.push(addr);
+            }
+            Cow::Borrowed(borrowed_addrs) => {
+                let mut owned_addrs = borrowed_addrs.to_vec();
+                owned_addrs.push(addr);
+                addrs = Cow::Owned(owned_addrs);
+            }
+        }
+    }
+    let addrs: Cow<'_, [SocketAddr]> = match addrs {
+        Cow::Borrowed(addrs) => {
+            let filtered: Vec<_> = addrs
+                .iter()
+                .filter(|addr| socket_addr_space.check(addr))
+                .cloned()
+                .collect();
+            if filtered.len() == addrs.len() {
+                Cow::Borrowed(addrs)
+            } else {
+                Cow::Owned(filtered)
+            }
+        }
+        Cow::Owned(addrs) => {
+            let filtered: Vec<_> = addrs
+                .into_iter()
+                .filter(|addr| socket_addr_space.check(addr))
+                .collect();
+            Cow::Owned(filtered)
+        }
+    };
     compute_turbine_peers.stop();
     stats
         .compute_turbine_peers_total

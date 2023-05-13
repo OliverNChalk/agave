@@ -7,7 +7,7 @@ use {
         adversary_feature_set::{
             self, example,
             repair_packet_flood::{self, PeerIdentifier},
-            repair_parameters, AdversaryFeatureConfig,
+            repair_parameters, shred_receiver_address, AdversaryFeatureConfig,
         },
         repair::RepairPacketFlood,
     },
@@ -39,6 +39,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: repair_parameters::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "configureShredReceiverAddress")]
+    fn configure_shred_receiver_address(
+        &self,
+        meta: Self::Metadata,
+        config: shred_receiver_address::AdversarialConfig,
     ) -> Result<()>;
 }
 
@@ -94,6 +101,15 @@ impl Adversary for AdversaryImpl {
         config: repair_parameters::AdversarialConfig,
     ) -> Result<()> {
         repair_parameters::set_config(config);
+        Ok(())
+    }
+
+    fn configure_shred_receiver_address(
+        &self,
+        _meta: Self::Metadata,
+        config: shred_receiver_address::AdversarialConfig,
+    ) -> Result<()> {
+        shred_receiver_address::set_config(config);
         Ok(())
     }
 }
@@ -160,6 +176,11 @@ pub mod tests {
                 "repairParametersConfig": {
                     "serveRepairMaxRequestsPerIteration": null,
                     "serveRepairOversampledRequestsPerIteration": null,
+                },
+            },
+            {
+                "shredReceiverAddress": {
+                    "shredReceiverAddress": null,
                 },
             }]
         );
@@ -295,5 +316,38 @@ pub mod tests {
             }]
         });
         assert_eq!(encoded_config, expected_config);
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_shred_receiver_address() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = shred_receiver_address::AdversarialConfig {
+            shred_receiver_address: Some("127.0.0.1:8080".parse().unwrap()),
+        };
+
+        {
+            // Update the config, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configureShredReceiverAddress", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, shred_receiver_address::get_config());
+
+        // Reset the config
+        let config = shred_receiver_address::AdversarialConfig::default();
+        let request = create_test_request("configureShredReceiverAddress", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, shred_receiver_address::get_config());
     }
 }

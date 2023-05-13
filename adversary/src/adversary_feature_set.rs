@@ -98,6 +98,18 @@ pub mod repair_parameters {
     }
 }
 
+pub mod shred_receiver_address {
+    use std::net::SocketAddr;
+    pub const ID: &str = "shred_receiver_address";
+    adversarial_feature_impl!(ShredReceiverAddress);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub shred_receiver_address: Option<SocketAddr>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -108,6 +120,8 @@ pub enum AdversaryFeatureConfig {
     RepairPacketFlood(repair_packet_flood::AdversarialConfig),
     #[serde(rename = "repairParametersConfig")]
     RepairParameters(repair_parameters::AdversarialConfig),
+    #[serde(rename = "shredReceiverAddress")]
+    ShredReceiverAddress(shred_receiver_address::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
@@ -128,6 +142,12 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     repair_parameters::ID.to_string(),
                     AdversaryFeatureConfig::RepairParameters(
                         repair_parameters::AdversarialConfig::default(),
+                    ),
+                ),
+                (
+                    shred_receiver_address::ID.to_string(),
+                    AdversaryFeatureConfig::ShredReceiverAddress(
+                        shred_receiver_address::AdversarialConfig::default(),
                     ),
                 ),
             ]
