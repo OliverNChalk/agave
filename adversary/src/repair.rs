@@ -3,12 +3,14 @@ use {
         FloodConfig, FloodStrategy, PeerIdentifier,
     },
     log::*,
+    rand::{thread_rng, Rng},
     rayon::{prelude::*, ThreadPool},
     solana_gossip::{
         cluster_info::ClusterInfo,
         contact_info::{ContactInfo, Protocol},
     },
     solana_keypair::Keypair,
+    solana_ledger::shred::Nonce,
     solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
     solana_pubkey::{ParsePubkeyError, Pubkey},
     solana_rayon_threadlimit::get_thread_count,
@@ -249,6 +251,43 @@ impl RepairPacketFlood {
         packet_count
     }
 
+    fn flood_orphan_requests(
+        repair_socket: &UdpSocket,
+        cluster_info: &ClusterInfo,
+        bank_forks: &RwLock<BankForks>,
+        config: &FloodConfig,
+        peers: &[ContactInfo],
+    ) -> usize {
+        let identity_keypair = cluster_info.keypair().clone();
+        let slot = bank_forks.read().unwrap().highest_slot();
+        let mut reqs_v = Vec::default();
+        peers.iter().for_each(|peer| {
+            let nonce = thread_rng().gen_range(0..Nonce::MAX);
+            let header =
+                RepairRequestHeader::new(cluster_info.id(), *peer.pubkey(), timestamp(), nonce);
+            let request_proto = RepairProtocol::Orphan { header, slot };
+            let packet_buf =
+                RepairProtocol::repair_proto_to_bytes(&request_proto, &identity_keypair).unwrap();
+            for _i in 0..config.packets_per_peer_per_iteration {
+                reqs_v.push((
+                    packet_buf.clone(),
+                    peer.serve_repair(Protocol::UDP).unwrap(),
+                ));
+            }
+        });
+        let packet_count = reqs_v.len();
+        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
+            error!(
+                "batch_send failed to send {}/{} packets first error {:?}",
+                num_failed,
+                reqs_v.len(),
+                err
+            );
+        }
+        packet_count
+    }
+
     fn run(
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
@@ -314,6 +353,13 @@ impl RepairPacketFlood {
                     &peers,
                     thread_pool,
                     keypair_pool,
+                ),
+                FloodStrategy::Orphan => Self::flood_orphan_requests(
+                    repair_socket,
+                    cluster_info,
+                    bank_forks,
+                    &config,
+                    &peers,
                 ),
             });
             if last_report.elapsed() >= Duration::from_millis(REPORT_INTERVAL_MS) {

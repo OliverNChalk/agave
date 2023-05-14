@@ -5834,11 +5834,14 @@ name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
  "log",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_derive",
  "solana-gossip",
+ "solana-hash",
  "solana-keypair",
+ "solana-ledger",
  "solana-net-protocol",
  "solana-pubkey",
  "solana-rayon-threadlimit",
