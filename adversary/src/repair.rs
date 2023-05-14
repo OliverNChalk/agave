@@ -5,17 +5,24 @@ use {
     log::*,
     rand::{thread_rng, Rng},
     rayon::{prelude::*, ThreadPool},
+    solana_entry::entry::Entry,
     solana_gossip::{
         cluster_info::ClusterInfo,
         contact_info::{ContactInfo, Protocol},
     },
+    solana_hash::Hash,
     solana_keypair::Keypair,
-    solana_ledger::shred::Nonce,
+    solana_ledger::{
+        leader_schedule_cache::LeaderScheduleCache,
+        shred::{Nonce, ProcessShredsStats, ReedSolomonCache, Shredder},
+    },
     solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
     solana_pubkey::{ParsePubkeyError, Pubkey},
     solana_rayon_threadlimit::get_thread_count,
     solana_runtime::bank_forks::BankForks,
+    solana_signer::Signer,
     solana_streamer::sendmmsg::{batch_send, SendPktsError},
+    solana_system_transaction as system_transaction,
     solana_time_utils::timestamp,
     std::{
         net::{IpAddr, UdpSocket},
@@ -58,6 +65,7 @@ impl RepairPacketFlood {
         repair_socket: Arc<UdpSocket>,
         bank_forks: Arc<RwLock<BankForks>>,
         cluster_info: Arc<ClusterInfo>,
+        leader_schedule_cache: Arc<LeaderScheduleCache>,
         configs: Vec<FloodConfig>,
     ) -> Self {
         const MAX_PACKET_FLOOD_THREADS: usize = 8;
@@ -79,6 +87,7 @@ impl RepairPacketFlood {
                 let repair_socket = repair_socket.clone();
                 let bank_forks = bank_forks.clone();
                 let cluster_info = cluster_info.clone();
+                let leader_schedule_cache = leader_schedule_cache.clone();
                 let thread_name = format!("solAdvRpFld{i:02}");
                 let keypair_pool = keypair_pool.clone();
                 i = i.saturating_add(1);
@@ -89,6 +98,7 @@ impl RepairPacketFlood {
                             &repair_socket,
                             &bank_forks,
                             &cluster_info,
+                            &leader_schedule_cache,
                             &exit,
                             &thread_pool,
                             config,
@@ -288,10 +298,80 @@ impl RepairPacketFlood {
         packet_count
     }
 
+    fn flood_fake_future_leader_slots(
+        repair_socket: &UdpSocket,
+        bank_forks: &RwLock<BankForks>,
+        cluster_info: &ClusterInfo,
+        leader_schedule_cache: &LeaderScheduleCache,
+        config: &FloodConfig,
+        peers: &[ContactInfo],
+    ) -> usize {
+        let my_keypair = cluster_info.keypair().clone();
+        let my_id = cluster_info.id();
+        let shred_version = cluster_info.my_shred_version();
+        let bank = bank_forks.read().unwrap().working_bank();
+        let current_slot = bank.slot();
+        let entries: Vec<_> = (0..2)
+            .map(|_| {
+                let keypair0 = Keypair::new();
+                let keypair1 = Keypair::new();
+                let tx0 =
+                    system_transaction::transfer(&keypair0, &keypair1.pubkey(), 1, Hash::default());
+                Entry::new(&Hash::default(), 1, vec![tx0])
+            })
+            .collect();
+        let mut shreds_v = Vec::default();
+        leader_schedule_cache
+            .leader_slot_iter(&my_id, current_slot, &bank)
+            .take(config.packets_per_peer_per_iteration as usize)
+            .for_each(|slot| {
+                let shredder = Shredder::new(
+                    slot,
+                    slot.saturating_sub(1), /*parent_slot*/
+                    0,                      /*reference_tick*/
+                    shred_version,
+                )
+                .unwrap();
+                let data_shreds: Vec<_> = shredder
+                    .make_merkle_shreds_from_entries(
+                        &my_keypair,
+                        &entries,
+                        false,
+                        Hash::default(),
+                        0,
+                        0,
+                        &ReedSolomonCache::default(),
+                        &mut ProcessShredsStats::default(),
+                    )
+                    .collect();
+                if let Some(shred) = data_shreds.first() {
+                    shreds_v.push(shred.clone());
+                }
+            });
+        let mut packet_count: usize = 0;
+        peers.iter().for_each(|peer| {
+            let packets: Vec<_> = shreds_v
+                .iter()
+                .map(|shred| (shred.payload(), peer.tvu(Protocol::UDP).unwrap()))
+                .collect();
+            let packets_len = packets.len();
+            if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, packets)
+            {
+                error!(
+                    "batch_send failed to send {num_failed}/{packets_len} packets first error \
+                     {err:?}",
+                );
+            }
+            packet_count = packet_count.saturating_add(packets_len);
+        });
+        packet_count
+    }
+
     fn run(
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
         cluster_info: &ClusterInfo,
+        leader_schedule_cache: &LeaderScheduleCache,
         exit: &AtomicBool,
         thread_pool: &ThreadPool,
         config: FloodConfig,
@@ -358,6 +438,14 @@ impl RepairPacketFlood {
                     repair_socket,
                     cluster_info,
                     bank_forks,
+                    &config,
+                    &peers,
+                ),
+                FloodStrategy::FakeFutureLeaderSlots => Self::flood_fake_future_leader_slots(
+                    repair_socket,
+                    bank_forks,
+                    cluster_info,
+                    leader_schedule_cache,
                     &config,
                     &peers,
                 ),

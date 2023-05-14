@@ -7141,6 +7141,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_derive",
+ "solana-entry",
  "solana-gossip",
  "solana-hash",
  "solana-keypair",
@@ -7152,6 +7153,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-streamer",
+ "solana-system-transaction",
  "solana-time-utils",
  "solana-validator-exit",
 ]

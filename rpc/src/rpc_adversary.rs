@@ -89,6 +89,7 @@ impl Adversary for AdversaryImpl {
                 meta.serve_repair_socket(),
                 meta.bank_forks(),
                 meta.cluster_info(),
+                meta.leader_schedule_cache(),
                 config.configs,
             ));
         }

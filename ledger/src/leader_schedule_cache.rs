@@ -240,6 +240,43 @@ impl LeaderScheduleCache {
     }
 }
 
+pub mod adversary {
+    use super::*;
+    impl LeaderScheduleCache {
+        pub fn leader_slot_iter<'a>(
+            &'a self,
+            pubkey: &'a Pubkey,
+            current_slot: Slot,
+            bank: &'a Bank,
+        ) -> impl Iterator<Item = u64> + 'a {
+            let (epoch, start_index) = bank.get_epoch_and_slot_index(current_slot + 1);
+            let max_epoch = self.max_epoch.load(Ordering::Acquire);
+            if epoch > max_epoch {
+                debug!(
+                    "Requested next leader in slot: {} of unconfirmed epoch: {}",
+                    current_slot + 1,
+                    epoch
+                );
+            }
+            // Slots after current_slot where pubkey is the leader.
+            (epoch..=max_epoch)
+                .map(|epoch| self.get_epoch_schedule_else_compute(epoch, bank))
+                .while_some()
+                .zip(epoch..)
+                .flat_map(move |(leader_schedule, k)| {
+                    let offset = if k == epoch { start_index as usize } else { 0 };
+                    let num_slots = bank.get_slots_in_epoch(k) as usize;
+                    let first_slot = bank.epoch_schedule().get_first_slot_in_epoch(k);
+                    leader_schedule
+                        .get_leader_upcoming_slots(pubkey, offset)
+                        .take_while(move |i| *i < num_slots)
+                        .map(move |i| i as Slot + first_slot)
+                        .collect::<Vec<_>>()
+                })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {

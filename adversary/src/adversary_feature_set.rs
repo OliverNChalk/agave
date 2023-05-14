@@ -69,6 +69,7 @@ pub mod repair_packet_flood {
         SignedPackets,
         PingCacheOverflow,
         Orphan,
+        FakeFutureLeaderSlots,
     }
 
     #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
