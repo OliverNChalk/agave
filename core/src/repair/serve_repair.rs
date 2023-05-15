@@ -690,6 +690,25 @@ impl ServeRepair {
         *stats = ServeRepairStats::default();
     }
 
+    fn report_ping_cache_stats(ping_cache: &PingCache) {
+        let stats = ping_cache.stats();
+        datapoint_info!(
+            "serve_repair-ping_cache",
+            ("pings_count", stats.pings.count, i64),
+            (
+                "pings_age_delta_us",
+                (stats.pings.mru - stats.pings.lru).as_micros(),
+                i64
+            ),
+            ("pongs_count", stats.pongs.count, i64),
+            (
+                "pongs_age_delta_us",
+                (stats.pongs.mru - stats.pongs.lru).as_micros(),
+                i64
+            ),
+        );
+    }
+
     pub(crate) fn listen(
         mut self,
         requests_receiver: Receiver<RemoteRequest>,
@@ -738,6 +757,7 @@ impl ServeRepair {
                     };
                     if last_print.elapsed().as_secs() > 2 {
                         self.report_reset_stats(&mut stats);
+                        Self::report_ping_cache_stats(&ping_cache);
                         last_print = Instant::now();
                     }
                     data_budget.update(INTERVAL_MS, |_bytes| MAX_BYTES_PER_INTERVAL);

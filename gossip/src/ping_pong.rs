@@ -19,6 +19,34 @@ use {
     },
 };
 
+pub struct PingCacheLruMeasurement {
+    pub count: usize,
+    pub lru: Instant,
+    pub mru: Instant,
+}
+
+impl From<&LruCache<(Pubkey, SocketAddr), Instant>> for PingCacheLruMeasurement {
+    fn from(value: &LruCache<(Pubkey, SocketAddr), Instant>) -> Self {
+        Self {
+            count: value.len(),
+            lru: value
+                .peek_lru()
+                .map(|entry| *entry.1)
+                .unwrap_or(Instant::now()),
+            mru: value
+                .iter()
+                .next()
+                .map(|entry| *entry.1)
+                .unwrap_or(Instant::now()),
+        }
+    }
+}
+
+pub struct PingCacheStats {
+    pub pings: PingCacheLruMeasurement,
+    pub pongs: PingCacheLruMeasurement,
+}
+
 const KEY_REFRESH_CADENCE: Duration = Duration::from_secs(60);
 const PING_PONG_HASH_PREFIX: &[u8] = "SOLANA_PING_PONG".as_bytes();
 const PONG_SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 5;
@@ -271,6 +299,13 @@ impl<const N: usize> PingCache<N> {
     /// Only for tests and simulations.
     pub fn mock_pong(&mut self, node: Pubkey, socket: SocketAddr, now: Instant) {
         self.pongs.put((node, socket), now);
+    }
+
+    pub fn stats(&self) -> PingCacheStats {
+        PingCacheStats {
+            pings: PingCacheLruMeasurement::from(&self.pings),
+            pongs: PingCacheLruMeasurement::from(&self.pongs),
+        }
     }
 }
 
