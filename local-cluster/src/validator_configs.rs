@@ -68,7 +68,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         block_production_num_workers: config.block_production_num_workers,
         block_production_scheduler_config: config.block_production_scheduler_config.clone(),
         enable_block_production_forwarding: config.enable_block_production_forwarding,
-        generator_config: config.generator_config.clone(),
+        invalidator_config: config.invalidator_config.clone(),
         use_snapshot_archives_at_startup: config.use_snapshot_archives_at_startup,
         wen_restart_proto_path: config.wen_restart_proto_path.clone(),
         wen_restart_coordinator: config.wen_restart_coordinator,

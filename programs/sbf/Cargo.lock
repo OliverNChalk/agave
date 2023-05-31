@@ -246,6 +246,7 @@ dependencies = [
  "signal-hook",
  "solana-account",
  "solana-accounts-db",
+ "solana-adversary",
  "solana-clap-utils",
  "solana-cli-config",
  "solana-cli-output",
@@ -3126,6 +3127,12 @@ dependencies = [
  "unit-prefix",
  "web-time",
 ]
+
+[[package]]
+name = "indoc"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "761cde40c27e2a9877f8c928fd248b7eec9dd48623dd514b256858ca593fbba7"
 
 [[package]]
 name = "inout"
@@ -6396,12 +6403,14 @@ dependencies = [
  "bytemuck",
  "bytes",
  "chrono",
+ "clap",
  "conditional-mod",
  "crossbeam-channel",
  "dashmap",
  "derive_more 2.0.1",
  "futures 0.3.31",
  "histogram",
+ "indoc",
  "itertools 0.12.1",
  "libc",
  "log",
@@ -6420,6 +6429,7 @@ dependencies = [
  "rustls 0.23.32",
  "serde",
  "serde_bytes",
+ "serde_json",
  "shaq",
  "slab",
  "solana-account",

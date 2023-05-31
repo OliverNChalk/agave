@@ -276,7 +276,7 @@ impl LeaderSlotPacketCountMetrics {
     }
 }
 
-fn report_transaction_error_metrics(errors: &TransactionErrorMetrics, slot: Slot) {
+pub(super) fn report_transaction_error_metrics(errors: &TransactionErrorMetrics, slot: Slot) {
     datapoint_info!(
         "banking_stage-vote_slot_transaction_errors",
         ("slot", slot as i64, i64),

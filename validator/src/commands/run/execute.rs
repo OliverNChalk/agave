@@ -28,7 +28,10 @@ use {
     },
     solana_clock::{Slot, DEFAULT_SLOTS_PER_EPOCH},
     solana_core::{
-        banking_stage::transaction_scheduler::scheduler_controller::SchedulerConfig,
+        banking_stage::{
+            adversary::args::initialize_validator_config,
+            transaction_scheduler::scheduler_controller::SchedulerConfig,
+        },
         banking_trace::DISABLED_BAKING_TRACE_DIR,
         consensus::tower_storage,
         repair::repair_handler::RepairHandlerType,
@@ -561,7 +564,7 @@ pub fn execute(
         run_verification: !matches.is_present("skip_startup_ledger_verification"),
         debug_keys,
         warp_slot: None,
-        generator_config: None,
+        invalidator_config: solana_core::validator::InvalidatorConfig::default(),
         contact_debug_interval,
         contact_save_interval: DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
         send_transaction_service_config: run_args.send_transaction_service_config,
@@ -687,6 +690,11 @@ pub fn execute(
         }
         BlockVerificationMethod::UnifiedScheduler => {}
     }
+
+    initialize_validator_config(
+        &mut validator_config.invalidator_config.block_generator_config,
+        matches,
+    );
 
     let public_rpc_addr = matches
         .value_of("public_rpc_addr")

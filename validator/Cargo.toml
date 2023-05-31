@@ -44,6 +44,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 solana-account = { workspace = true }
 solana-accounts-db = { workspace = true }
+solana-adversary = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-cli-config = { workspace = true }
 solana-cli-output = { workspace = true }

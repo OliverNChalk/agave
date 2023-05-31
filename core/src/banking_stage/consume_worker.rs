@@ -262,7 +262,7 @@ impl ConsumeWorkerMetrics {
         }
     }
 
-    fn new(id: u32) -> Self {
+    pub(super) fn new(id: u32) -> Self {
         Self {
             id: id.to_string(),
             interval: AtomicInterval::default(),

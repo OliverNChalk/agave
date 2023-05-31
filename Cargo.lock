@@ -498,6 +498,7 @@ dependencies = [
  "solana-account",
  "solana-account-decoder",
  "solana-accounts-db",
+ "solana-adversary",
  "solana-clap-utils",
  "solana-cli-config",
  "solana-cli-output",
@@ -3987,6 +3988,12 @@ dependencies = [
  "unit-prefix",
  "web-time",
 ]
+
+[[package]]
+name = "indoc"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f2cb48b81b1dc9f39676bf99f5499babfec7cd8fe14307f7b3d747208fb5690"
 
 [[package]]
 name = "inout"
@@ -8136,6 +8143,7 @@ dependencies = [
  "bytemuck",
  "bytes",
  "chrono",
+ "clap 2.33.3",
  "conditional-mod",
  "criterion",
  "crossbeam-channel",
@@ -8144,6 +8152,7 @@ dependencies = [
  "fs_extra",
  "futures 0.3.31",
  "histogram",
+ "indoc",
  "itertools 0.12.1",
  "libc",
  "log",

@@ -131,6 +131,66 @@ impl RuntimeTransaction<SanitizedTransaction> {
     fn load_dynamic_metadata(&mut self) -> Result<()> {
         Ok(())
     }
+
+    /// Create a new `RuntimeTransaction<SanitizedTransaction>` from a `SanitizedTransaction`.
+    ///
+    /// Added due to the invalidator replay stage generators producing `SanitizedTransaction`s.
+    ///
+    /// Validators do not normally generate `SanitizedTransaction` directly.  Instead, all execution
+    /// flows in there go via either `VersionedTransaction` or a `SanitizedVersionedTransaction`.
+    ///
+    /// When we have a `SanitizedTransaction` it is wasteful to go back to a
+    /// `SanitizedVersionedTransaction`, only to produce a `SanitizedTransaction` inside of the
+    /// `Self::try_from` once again, as in the following:
+    ///
+    ///   `SanitizedTransaction`
+    ///   -> `SanitizedVersionedTransaction`
+    ///   -> `RuntimeTransaction<SanitizedVersionedTransaction>`
+    ///   -> `RuntimeTransaction<SanitizedTransaction>`
+    ///
+    /// As the `RuntimeTransaction`/`SanitizedTransaction` interaction is evolved this constructor
+    /// might need to be reexamined.
+    pub fn new_from_sanitized(tx: SanitizedTransaction) -> Result<Self> {
+        let message = tx.message();
+
+        let InstructionMeta {
+            precompile_signature_details,
+            instruction_data_len,
+        } = InstructionMeta::try_new(
+            message
+                .program_instructions_iter()
+                .map(|(program_id, ix)| (program_id, SVMInstruction::from(ix))),
+        )?;
+
+        let signature_details = TransactionSignatureDetails::new(
+            message.header().num_required_signatures.into(),
+            precompile_signature_details.num_secp256k1_instruction_signatures,
+            precompile_signature_details.num_ed25519_instruction_signatures,
+            precompile_signature_details.num_secp256r1_instruction_signatures,
+        );
+
+        let compute_budget_instruction_details = ComputeBudgetInstructionDetails::try_from(
+            message
+                .program_instructions_iter()
+                .map(|(program_id, ix)| (program_id, SVMInstruction::from(ix))),
+        )?;
+
+        let meta = TransactionMeta {
+            message_hash: *tx.message_hash(),
+            is_simple_vote_transaction: tx.is_simple_vote_transaction(),
+            signature_details,
+            compute_budget_instruction_details,
+            instruction_data_len,
+        };
+
+        let mut tx = Self {
+            transaction: tx,
+            meta,
+        };
+        tx.load_dynamic_metadata()?;
+
+        Ok(tx)
+    }
 }
 
 impl TransactionWithMeta for RuntimeTransaction<SanitizedTransaction> {

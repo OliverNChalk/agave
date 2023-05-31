@@ -19,6 +19,7 @@ use {
         keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
     },
     solana_core::{
+        banking_stage::adversary::args::BankingStageArgs,
         banking_trace::DirByteLimit,
         validator::{BlockProductionMethod, BlockVerificationMethod},
     },
@@ -1475,6 +1476,7 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
     .args(&pub_sub_config::args())
     .args(&json_rpc_config::args(default_args))
     .args(&rpc_bigtable_config::args())
+    .banking_stage_args()
 }
 
 fn validators_set(

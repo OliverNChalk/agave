@@ -297,9 +297,15 @@ impl SchedulerPacing {
 
 /// Configuration for the block generator invalidator for replay.
 #[derive(Clone, Debug)]
-pub struct GeneratorConfig {
+pub struct BlockGeneratorConfig {
     pub accounts_path: String,
     pub starting_keypairs: Arc<Vec<Keypair>>,
+}
+
+/// Configuration for adversarial testing.
+#[derive(Clone, Debug, Default)]
+pub struct InvalidatorConfig {
+    pub block_generator_config: Option<BlockGeneratorConfig>,
 }
 
 pub struct ValidatorConfig {
@@ -364,7 +370,7 @@ pub struct ValidatorConfig {
     pub block_production_num_workers: NonZeroUsize,
     pub block_production_scheduler_config: SchedulerConfig,
     pub enable_block_production_forwarding: bool,
-    pub generator_config: Option<GeneratorConfig>,
+    pub invalidator_config: InvalidatorConfig,
     pub use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup,
     pub wen_restart_proto_path: Option<PathBuf>,
     pub wen_restart_coordinator: Option<Pubkey>,
@@ -446,7 +452,7 @@ impl ValidatorConfig {
             block_production_scheduler_config: SchedulerConfig::default(),
             // enable forwarding by default for tests
             enable_block_production_forwarding: true,
-            generator_config: None,
+            invalidator_config: InvalidatorConfig::default(),
             use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup::default(),
             wen_restart_proto_path: None,
             wen_restart_coordinator: None,
@@ -1741,7 +1747,7 @@ impl Validator {
             config.block_production_num_workers,
             config.block_production_scheduler_config.clone(),
             config.enable_block_production_forwarding,
-            config.generator_config.clone(),
+            config.invalidator_config.block_generator_config.clone(),
             key_notifiers.clone(),
             cancel,
         );

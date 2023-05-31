@@ -8,6 +8,7 @@ use {
     crate::{
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
+            adversary::test_scheduler,
             transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
         },
         banking_trace::{Channels, TracerThread},
@@ -23,7 +24,7 @@ use {
         sigverify_stage::SigVerifyStage,
         staked_nodes_updater_service::StakedNodesUpdaterService,
         tpu_entry_notifier::TpuEntryNotifier,
-        validator::{BlockProductionMethod, GeneratorConfig},
+        validator::{BlockGeneratorConfig, BlockProductionMethod},
         vortexor_receiver_adapter::VortexorReceiverAdapter,
     },
     bytes::Bytes,
@@ -157,7 +158,7 @@ impl Tpu {
         block_production_num_workers: NonZeroUsize,
         block_production_scheduler_config: SchedulerConfig,
         enable_block_production_forwarding: bool,
-        _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
+        block_generator_config: Option<BlockGeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         cancel: CancellationToken,
     ) -> Self {
@@ -323,21 +324,39 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        let banking_stage = BankingStage::new_num_threads(
-            block_production_method,
-            poh_recorder.clone(),
-            transaction_recorder,
-            non_vote_receiver,
-            tpu_vote_receiver,
-            gossip_vote_receiver,
-            block_production_num_workers,
-            block_production_scheduler_config,
-            transaction_status_sender,
-            replay_vote_sender,
-            log_messages_bytes_limit,
-            bank_forks.clone(),
-            prioritization_fee_cache.clone(),
-        );
+        let banking_stage = if let Some(block_generator_config) = block_generator_config {
+            test_scheduler::new_adverserial_banking_stage(
+                block_production_method,
+                poh_recorder,
+                transaction_recorder,
+                non_vote_receiver,
+                tpu_vote_receiver,
+                gossip_vote_receiver,
+                block_production_num_workers,
+                transaction_status_sender,
+                replay_vote_sender,
+                log_messages_bytes_limit,
+                bank_forks.clone(),
+                prioritization_fee_cache,
+                block_generator_config,
+            )
+        } else {
+            BankingStage::new_num_threads(
+                block_production_method,
+                poh_recorder.clone(),
+                transaction_recorder,
+                non_vote_receiver,
+                tpu_vote_receiver,
+                gossip_vote_receiver,
+                block_production_num_workers,
+                block_production_scheduler_config,
+                transaction_status_sender,
+                replay_vote_sender,
+                log_messages_bytes_limit,
+                bank_forks.clone(),
+                prioritization_fee_cache.clone(),
+            )
+        };
 
         let SpawnForwardingStageResult {
             join_handle: forwarding_stage,
