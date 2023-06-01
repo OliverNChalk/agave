@@ -10697,6 +10697,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-shred-dos"
+version = "3.1.0"
+dependencies = [
+ "clap 4.5.31",
+ "crossbeam-channel",
+ "env_logger",
+ "gethostname",
+ "itertools 0.12.1",
+ "log",
+ "rand 0.8.5",
+ "signal-hook",
+ "solana-connection-cache",
+ "solana-gossip",
+ "solana-keypair",
+ "solana-measure",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-packet",
+ "solana-perf",
+ "solana-pubkey",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-streamer",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "solana-shred-version"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

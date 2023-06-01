@@ -1,0 +1,33 @@
+[package]
+name = "solana-shred-dos"
+description = "Application aiming to DOS a Solana network by ingesting and rebroadcasting shreds"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+crossbeam-channel = { workspace = true }
+env_logger = { workspace = true }
+gethostname = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+signal-hook = { workspace = true }
+solana-connection-cache = { workspace = true }
+solana-gossip = { workspace = true }
+solana-keypair = { workspace = true }
+solana-measure = { workspace = true }
+solana-metrics = { workspace = true }
+solana-net-utils = { workspace = true }
+solana-packet = { workspace = true }
+solana-perf = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+solana-streamer = { workspace = true }
+thiserror = { workspace = true }

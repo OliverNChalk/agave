@@ -97,6 +97,7 @@ members = [
     "scheduler-bindings",
     "scheduling-utils",
     "send-transaction-service",
+    "shred-dos",
     "snapshots",
     "stake-accounts",
     "storage-bigtable",
