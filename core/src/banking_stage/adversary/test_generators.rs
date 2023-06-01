@@ -25,6 +25,19 @@ struct AccountsFile {
     _max_size: Vec<Keypair>,
 }
 
+impl AccountsFile {
+    pub fn with_payers(payers: &[Keypair]) -> Self {
+        let payers = payers
+            .iter()
+            .map(|keypair| keypair.insecure_clone())
+            .collect();
+        Self {
+            payers,
+            ..Default::default()
+        }
+    }
+}
+
 impl From<AccountsFileRaw> for AccountsFile {
     fn from(raw: AccountsFileRaw) -> Self {
         let AccountsFileRaw { payers, max_size } = raw;
@@ -62,36 +75,36 @@ impl From<KeypairRaw> for Keypair {
     }
 }
 
-fn get_accounts(block_generator_config: &BlockGeneratorConfig) -> Arc<AccountsFile> {
-    debug!(
-        "Saving accounts for {} starting keypairs into 'payers' group",
-        block_generator_config.starting_keypairs.len()
-    );
-    if !block_generator_config.starting_keypairs.is_empty() {
-        let payers = block_generator_config
-            .starting_keypairs
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
-        Arc::new(AccountsFile {
-            payers,
-            _max_size: vec![],
-        })
-    } else {
-        let accounts_file_string =
-            std::fs::read_to_string(&block_generator_config.accounts_path).unwrap();
-        let accounts = serde_json::from_str::<AccountsFileRaw>(&accounts_file_string)
-            .unwrap()
-            .into();
-        Arc::new(accounts)
+impl From<BlockGeneratorConfig> for AccountsFile {
+    fn from(block_generator_config: BlockGeneratorConfig) -> AccountsFile {
+        match block_generator_config {
+            BlockGeneratorConfig::AccountsPath(file_name) => {
+                let file_content = std::fs::read_to_string(file_name)
+                    .expect("Failed to read the accounts file.\nPath: {file_name}");
+                serde_json::from_str::<AccountsFileRaw>(&file_content)
+                    .expect(
+                        "Failed to parse accounts file.\nPath: \
+                         {file_name}\nContent:\n{file_content}",
+                    )
+                    .into()
+            }
+            BlockGeneratorConfig::StartingKeypairs(keypairs) => {
+                debug!(
+                    "Saving accounts for {} starting keypairs into 'payers' group",
+                    keypairs.len()
+                );
+
+                AccountsFile::with_payers(&keypairs[..])
+            }
+        }
     }
 }
 
 pub fn get_transaction_generators(
-    block_generator_config: &BlockGeneratorConfig,
+    block_generator_config: BlockGeneratorConfig,
     num_workers: usize,
 ) -> Vec<(TransactionGenerator, /* tx batches */ usize)> {
-    let accounts = get_accounts(block_generator_config);
+    let accounts = Arc::new(AccountsFile::from(block_generator_config));
 
     type GeneratorBuilder =
         fn(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator;

@@ -199,7 +199,7 @@ fn spawn_adverserial_scheduler_and_workers(
         work_senders,
         finished_work_receiver,
         crate::banking_stage::adversary::test_generators::get_transaction_generators(
-            &block_generator_config,
+            block_generator_config,
             num_workers,
         ),
     );

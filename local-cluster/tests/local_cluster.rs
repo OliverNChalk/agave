@@ -508,10 +508,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     // Create a validator config configured for block generation.
     let validator_config = ValidatorConfig {
         invalidator_config: InvalidatorConfig {
-            block_generator_config: Some(BlockGeneratorConfig {
-                accounts_path: "".to_string(),
-                starting_keypairs,
-            }),
+            block_generator_config: Some(BlockGeneratorConfig::StartingKeypairs(starting_keypairs)),
         },
         ..ValidatorConfig::default_for_test()
     };

@@ -296,10 +296,13 @@ impl SchedulerPacing {
 }
 
 /// Configuration for the block generator invalidator for replay.
+/// This enum defines possible ways to specify setup accounts:
+/// * read accounts from file (used for private cluster or testnet)
+/// * use accounts provided as part of genesis (used for local cluster tests)
 #[derive(Clone, Debug)]
-pub struct BlockGeneratorConfig {
-    pub accounts_path: String,
-    pub starting_keypairs: Arc<Vec<Keypair>>,
+pub enum BlockGeneratorConfig {
+    AccountsPath(String),
+    StartingKeypairs(Arc<Vec<Keypair>>),
 }
 
 /// Configuration for adversarial testing.

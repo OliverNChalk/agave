@@ -2,7 +2,6 @@ use {
     crate::validator::BlockGeneratorConfig,
     clap::{App, Arg, ArgMatches},
     indoc::indoc,
-    std::sync::Arc,
 };
 
 fn banking_stage_arg<'a, 'b>() -> Arg<'a, 'b> {
@@ -38,8 +37,5 @@ pub fn initialize_validator_config(
 ) {
     *block_generator_config = matches
         .value_of("generate_blocks_with_accounts")
-        .map(|path| BlockGeneratorConfig {
-            accounts_path: path.to_string(),
-            starting_keypairs: Arc::new(vec![]),
-        });
+        .map(|path| BlockGeneratorConfig::AccountsPath(path.to_string()));
 }
