@@ -735,6 +735,7 @@ impl ReplayStage {
                 .thread_name(|i| format!("solReplayTx{i:02}"))
                 .build()
                 .expect("new rayon threadpool");
+            let mut purged_slots: HashSet<Slot> = HashSet::new();
 
             let poh_shared_leader_state = poh_recorder.read().unwrap().shared_leader_state();
             if !is_alpenglow_migration_complete {
@@ -808,6 +809,7 @@ impl ReplayStage {
                     first_alpenglow_slot,
                     (!is_alpenglow_migration_complete).then_some(&mut tbft_structs),
                     &mut is_alpenglow_migration_complete,
+                    &mut purged_slots,
                 );
                 replay_active_banks_time.stop();
 
@@ -1189,6 +1191,7 @@ impl ReplayStage {
                         &dumped_slots_sender,
                         &my_pubkey,
                         &leader_schedule_cache,
+                        &mut purged_slots,
                     );
                     dump_then_repair_correct_slots_time.stop();
 
@@ -1221,6 +1224,7 @@ impl ReplayStage {
                             has_new_vote_been_rooted,
                             &first_alpenglow_slot,
                             &mut is_alpenglow_migration_complete,
+                            &mut purged_slots,
                         ) {
                             Self::log_leader_change(
                                 &my_pubkey,
@@ -1549,6 +1553,7 @@ impl ReplayStage {
         dumped_slots_sender: &DumpedSlotsSender,
         my_pubkey: &Pubkey,
         leader_schedule_cache: &LeaderScheduleCache,
+        purged_slots: &mut HashSet<Slot>,
     ) {
         if duplicate_slots_to_repair.is_empty() {
             return;
@@ -1655,6 +1660,7 @@ impl ReplayStage {
                         &root_bank,
                         bank_forks,
                         blockstore,
+                        purged_slots,
                     );
 
                     dumped.push((*duplicate_slot, *correct_hash));
@@ -1753,6 +1759,7 @@ impl ReplayStage {
         root_bank: &Bank,
         bank_forks: &RwLock<BankForks>,
         blockstore: &Blockstore,
+        purged_slots: &mut HashSet<Slot>,
     ) {
         warn!("purging slot {duplicate_slot}");
 
@@ -1841,6 +1848,8 @@ impl ReplayStage {
 
             // Clear the progress map of these forks
             let _ = progress.remove(&slot);
+
+            purged_slots.insert(slot);
         }
     }
 
@@ -2144,6 +2153,7 @@ impl ReplayStage {
         has_new_vote_been_rooted: bool,
         first_alpenglow_slot: &Option<Slot>,
         is_alpenglow_migration_complete: &mut bool,
+        purged_slots: &mut HashSet<Slot>,
     ) -> Option<Slot> {
         // all the individual calls to poh_recorder.read() are designed to
         // increase granularity, decrease contention
@@ -2275,6 +2285,8 @@ impl ReplayStage {
             // make sure parent is frozen for finalized hashes via the above
             // new()-ing of its child bank
             banking_tracer.hash_event(parent.slot(), &parent.last_blockhash(), &parent.hash());
+
+            purged_slots.remove(&poh_slot);
 
             update_bank_forks_and_poh_recorder_for_new_tpu_bank(
                 bank_forks,
@@ -3021,27 +3033,24 @@ impl ReplayStage {
                     let replay_progress = bank_progress.replay_progress.clone();
                     drop(progress_lock);
 
-                    if bank.collector_id() != my_pubkey {
-                        let mut replay_blockstore_time =
-                            Measure::start("replay_blockstore_into_bank");
-                        let blockstore_result = Self::replay_blockstore_into_bank(
-                            &bank,
-                            blockstore,
-                            replay_tx_thread_pool,
-                            &replay_stats,
-                            &replay_progress,
-                            transaction_status_sender,
-                            entry_notification_sender,
-                            &replay_vote_sender.clone(),
-                            &verify_recyclers.clone(),
-                            log_messages_bytes_limit,
-                            prioritization_fee_cache,
-                        );
-                        replay_blockstore_time.stop();
-                        replay_result.replay_result = Some(blockstore_result);
-                        longest_replay_time_us
-                            .fetch_max(replay_blockstore_time.as_us(), Ordering::Relaxed);
-                    }
+                    let mut replay_blockstore_time = Measure::start("replay_blockstore_into_bank");
+                    let blockstore_result = Self::replay_blockstore_into_bank(
+                        &bank,
+                        blockstore,
+                        replay_tx_thread_pool,
+                        &replay_stats,
+                        &replay_progress,
+                        transaction_status_sender,
+                        entry_notification_sender,
+                        &replay_vote_sender.clone(),
+                        &verify_recyclers.clone(),
+                        log_messages_bytes_limit,
+                        prioritization_fee_cache,
+                    );
+                    replay_blockstore_time.stop();
+                    replay_result.replay_result = Some(blockstore_result);
+                    longest_replay_time_us
+                        .fetch_max(replay_blockstore_time.as_us(), Ordering::Relaxed);
                     replay_result
                 })
                 .collect()
@@ -3069,6 +3078,7 @@ impl ReplayStage {
         log_messages_bytes_limit: Option<usize>,
         bank_slot: Slot,
         prioritization_fee_cache: &PrioritizationFeeCache,
+        purged_slots: &HashSet<Slot>,
     ) -> ReplaySlotFromBlockstore {
         let mut replay_result = ReplaySlotFromBlockstore {
             is_slot_dead: false,
@@ -3111,7 +3121,7 @@ impl ReplayStage {
                 )
             });
 
-            if bank.collector_id() != my_pubkey {
+            if purged_slots.contains(&bank_slot) || bank.collector_id() != my_pubkey {
                 let mut replay_blockstore_time = Measure::start("replay_blockstore_into_bank");
                 let blockstore_result = Self::replay_blockstore_into_bank(
                     &bank,
@@ -3173,6 +3183,7 @@ impl ReplayStage {
         poh_recorder: &RwLock<PohRecorder>,
         is_alpenglow_migration_complete: &mut bool,
         mut tbft_structs: Option<&mut TowerBFTStructures>,
+        purged_slots: &mut HashSet<Slot>,
     ) -> bool {
         // TODO: See if processing of blockstore replay results and bank completion can be made thread safe.
         let mut did_complete_bank = false;
@@ -3320,6 +3331,7 @@ impl ReplayStage {
                     r_replay_stats.batch_execute.totals
                 );
                 did_complete_bank = true;
+                purged_slots.remove(&bank.slot());
                 let _ = cluster_slots_update_sender.send(vec![bank_slot]);
 
                 if let Some(transaction_status_sender) = transaction_status_sender {
@@ -3498,6 +3510,7 @@ impl ReplayStage {
         first_alpenglow_slot: Option<Slot>,
         tbft_structs: Option<&mut TowerBFTStructures>,
         is_alpenglow_migration_complete: &mut bool,
+        purged_slots: &mut HashSet<Slot>,
     ) -> bool /* completed a bank */ {
         let active_bank_slots = bank_forks.read().unwrap().active_bank_slots();
         let num_active_banks = active_bank_slots.len();
@@ -3545,6 +3558,7 @@ impl ReplayStage {
                         log_messages_bytes_limit,
                         *bank_slot,
                         prioritization_fee_cache,
+                        purged_slots,
                     )
                 })
                 .collect(),
@@ -3571,6 +3585,7 @@ impl ReplayStage {
             poh_recorder,
             is_alpenglow_migration_complete,
             tbft_structs,
+            purged_slots,
         )
     }
 
@@ -6359,6 +6374,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_purge_unconfirmed_duplicate_slot() {
+        let mut purged_slots = HashSet::new();
         let (vote_simulator, blockstore) = setup_default_forks(2, None::<GenerateVotes>);
         let VoteSimulator {
             bank_forks,
@@ -6431,6 +6447,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &mut purged_slots,
         );
         for i in 5..=7 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6471,6 +6488,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &mut purged_slots,
         );
         for i in 4..=6 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6494,6 +6512,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &mut purged_slots,
         );
         for i in 1..=6 {
             assert!(bank_forks.read().unwrap().get(i).is_none());
@@ -6502,6 +6521,7 @@ pub(crate) mod tests {
         }
         assert!(bank_forks.read().unwrap().get(0).is_some());
         assert!(progress.get(&0).is_some());
+        assert_eq!(purged_slots, HashSet::<Slot>::from([1, 2, 3, 4, 5, 6, 7]));
 
         // Slot 7 untouched
         assert!(!blockstore.is_dead(7));
@@ -6543,14 +6563,16 @@ pub(crate) mod tests {
         let mut descendants = bank_forks.read().unwrap().descendants();
         let mut ancestors = bank_forks.read().unwrap().ancestors();
 
-        // Mark earlier slots as frozen, but we have the wrong version of slots 3 and 5, so slot 6 is dead and
-        // slot 7 is unreplayed
+        // Mark earlier slots as frozen, but we have the wrong version of slots 3 and 5, so slot 6
+        // is dead and slot 7 is unreplayed.
         for i in 0..=5 {
             blockstore.insert_bank_hash(i, Hash::new_unique(), false);
         }
         blockstore
             .set_dead_slot(6)
             .expect("Failed to mark slot 6 as dead in blockstore");
+
+        let mut purged_slots = HashSet::new();
 
         // Purge slot 3 as it is duplicate, this should also purge slot 5 but not touch 6 and 7
         ReplayStage::purge_unconfirmed_duplicate_slot(
@@ -6561,6 +6583,7 @@ pub(crate) mod tests {
             &root_bank,
             &bank_forks,
             &blockstore,
+            &mut purged_slots,
         );
         for slot in &[3, 5, 6, 7] {
             assert!(bank_forks.read().unwrap().get(*slot).is_none());
@@ -6575,6 +6598,7 @@ pub(crate) mod tests {
             assert!(!blockstore.is_dead(slot));
             assert!(!blockstore.get_slot_entries(slot, 0).unwrap().is_empty())
         }
+        assert_eq!(purged_slots, HashSet::<Slot>::from([3, 5, 6, 7]));
 
         // Simulate repair fixing slot 3 and 5
         let (shreds, _) = make_slot_entries(
@@ -7207,6 +7231,8 @@ pub(crate) mod tests {
         // Create the tree of banks in a BankForks object
         let forks = tr(0) / (tr(1)) / (tr(2));
 
+        let mut purged_slots = HashSet::new();
+
         let ReplayBlockstoreComponents {
             ref mut vote_simulator,
             ref blockstore,
@@ -7249,8 +7275,10 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             &Pubkey::new_unique(),
             leader_schedule_cache,
+            &mut purged_slots,
         );
         assert_eq!(should_be_dumped, dumped_slots_receiver.recv().ok().unwrap());
+        assert_eq!(purged_slots, HashSet::<Slot>::from([1, 2]));
 
         let r_bank_forks = bank_forks.read().unwrap();
         for slot in 0..=2 {
@@ -7276,6 +7304,7 @@ pub(crate) mod tests {
         first_vote: Slot,
         num_validators: usize,
         generate_votes: Option<GenerateVotes>,
+        purged_slots: &mut HashSet<Slot>,
     ) -> ReplayBlockstoreComponents {
         /*
             Build fork structure:
@@ -7368,6 +7397,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             &Pubkey::new_unique(),
             leader_schedule_cache,
+            purged_slots,
         );
 
         // Check everything was purged properly
@@ -7380,6 +7410,7 @@ pub(crate) mod tests {
     }
 
     fn run_test_duplicate_rollback_then_vote(first_vote: Slot) -> SelectVoteAndResetForkResult {
+        let mut purged_slots: HashSet<Slot> = HashSet::new();
         let replay_components = setup_vote_then_rollback(
             first_vote,
             2,
@@ -7388,6 +7419,7 @@ pub(crate) mod tests {
                 // make a switch to the other fork
                 node_keys.into_iter().map(|k| (k, vec![6])).collect()
             })),
+            &mut purged_slots,
         );
 
         let ReplayBlockstoreComponents {
@@ -7433,6 +7465,7 @@ pub(crate) mod tests {
             .select_forks(&frozen_banks, &tower, &progress, &ancestors, &bank_forks);
         assert_eq!(heaviest_bank.slot(), 7);
         assert!(heaviest_bank_on_same_fork.is_none());
+        assert_eq!(purged_slots, HashSet::<Slot>::from([2, 3, 4, 5]));
         select_vote_and_reset_forks(
             &heaviest_bank,
             heaviest_bank_on_same_fork.as_ref(),
@@ -7484,8 +7517,10 @@ pub(crate) mod tests {
 
     fn run_test_duplicate_rollback_then_vote_on_other_duplicate(
         first_vote: Slot,
+        purged_slots: &mut HashSet<Slot>,
     ) -> SelectVoteAndResetForkResult {
-        let replay_components = setup_vote_then_rollback(first_vote, 10, None::<GenerateVotes>);
+        let replay_components =
+            setup_vote_then_rollback(first_vote, 10, None::<GenerateVotes>, purged_slots);
 
         let ReplayBlockstoreComponents {
             mut tower,
@@ -7570,11 +7605,12 @@ pub(crate) mod tests {
 
     #[test]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_success() {
+        let mut purged_slots = HashSet::new();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
             heaviest_fork_failures,
-        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(3);
+        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(3, &mut purged_slots);
 
         // If we vote on 2 first then try to vote on 5, we should succeed
         assert_matches!(
@@ -7589,11 +7625,12 @@ pub(crate) mod tests {
 
     #[test]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_same_slot_locked_out() {
+        let mut purged_slots: HashSet<Slot> = HashSet::new();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
             heaviest_fork_failures,
-        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(5);
+        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(5, &mut purged_slots);
 
         // If we vote on 5 first then try to vote on another version of 5,
         // lockout should fail
@@ -7603,16 +7640,18 @@ pub(crate) mod tests {
             heaviest_fork_failures,
             vec![HeaviestForkFailures::LockedOut(5)]
         );
+        assert_eq!(purged_slots, HashSet::<Slot>::from([2, 3, 4, 5]));
     }
 
     #[test]
     #[ignore]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_different_slot_locked_out() {
+        let mut purged_slots = HashSet::new();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
             heaviest_fork_failures,
-        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(4);
+        } = run_test_duplicate_rollback_then_vote_on_other_duplicate(4, &mut purged_slots);
 
         // If we vote on 4 first then try to vote on 5 descended from another version
         // of 4, lockout should fail
@@ -7622,6 +7661,7 @@ pub(crate) mod tests {
             heaviest_fork_failures,
             vec![HeaviestForkFailures::LockedOut(5)]
         );
+        assert!(purged_slots.is_empty());
     }
 
     #[test]
@@ -8730,6 +8770,7 @@ pub(crate) mod tests {
         duplicate_slots_to_repair.insert(slot_to_dump, bank_to_dump_bad_hash);
         let mut purge_repair_slot_counter = PurgeRepairSlotCounter::default();
         let (dumped_slots_sender, dumped_slots_receiver) = unbounded();
+        let mut purged_slots = HashSet::new();
 
         ReplayStage::dump_then_repair_correct_slots(
             &mut duplicate_slots_to_repair,
@@ -8743,6 +8784,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             my_pubkey,
             &leader_schedule_cache,
+            &mut purged_slots,
         );
         assert_eq!(
             dumped_slots_receiver.recv_timeout(Duration::from_secs(1)),
@@ -8778,6 +8820,7 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             &None,
             &mut false,
+            &mut purged_slots,
         )
         .is_none());
     }
@@ -8787,6 +8830,7 @@ pub(crate) mod tests {
     fn test_dump_own_slots_fails() {
         // Create the tree of banks in a BankForks object
         let forks = tr(0) / (tr(1)) / (tr(2));
+        let mut purged_slots = HashSet::new();
 
         let ReplayBlockstoreComponents {
             ref mut vote_simulator,
@@ -8827,6 +8871,7 @@ pub(crate) mod tests {
             &dumped_slots_sender,
             my_pubkey,
             leader_schedule_cache,
+            &mut purged_slots,
         );
     }
 
@@ -9425,6 +9470,7 @@ pub(crate) mod tests {
         // A vote has not technically been rooted, but it doesn't matter for
         // this test to use true to avoid skipping the leader slot
         let has_new_vote_been_rooted = true;
+        let mut purged_slots = HashSet::new();
 
         let rpc_subscriptions = Some(rpc_subscriptions);
 
@@ -9448,6 +9494,7 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             &None,
             &mut false,
+            &mut purged_slots,
         )
         .is_none());
 
@@ -9478,6 +9525,7 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             &None,
             &mut false,
+            &mut purged_slots,
         )
         .is_some());
         wait_for_poh_service(&poh_controller);
@@ -9783,6 +9831,7 @@ pub(crate) mod tests {
         let (retransmit_slots_sender, _) = unbounded();
         let (banking_tracer, _) = BankingTracer::new(None).unwrap();
         let has_new_vote_been_rooted = true;
+        let mut purged_slots = HashSet::new();
 
         // We should start leader for the poh slot, however alpenglow migration should not be started
         assert!(ReplayStage::maybe_start_leader(
@@ -9800,6 +9849,7 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             &None,
             &mut is_alpenglow_migration_complete,
+            &mut purged_slots,
         )
         .is_some());
         assert!(!is_alpenglow_migration_complete);
@@ -9835,6 +9885,7 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             &Some(alpenglow_slot),
             &mut is_alpenglow_migration_complete,
+            &mut purged_slots,
         )
         .is_none());
         assert!(is_alpenglow_migration_complete);
@@ -9872,6 +9923,7 @@ pub(crate) mod tests {
         let poh_slot = bank_forks.read().unwrap().highest_slot() + 1;
         let first_alpenglow_slot = bank_forks.read().unwrap().highest_slot() + 2;
         let mut is_alpenglow_migration_complete = false;
+        let mut purged_slots = HashSet::new();
 
         // Finishing the poh slot should not trigger migration
         let parent_bank = bank_forks.read().unwrap().working_bank();
@@ -9916,6 +9968,7 @@ pub(crate) mod tests {
             &poh_recorder,
             &mut is_alpenglow_migration_complete,
             Some(&mut tbft_structs),
+            &mut purged_slots,
         );
         assert!(!is_alpenglow_migration_complete);
 
@@ -9963,6 +10016,7 @@ pub(crate) mod tests {
             &poh_recorder,
             &mut is_alpenglow_migration_complete,
             Some(&mut tbft_structs),
+            &mut purged_slots,
         );
         assert!(is_alpenglow_migration_complete);
     }

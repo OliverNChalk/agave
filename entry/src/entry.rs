@@ -212,6 +212,12 @@ impl Entry {
     pub fn is_tick(&self) -> bool {
         self.transactions.is_empty()
     }
+
+    /// Update hash params for sending duplicate blocks.
+    pub fn update_hash_params(&mut self, start_hash: &Hash, num_hashes: u64) {
+        self.num_hashes = num_hashes;
+        self.hash = next_hash(start_hash, num_hashes, &self.transactions);
+    }
 }
 
 pub fn hash_transactions(transactions: &[VersionedTransaction]) -> Hash {
@@ -1426,6 +1432,19 @@ mod tests {
             time.stop();
             info!("{time} {res}");
         }
+    }
+
+    #[test]
+    fn test_update_hash_params() {
+        let expected_hash = Hash::default();
+        let mut entries = create_random_ticks(1, 100, Hash::default());
+        let entry = &mut entries[0];
+        assert_ne!(entry.hash, expected_hash);
+        let hash = entry.hash;
+        let num_hashes = entry.num_hashes;
+        entry.update_hash_params(&expected_hash, num_hashes + 1);
+        assert_ne!(entry.hash, hash);
+        assert_eq!(entry.num_hashes, num_hashes + 1);
     }
 
     #[test]

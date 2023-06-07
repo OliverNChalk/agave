@@ -201,6 +201,8 @@ impl Blockstore {
         let columns_purged = self.purge_range(&mut write_batch, from_slot, to_slot, purge_type)?;
         delete_range_timer.stop();
 
+        self.slots_stats.purge_slots(from_slot, to_slot);
+
         let mut write_timer = Measure::start("write_batch");
         self.write_batch(write_batch).inspect_err(|e| {
             error!(

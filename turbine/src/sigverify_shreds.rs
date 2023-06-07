@@ -27,7 +27,6 @@ use {
     },
     solana_pubkey::Pubkey,
     solana_runtime::{bank::Bank, bank_forks::BankForks},
-    solana_signer::Signer,
     solana_streamer::{evicting_sender::EvictingSender, streamer::ChannelSend},
     std::{
         num::NonZeroUsize,
@@ -202,7 +201,6 @@ fn run_shred_sigverify<const K: usize>(
     };
     verify_packets(
         thread_pool,
-        &keypair.pubkey(),
         &working_bank,
         leader_schedule_cache,
         recycler_cache,
@@ -392,18 +390,16 @@ fn verify_retransmitter_signature(
 
 fn verify_packets(
     thread_pool: &ThreadPool,
-    self_pubkey: &Pubkey,
     working_bank: &Bank,
     leader_schedule_cache: &LeaderScheduleCache,
     recycler_cache: &RecyclerCache,
     packets: &mut [PacketBatch],
     cache: &RwLock<LruCache>,
 ) {
-    let leader_slots: SlotPubkeys =
-        get_slot_leaders(self_pubkey, packets, leader_schedule_cache, working_bank)
-            .filter_map(|(slot, pubkey)| Some((slot, pubkey?)))
-            .chain(std::iter::once((Slot::MAX, Pubkey::default())))
-            .collect();
+    let leader_slots: SlotPubkeys = get_slot_leaders(packets, leader_schedule_cache, working_bank)
+        .filter_map(|(slot, pubkey)| Some((slot, pubkey?)))
+        .chain(std::iter::once((Slot::MAX, Pubkey::default())))
+        .collect();
     let out = verify_shreds_gpu(thread_pool, packets, &leader_slots, recycler_cache, cache);
     solana_perf::sigverify::mark_disabled(packets, &out);
 }
@@ -414,7 +410,6 @@ fn verify_packets(
 //   - slot leader is unknown.
 //   - slot leader is the node itself (circular transmission).
 fn get_slot_leaders<'a>(
-    self_pubkey: &'a Pubkey,
     batches: &'a mut [PacketBatch],
     leader_schedule_cache: &'a LeaderScheduleCache,
     bank: &'a Bank,
@@ -426,9 +421,7 @@ fn get_slot_leaders<'a>(
         .filter_map(move |mut packet| {
             let shred = shred::layout::get_shred(packet.as_ref());
             let slot = shred.and_then(shred::layout::get_slot)?;
-            let leader = leader_schedule_cache
-                .slot_leader_at(slot, Some(bank))
-                .filter(|leader| leader != self_pubkey);
+            let leader = leader_schedule_cache.slot_leader_at(slot, Some(bank));
             if leader.is_none() {
                 packet.meta_mut().set_discard(true);
             }
@@ -633,7 +626,6 @@ mod tests {
             .collect::<Vec<_>>();
         verify_packets(
             &thread_pool,
-            &Pubkey::new_unique(), // self_pubkey
             &working_bank,
             &leader_schedule_cache,
             &RecyclerCache::warmed(),

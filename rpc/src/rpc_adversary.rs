@@ -7,7 +7,8 @@ use {
         adversary_feature_set::{
             self, example,
             repair_packet_flood::{self, PeerIdentifier},
-            repair_parameters, shred_receiver_address, AdversaryFeatureConfig,
+            repair_parameters, send_duplicate_blocks, shred_receiver_address,
+            AdversaryFeatureConfig,
         },
         repair::RepairPacketFlood,
     },
@@ -39,6 +40,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: repair_parameters::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "configureSendDuplicateBlocks")]
+    fn configure_send_duplicate_blocks(
+        &self,
+        meta: Self::Metadata,
+        config: send_duplicate_blocks::AdversarialConfig,
     ) -> Result<()>;
 
     #[rpc(meta, name = "configureShredReceiverAddress")]
@@ -105,6 +113,15 @@ impl Adversary for AdversaryImpl {
         Ok(())
     }
 
+    fn configure_send_duplicate_blocks(
+        &self,
+        _meta: Self::Metadata,
+        config: send_duplicate_blocks::AdversarialConfig,
+    ) -> Result<()> {
+        send_duplicate_blocks::set_config(config);
+        Ok(())
+    }
+
     fn configure_shred_receiver_address(
         &self,
         _meta: Self::Metadata,
@@ -132,7 +149,7 @@ pub mod tests {
             tpu_info::NullTpuInfo, transaction_client::ConnectionCacheClient,
         },
         solana_streamer::socket::SocketAddrSpace,
-        std::net::IpAddr,
+        std::net::{IpAddr, SocketAddr},
     };
 
     fn setup_test_meta() -> JsonRpcRequestProcessor {
@@ -177,6 +194,14 @@ pub mod tests {
                 "repairParametersConfig": {
                     "serveRepairMaxRequestsPerIteration": null,
                     "serveRepairOversampledRequestsPerIteration": null,
+                },
+            },
+            {
+                "sendDuplicateBlocksConfig": {
+                    "numDuplicateValidators": null,
+                    "newEntryIndexFromEnd": null,
+                    "sendOriginalAfterMs": null,
+                    "sendDestinations": null,
                 },
             },
             {
@@ -350,5 +375,59 @@ pub mod tests {
 
         // Confirm that the config update is reflected internally
         assert_eq!(config, shred_receiver_address::get_config());
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_send_duplicate_blocks() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = send_duplicate_blocks::AdversarialConfig {
+            num_duplicate_validators: Some(2),
+            new_entry_index_from_end: Some(1),
+            send_original_after_ms: Some(500),
+            send_destinations: Some(vec![]),
+        };
+        {
+            // Update the config for send_duplicate_packets, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, send_duplicate_blocks::get_config());
+
+        let config = send_duplicate_blocks::AdversarialConfig {
+            num_duplicate_validators: Some(3),
+            new_entry_index_from_end: Some(2),
+            send_original_after_ms: Some(0),
+            send_destinations: Some(vec![
+                vec![
+                    SocketAddr::from(([127, 0, 0, 1], 234)),
+                    SocketAddr::from(([10, 0, 0, 2], 345)),
+                ],
+                vec![SocketAddr::from(([0x2023, 0, 0, 0, 0, 0, 0, 1], 987))],
+            ]),
+        };
+        {
+            // Update the config for send_duplicate_packets, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, send_duplicate_blocks::get_config());
+
+        // Reset the config
+        let config = send_duplicate_blocks::AdversarialConfig::default();
+        let request = create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
     }
 }

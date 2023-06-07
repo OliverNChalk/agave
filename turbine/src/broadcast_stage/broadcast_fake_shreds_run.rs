@@ -135,6 +135,7 @@ impl BroadcastRun for BroadcastFakeShredsRun {
             num_expected_batches: None,
             slot_start_ts: Instant::now(),
             was_interrupted: false,
+            destinations: None,
         };
         // 3) Start broadcast step
         //some indicates fake shreds

@@ -484,6 +484,7 @@ pub enum BroadcastSocket<'a> {
 
 /// Broadcasts shreds from the leader (i.e. this node) to the root of the
 /// turbine retransmit tree for each shred.
+#[allow(clippy::too_many_arguments)]
 pub fn broadcast_shreds(
     socket: BroadcastSocket,
     shreds: &[Shred],
@@ -494,6 +495,7 @@ pub fn broadcast_shreds(
     bank_forks: &RwLock<BankForks>,
     socket_addr_space: &SocketAddrSpace,
     quic_endpoint_sender: &AsyncSender<(SocketAddr, Bytes)>,
+    destinations: Option<&[SocketAddr]>,
 ) -> Result<()> {
     let mut result = Ok(());
     // Compute destinations & transmission protocols for each of the shreds to be sent
@@ -502,7 +504,7 @@ pub fn broadcast_shreds(
         let bank_forks = bank_forks.read().unwrap();
         (bank_forks.root_bank(), bank_forks.working_bank())
     };
-    let (udp_packets, quic_packets) = {
+    let (udp_packets, quic_packets) = 'packets: {
         let mut udp_packets = vec![];
         let mut quic_packets = vec![];
         // It would be nice to use a closure here, but Rust does not allow us to explicitly specify
@@ -523,15 +525,28 @@ pub fn broadcast_shreds(
             }
         }
 
+        if let Some(destinations) = destinations {
+            for shred in shreds {
+                for destination in destinations.iter() {
+                    add_shred_payload(&mut udp_packets, &mut quic_packets, shred, *destination);
+                }
+            }
+
+            // In this attack we ignore all the original receivers, normally computed below.
+            break 'packets (udp_packets, quic_packets);
+        }
+
         if let Some(attack_target) =
             adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
         {
-            for shred in shreds.iter() {
+            for shred in shreds {
                 add_shred_payload(&mut udp_packets, &mut quic_packets, shred, attack_target);
             }
+
+            // In this attack we still want to send to all the original receivers.
         }
 
-        for (slot, shreds) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
+        for (slot, shreds) in shreds.iter().group_by(|&shred| shred.slot()).into_iter() {
             let cluster_nodes =
                 cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
             update_peer_stats(&cluster_nodes, last_datapoint_submit);

@@ -1,16 +1,17 @@
-use super::*;
+use {super::*, std::net::SocketAddr};
 
 pub(crate) trait BroadcastStats {
     fn update(&mut self, new_stats: &Self);
     fn report_stats(&mut self, slot: Slot, slot_start: Instant, was_interrupted: bool);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct BroadcastShredBatchInfo {
     pub(crate) slot: Slot,
     pub(crate) num_expected_batches: Option<usize>,
     pub(crate) slot_start_ts: Instant,
     pub(crate) was_interrupted: bool,
+    pub(crate) destinations: Option<Arc<Vec<SocketAddr>>>,
 }
 
 #[derive(Default, Clone)]
@@ -250,6 +251,7 @@ mod test {
                 num_expected_batches: Some(2),
                 slot_start_ts: start,
                 was_interrupted: false,
+                destinations: None,
             }),
         );
 
@@ -321,6 +323,7 @@ mod test {
                 num_expected_batches: None,
                 slot_start_ts: start,
                 was_interrupted: false,
+                destinations: None,
             }),
         );
 
@@ -345,6 +348,7 @@ mod test {
                         num_expected_batches: None,
                         slot_start_ts: start,
                         was_interrupted: false,
+                        destinations: None,
                     };
                     if i == round % num_threads {
                         broadcast_batch_info.num_expected_batches = Some(num_threads);

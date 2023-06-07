@@ -1978,6 +1978,7 @@ mod test {
     fn test_ancestor_hashes_service_manage_ancestor_hashes_after_replay_dump() {
         let dead_slot = MAX_ANCESTOR_RESPONSES as Slot;
         let responder_threads = ResponderThreads::new(dead_slot);
+        let mut purged_slots = HashSet::new();
 
         let ResponderThreads {
             ref responder_info,
@@ -2081,7 +2082,9 @@ mod test {
             &dumped_slots_sender,
             &my_pubkey,
             &leader_schedule_cache,
+            &mut purged_slots,
         );
+        assert!(purged_slots.is_empty());
 
         let (ancestor_hashes_request_quic_sender, _) =
             tokio::sync::mpsc::channel(/*buffer:*/ 128);

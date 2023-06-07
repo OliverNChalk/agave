@@ -167,4 +167,11 @@ impl SlotsStats {
     pub fn mark_rooted(&self, slot: Slot) {
         self.add_flag(slot, SlotFlags::ROOTED);
     }
+
+    pub(crate) fn purge_slots(&self, from_slot: Slot, to_slot: Slot) {
+        let mut stats = self.stats.lock().unwrap();
+        for slot in from_slot..to_slot {
+            stats.pop(&slot);
+        }
+    }
 }
