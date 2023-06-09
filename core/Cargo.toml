@@ -67,6 +67,7 @@ conditional-mod = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api"] }
 derive_more = { workspace = true }
+enumset = { workspace = true }
 futures = { workspace = true }
 histogram = { workspace = true }
 indoc = "2.0.1"

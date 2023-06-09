@@ -40,6 +40,7 @@ use {
     },
     anyhow::{anyhow, Context, Result},
     crossbeam_channel::{bounded, unbounded, Receiver},
+    enumset::{EnumSet, EnumSetType},
     quinn::Endpoint,
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -296,13 +297,29 @@ impl SchedulerPacing {
 }
 
 /// Configuration for the block generator invalidator for replay.
+#[derive(EnumSetType, Debug)]
+pub enum BlockGeneratorOption {
+    TransferRandom,
+    CreateNonceAccounts,
+    AllocateRandomLarge,
+    AllocateRandomSmall,
+    ChainTransactions,
+}
+
 /// This enum defines possible ways to specify setup accounts:
 /// * read accounts from file (used for private cluster or testnet)
 /// * use accounts provided as part of genesis (used for local cluster tests)
 #[derive(Clone, Debug)]
-pub enum BlockGeneratorConfig {
+pub enum BlockGeneratorAccountsOption {
     AccountsPath(String),
     StartingKeypairs(Arc<Vec<Keypair>>),
+}
+
+/// Configuration for the block generator invalidator for replay.
+#[derive(Clone, Debug)]
+pub struct BlockGeneratorConfig {
+    pub accounts: BlockGeneratorAccountsOption,
+    pub selected_generators: EnumSet<BlockGeneratorOption>,
 }
 
 /// Configuration for adversarial testing.

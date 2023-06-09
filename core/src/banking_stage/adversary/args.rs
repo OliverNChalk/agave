@@ -1,6 +1,7 @@
 use {
-    crate::validator::BlockGeneratorConfig,
+    crate::validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig, BlockGeneratorOption},
     clap::{App, Arg, ArgMatches},
+    enumset::EnumSet,
     indoc::indoc,
 };
 
@@ -35,7 +36,15 @@ pub fn initialize_validator_config(
     block_generator_config: &mut Option<BlockGeneratorConfig>,
     matches: &ArgMatches<'_>,
 ) {
-    *block_generator_config = matches
+    let accounts = matches
         .value_of("generate_blocks_with_accounts")
-        .map(|path| BlockGeneratorConfig::AccountsPath(path.to_string()));
+        .map(|path| BlockGeneratorAccountsOption::AccountsPath(path.to_string()));
+    // For now, select all generators by default
+    let selected_generators = EnumSet::<BlockGeneratorOption>::all();
+    if let Some(accounts) = accounts {
+        *block_generator_config = Some(BlockGeneratorConfig {
+            accounts,
+            selected_generators,
+        });
+    }
 }

@@ -3,6 +3,7 @@ use {
     agave_snapshots::{hardened_unpack::open_genesis_config, SnapshotInterval},
     assert_matches::assert_matches,
     crossbeam_channel::{unbounded, Receiver},
+    enumset::EnumSet,
     gag::BufferRedirect,
     itertools::Itertools,
     log::*,
@@ -23,7 +24,8 @@ use {
         optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
         replay_stage::DUPLICATE_THRESHOLD,
         validator::{
-            BlockGeneratorConfig, BlockVerificationMethod, InvalidatorConfig, ValidatorConfig,
+            BlockGeneratorAccountsOption, BlockGeneratorConfig, BlockGeneratorOption,
+            BlockVerificationMethod, InvalidatorConfig, ValidatorConfig,
         },
     },
     solana_download_utils::download_snapshot_archive,
@@ -508,7 +510,10 @@ fn test_mainnet_beta_cluster_type_generator() {
     // Create a validator config configured for block generation.
     let validator_config = ValidatorConfig {
         invalidator_config: InvalidatorConfig {
-            block_generator_config: Some(BlockGeneratorConfig::StartingKeypairs(starting_keypairs)),
+            block_generator_config: Some(BlockGeneratorConfig {
+                accounts: BlockGeneratorAccountsOption::StartingKeypairs(starting_keypairs),
+                selected_generators: EnumSet::<BlockGeneratorOption>::all(),
+            }),
         },
         ..ValidatorConfig::default_for_test()
     };

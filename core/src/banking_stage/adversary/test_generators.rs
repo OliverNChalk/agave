@@ -2,7 +2,8 @@
 
 use {
     crate::{
-        banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH, validator::BlockGeneratorConfig,
+        banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
+        validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig, BlockGeneratorOption},
     },
     rand::{seq::SliceRandom, thread_rng},
     serde::Deserialize,
@@ -75,10 +76,10 @@ impl From<KeypairRaw> for Keypair {
     }
 }
 
-impl From<BlockGeneratorConfig> for AccountsFile {
-    fn from(block_generator_config: BlockGeneratorConfig) -> AccountsFile {
+impl From<BlockGeneratorAccountsOption> for AccountsFile {
+    fn from(block_generator_config: BlockGeneratorAccountsOption) -> AccountsFile {
         match block_generator_config {
-            BlockGeneratorConfig::AccountsPath(file_name) => {
+            BlockGeneratorAccountsOption::AccountsPath(file_name) => {
                 let file_content = std::fs::read_to_string(file_name)
                     .expect("Failed to read the accounts file.\nPath: {file_name}");
                 serde_json::from_str::<AccountsFileRaw>(&file_content)
@@ -88,7 +89,7 @@ impl From<BlockGeneratorConfig> for AccountsFile {
                     )
                     .into()
             }
-            BlockGeneratorConfig::StartingKeypairs(keypairs) => {
+            BlockGeneratorAccountsOption::StartingKeypairs(keypairs) => {
                 debug!(
                     "Saving accounts for {} starting keypairs into 'payers' group",
                     keypairs.len()
@@ -100,21 +101,31 @@ impl From<BlockGeneratorConfig> for AccountsFile {
     }
 }
 
+type GeneratorBuilder = fn(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator;
+type GeneratorBuilderWithMeta = (GeneratorBuilder, usize);
+impl From<BlockGeneratorOption> for GeneratorBuilderWithMeta {
+    fn from(val: BlockGeneratorOption) -> Self {
+        match val {
+            BlockGeneratorOption::TransferRandom => (generator_transfer_random, 100),
+            BlockGeneratorOption::CreateNonceAccounts => (generator_create_nonce_accounts, 10),
+            BlockGeneratorOption::AllocateRandomLarge => (generator_allocate_random_large, 1),
+            BlockGeneratorOption::AllocateRandomSmall => (generator_allocate_random_small, 10),
+            BlockGeneratorOption::ChainTransactions => (generator_chain_transactions, 10),
+        }
+    }
+}
+
 pub fn get_transaction_generators(
     block_generator_config: BlockGeneratorConfig,
     num_workers: usize,
 ) -> Vec<(TransactionGenerator, /* tx batches */ usize)> {
-    let accounts = Arc::new(AccountsFile::from(block_generator_config));
+    let accounts = Arc::new(AccountsFile::from(block_generator_config.accounts));
 
-    type GeneratorBuilder =
-        fn(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator;
-    let generators: Vec<(GeneratorBuilder, /* tx batches: */ _)> = vec![
-        (generator_transfer_random, 100),
-        (generator_create_nonce_accounts, 10),
-        (generator_allocate_random_large, 1),
-        (generator_allocate_random_small, 10),
-        (generator_chain_transactions, 10),
-    ];
+    let generators: Vec<GeneratorBuilderWithMeta> = block_generator_config
+        .selected_generators
+        .iter()
+        .map(|generator_option| generator_option.into())
+        .collect();
 
     generators
         .into_iter()
