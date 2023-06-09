@@ -17,6 +17,7 @@ agave-unstable-api = []
 dev-context-only-utils = ["solana-core/dev-context-only-utils"]
 
 [dependencies]
+agave-reserved-account-keys = { workspace = true }
 agave-snapshots = { workspace = true }
 crossbeam-channel = { workspace = true }
 itertools = { workspace = true }

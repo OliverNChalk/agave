@@ -9332,6 +9332,7 @@ dependencies = [
 name = "solana-local-cluster"
 version = "3.1.0"
 dependencies = [
+ "agave-reserved-account-keys",
  "agave-snapshots",
  "assert_matches",
  "crossbeam-channel",

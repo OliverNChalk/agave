@@ -1,5 +1,6 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
+    agave_reserved_account_keys::ReservedAccountKeys,
     agave_snapshots::{hardened_unpack::open_genesis_config, SnapshotInterval},
     assert_matches::assert_matches,
     crossbeam_channel::{unbounded, Receiver},
@@ -60,6 +61,7 @@ use {
         local_cluster::{ClusterConfig, LocalCluster, DEFAULT_MINT_LAMPORTS},
         validator_configs::*,
     },
+    solana_message::SimpleAddressLoader,
     solana_poh_config::PohConfig,
     solana_pubkey::Pubkey,
     solana_pubsub_client::pubsub_client::PubsubClient,
@@ -84,6 +86,10 @@ use {
     solana_streamer::socket::SocketAddrSpace,
     solana_system_interface::program as system_program,
     solana_system_transaction as system_transaction,
+    solana_transaction::{
+        sanitized::{MessageHash, SanitizedTransaction},
+        versioned::VersionedTransaction,
+    },
     solana_turbine::broadcast_stage::{
         broadcast_duplicates_run::{BroadcastDuplicatesConfig, ClusterPartition},
         BroadcastStageType,
@@ -481,6 +487,18 @@ fn test_mainnet_beta_cluster_type() {
     }
 }
 
+fn is_simple_vote_tx(tx: VersionedTransaction) -> bool {
+    SanitizedTransaction::try_create(
+        tx,
+        MessageHash::Compute,
+        None,
+        SimpleAddressLoader::Disabled,
+        &ReservedAccountKeys::empty_key_set(),
+    )
+    .map(|tx| tx.is_simple_vote_transaction())
+    .unwrap_or_default()
+}
+
 #[test]
 #[serial]
 fn test_mainnet_beta_cluster_type_generator() {
@@ -508,7 +526,7 @@ fn test_mainnet_beta_cluster_type_generator() {
         .collect();
 
     // Create a validator config configured for block generation.
-    let validator_config = ValidatorConfig {
+    let mut validator_config = ValidatorConfig {
         invalidator_config: InvalidatorConfig {
             block_generator_config: Some(BlockGeneratorConfig {
                 accounts: BlockGeneratorAccountsOption::StartingKeypairs(starting_keypairs),
@@ -517,6 +535,7 @@ fn test_mainnet_beta_cluster_type_generator() {
         },
         ..ValidatorConfig::default_for_test()
     };
+    validator_config.enable_default_rpc_block_subscribe();
 
     // Create a cluster config with the generator validator config.
     let mut config = ClusterConfig {
@@ -539,8 +558,54 @@ fn test_mainnet_beta_cluster_type_generator() {
     .unwrap();
     assert_eq!(cluster_nodes.len(), num_nodes);
 
-    // Let the cluster run for some period of time generating transactions.
-    std::thread::sleep(test_duration);
+    let (mut block_subscribe_client, receiver) = PubsubClient::block_subscribe(
+        format!(
+            "ws://{}",
+            &cluster.entry_point_info.rpc_pubsub().unwrap().to_string()
+        ),
+        RpcBlockSubscribeFilter::All,
+        Some(RpcBlockSubscribeConfig {
+            commitment: Some(CommitmentConfig::confirmed()),
+            encoding: None,
+            transaction_details: None,
+            show_rewards: None,
+            max_supported_transaction_version: None,
+        }),
+    )
+    .unwrap();
+
+    // check that the leader generated some transactions
+    let num_response_check_iterations = 10;
+    let check_sleep_duration = test_duration / num_response_check_iterations;
+    let mut num_errors = 0;
+    let mut num_non_vote_txs = 0;
+    for _ in 0..num_response_check_iterations {
+        for r in receiver.try_iter().collect::<Vec<_>>() {
+            if r.value.err.is_some() {
+                num_errors += 1;
+            }
+            if let Some(r) = r.value.block {
+                if let Some(encoded_transactions) = r.transactions {
+                    for encoded_tx in encoded_transactions {
+                        let tx = encoded_tx.transaction.decode();
+                        if let Some(tx) = tx {
+                            if !is_simple_vote_tx(tx) {
+                                num_non_vote_txs += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        sleep(check_sleep_duration);
+    }
+    assert!(num_errors == 0);
+    assert!(num_non_vote_txs != 0);
+
+    // If we don't drop the cluster, the blocking web socket service
+    // won't return, and the `block_subscribe_client` won't shut down
+    drop(cluster);
+    block_subscribe_client.shutdown().unwrap();
 }
 
 #[test]
