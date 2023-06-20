@@ -68,6 +68,7 @@ members = [
     "program-binaries",
     "program-runtime",
     "program-test",
+    "programs/block-generator-stress-test",
     "programs/bpf-loader-tests",
     "programs/bpf_loader",
     "programs/compute-budget",

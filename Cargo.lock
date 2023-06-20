@@ -10569,6 +10569,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf09694a0fc14e5ffb18f9b7b7c0f15ecb6eac5b5610bf76a1853459d19daf9"
 
 [[package]]
+name = "solana-sbf-block-generator-stress-test"
+version = "3.1.0"
+dependencies = [
+ "borsh",
+ "num-derive",
+ "num-traits",
+ "solana-account-info",
+ "solana-clock",
+ "solana-cpi",
+ "solana-instruction",
+ "solana-msg",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-program-test",
+ "solana-pubkey",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "solana-sbpf"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
