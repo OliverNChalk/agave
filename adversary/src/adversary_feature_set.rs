@@ -133,6 +133,16 @@ pub mod shred_receiver_address {
         pub shred_receiver_address: Option<SocketAddr>,
     }
 }
+pub mod drop_turbine_votes {
+    pub const ID: &str = "drop_turbine_votes";
+    adversarial_feature_impl!(DropTurbineVotes);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub drop_turbine_votes: bool,
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,6 +158,8 @@ pub enum AdversaryFeatureConfig {
     ShredReceiverAddress(shred_receiver_address::AdversarialConfig),
     #[serde(rename = "sendDuplicateBlocksConfig")]
     SendDuplicateBlocks(send_duplicate_blocks::AdversarialConfig),
+    #[serde(rename = "turbineVotes")]
+    DropTurbineVotes(drop_turbine_votes::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
@@ -180,6 +192,12 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     send_duplicate_blocks::ID.to_string(),
                     AdversaryFeatureConfig::SendDuplicateBlocks(
                         send_duplicate_blocks::AdversarialConfig::default(),
+                    ),
+                ),
+                (
+                    drop_turbine_votes::ID.to_string(),
+                    AdversaryFeatureConfig::DropTurbineVotes(
+                        drop_turbine_votes::AdversarialConfig::default(),
                     ),
                 ),
             ]

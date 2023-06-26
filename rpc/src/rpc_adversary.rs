@@ -5,7 +5,7 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, example,
+            self, drop_turbine_votes, example,
             repair_packet_flood::{self, PeerIdentifier},
             repair_parameters, send_duplicate_blocks, shred_receiver_address,
             AdversaryFeatureConfig,
@@ -54,6 +54,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: shred_receiver_address::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "turbineVotes")]
+    fn configure_drop_turbine_votes(
+        &self,
+        meta: Self::Metadata,
+        config: drop_turbine_votes::AdversarialConfig,
     ) -> Result<()>;
 }
 
@@ -130,6 +137,15 @@ impl Adversary for AdversaryImpl {
         shred_receiver_address::set_config(config);
         Ok(())
     }
+
+    fn configure_drop_turbine_votes(
+        &self,
+        _meta: Self::Metadata,
+        config: drop_turbine_votes::AdversarialConfig,
+    ) -> Result<()> {
+        drop_turbine_votes::set_config(config);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -181,6 +197,11 @@ pub mod tests {
 
         let expected_result = json!(
             [{
+                "turbineVotes": {
+                    "dropTurbineVotes": false,
+                },
+            },
+            {
                 "exampleAdversarialConfig": {
                     "exampleNum": 0,
                 },
@@ -429,5 +450,35 @@ pub mod tests {
         let request = create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
         let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
         assert_eq!(result, json!(null));
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_drop_turbine_votes() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+        let mut config = drop_turbine_votes::AdversarialConfig::default();
+        assert!(!config.drop_turbine_votes);
+        config.drop_turbine_votes = true;
+        {
+            // Update the config, ensuring that request succeeds
+            let meta = meta.clone();
+            let request = create_test_request("turbineVotes", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, drop_turbine_votes::get_config());
+
+        // Reset the config
+        let config = drop_turbine_votes::AdversarialConfig::default();
+        let request = create_test_request("turbineVotes", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, drop_turbine_votes::get_config());
     }
 }

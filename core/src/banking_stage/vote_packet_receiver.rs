@@ -9,6 +9,7 @@ use {
         result::TransactionViewError, transaction_view::SanitizedTransactionView,
     },
     crossbeam_channel::RecvTimeoutError,
+    solana_adversary::adversary_feature_set,
     solana_measure::{measure::Measure, measure_us},
     std::{
         num::Saturating,
@@ -39,9 +40,13 @@ impl VotePacketReceiver {
         let (result, recv_time_us) = measure_us!({
             let recv_timeout = Self::get_receive_timeout(vote_storage);
             let mut recv_and_buffer_measure = Measure::start("recv_and_buffer");
+            let drop_packets = vote_source == VoteSource::Tpu
+                && adversary_feature_set::drop_turbine_votes::get_config().drop_turbine_votes;
             self.receive_until(recv_timeout, vote_storage.max_receive_size())
                 // Consumes results if Ok, otherwise we keep the Err
-                .map(|(deserialized_packets, packet_stats)| {
+                .into_iter()
+                .filter(|_| !drop_packets)
+                .for_each(|(deserialized_packets, packet_stats)| {
                     self.buffer_packets(
                         deserialized_packets,
                         packet_stats,
@@ -56,7 +61,14 @@ impl VotePacketReceiver {
                     banking_stage_stats
                         .receive_and_buffer_packets_elapsed
                         .fetch_add(recv_and_buffer_measure.as_us(), Ordering::Relaxed);
-                })
+                });
+
+            if drop_packets {
+                // Drop turbine votes
+                Err(RecvTimeoutError::Timeout)
+            } else {
+                Ok(())
+            }
         });
 
         slot_metrics_tracker.increment_receive_and_buffer_packets_us(recv_time_us);
