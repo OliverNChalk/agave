@@ -191,7 +191,6 @@ impl RepairPacketFlood {
     fn flood_ping_cache(
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
-        cluster_info: &ClusterInfo,
         config: &FloodConfig,
         peers: &[ContactInfo],
         thread_pool: &ThreadPool,
@@ -227,7 +226,7 @@ impl RepairPacketFlood {
                             .with_min_len(MIN_PARALLEL_ITEMS)
                             .map(|keypair| {
                                 let header = RepairRequestHeader::new(
-                                    cluster_info.id(),
+                                    keypair.pubkey(),
                                     *peer.pubkey(),
                                     timestamp(),
                                     789, /*nonce*/
@@ -428,7 +427,6 @@ impl RepairPacketFlood {
                 FloodStrategy::PingCacheOverflow => Self::flood_ping_cache(
                     repair_socket,
                     bank_forks,
-                    cluster_info,
                     &config,
                     &peers,
                     thread_pool,
