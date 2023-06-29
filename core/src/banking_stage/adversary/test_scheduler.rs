@@ -18,6 +18,7 @@ use {
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError},
+    solana_clock::NUM_CONSECUTIVE_LEADER_SLOTS,
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_poh::{poh_recorder::PohRecorder, transaction_recorder::TransactionRecorder},
     solana_runtime::{
@@ -297,9 +298,12 @@ impl TestScheduler {
             };
 
             if bank_slot != bank.slot() {
-                // Switch to next transaction generator on slot boundary
                 bank_slot = bank.slot();
-                self.advance_tx_gen_idx();
+                // Advance to next tx generator on consecutive leader slot boundary
+                if (bank_slot % NUM_CONSECUTIVE_LEADER_SLOTS) == 0 {
+                    self.advance_tx_gen_idx();
+                }
+
                 trace!(
                     "Generating transactions for slot {bank_slot} w/ generator {}",
                     self.tx_gen_idx
