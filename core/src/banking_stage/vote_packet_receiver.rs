@@ -43,10 +43,15 @@ impl VotePacketReceiver {
             let drop_packets = vote_source == VoteSource::Tpu
                 && adversary_feature_set::drop_turbine_votes::get_config().drop_turbine_votes;
             self.receive_until(recv_timeout, vote_storage.max_receive_size())
+                .and_then(|receive_packet_results| {
+                    if drop_packets {
+                        Err(RecvTimeoutError::Timeout)
+                    } else {
+                        Ok(receive_packet_results)
+                    }
+                })
                 // Consumes results if Ok, otherwise we keep the Err
-                .into_iter()
-                .filter(|_| !drop_packets)
-                .for_each(|(deserialized_packets, packet_stats)| {
+                .map(|(deserialized_packets, packet_stats)| {
                     self.buffer_packets(
                         deserialized_packets,
                         packet_stats,
@@ -56,23 +61,14 @@ impl VotePacketReceiver {
                         slot_metrics_tracker,
                     );
                     recv_and_buffer_measure.stop();
-
                     // Only incremented if packets are received
                     banking_stage_stats
                         .receive_and_buffer_packets_elapsed
                         .fetch_add(recv_and_buffer_measure.as_us(), Ordering::Relaxed);
-                });
-
-            if drop_packets {
-                // Drop turbine votes
-                Err(RecvTimeoutError::Timeout)
-            } else {
-                Ok(())
-            }
+                })
         });
 
         slot_metrics_tracker.increment_receive_and_buffer_packets_us(recv_time_us);
-
         result
     }
 
