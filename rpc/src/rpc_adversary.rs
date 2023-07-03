@@ -5,7 +5,7 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, drop_turbine_votes, example,
+            self, drop_turbine_votes, example, invalidate_leader_block,
             repair_packet_flood::{self, PeerIdentifier},
             repair_parameters, send_duplicate_blocks, shred_receiver_address,
             AdversaryFeatureConfig,
@@ -61,6 +61,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: drop_turbine_votes::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "configureInvalidateLeaderBlock")]
+    fn configure_invalidate_leader_block(
+        &self,
+        meta: Self::Metadata,
+        config: invalidate_leader_block::AdversarialConfig,
     ) -> Result<()>;
 }
 
@@ -146,6 +153,15 @@ impl Adversary for AdversaryImpl {
         drop_turbine_votes::set_config(config);
         Ok(())
     }
+
+    fn configure_invalidate_leader_block(
+        &self,
+        _meta: Self::Metadata,
+        config: invalidate_leader_block::AdversarialConfig,
+    ) -> Result<()> {
+        invalidate_leader_block::set_config(config);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -204,6 +220,11 @@ pub mod tests {
             {
                 "exampleAdversarialConfig": {
                     "exampleNum": 0,
+                },
+            },
+            {
+                "invalidateLeaderBlockConfig": {
+                    "invalidationKind": null,
                 },
             },
             {
@@ -480,5 +501,47 @@ pub mod tests {
 
         // Confirm that the config update is reflected internally
         assert_eq!(config, drop_turbine_votes::get_config());
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_invalidate_leader_block() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = invalidate_leader_block::AdversarialConfig {
+            invalidation_kind: Some(invalidate_leader_block::InvalidationKind::InvalidFeePayer),
+        };
+        {
+            // Update the config for invalidate_leader_block, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, invalidate_leader_block::get_config());
+
+        let config = invalidate_leader_block::AdversarialConfig {
+            invalidation_kind: Some(invalidate_leader_block::InvalidationKind::InvalidSignature),
+        };
+        {
+            // Update the config for invalidate_leader_block, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, invalidate_leader_block::get_config());
+
+        // Reset the config
+        let config = invalidate_leader_block::AdversarialConfig::default();
+        let request = create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
     }
 }

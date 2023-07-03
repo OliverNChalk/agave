@@ -8,8 +8,11 @@ use {
     crate::{
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            adversary::test_scheduler,
-            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
+            adversary::{
+                invalidate_leader_block_attack::InvalidateLeaderBlockAttack, test_scheduler,
+            },
+            transaction_scheduler::scheduler_controller::SchedulerConfig,
+            BankingStage,
         },
         banking_trace::{Channels, TracerThread},
         cluster_info_vote_listener::{
@@ -113,6 +116,7 @@ pub struct Tpu {
     staked_nodes_updater_service: StakedNodesUpdaterService,
     tracer_thread_hdl: TracerThread,
     tpu_vote_quic_t: thread::JoinHandle<()>,
+    invalidate_leader_block_hdl: thread::JoinHandle<()>,
 }
 
 impl Tpu {
@@ -328,7 +332,7 @@ impl Tpu {
             test_scheduler::new_adverserial_banking_stage(
                 block_production_method,
                 poh_recorder,
-                transaction_recorder,
+                transaction_recorder.clone(),
                 non_vote_receiver,
                 tpu_vote_receiver,
                 gossip_vote_receiver,
@@ -344,7 +348,7 @@ impl Tpu {
             BankingStage::new_num_threads(
                 block_production_method,
                 poh_recorder.clone(),
-                transaction_recorder,
+                transaction_recorder.clone(),
                 non_vote_receiver,
                 tpu_vote_receiver,
                 gossip_vote_receiver,
@@ -384,6 +388,9 @@ impl Tpu {
                 (entry_receiver, None)
             };
 
+        let invalidate_leader_block_hdl =
+            InvalidateLeaderBlockAttack::spawn(poh_recorder, transaction_recorder, exit.clone());
+
         let broadcast_stage = broadcast_type.new_broadcast_stage(
             broadcast_sockets,
             cluster_info.clone(),
@@ -422,6 +429,7 @@ impl Tpu {
             staked_nodes_updater_service,
             tracer_thread_hdl,
             tpu_vote_quic_t,
+            invalidate_leader_block_hdl,
         }
     }
 
@@ -446,6 +454,7 @@ impl Tpu {
             self.tpu_quic_t.map_or(Ok(()), |t| t.join()),
             self.tpu_forwards_quic_t.map_or(Ok(()), |t| t.join()),
             self.tpu_vote_quic_t.join(),
+            self.invalidate_leader_block_hdl.join(),
         ];
         let broadcast_result = self.broadcast_stage.join();
         for result in results {
@@ -463,6 +472,7 @@ impl Tpu {
                 );
             }
         }
+
         Ok(())
     }
 }

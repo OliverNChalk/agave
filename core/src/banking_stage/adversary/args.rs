@@ -39,6 +39,7 @@ pub fn initialize_validator_config(
     let accounts = matches
         .value_of("generate_blocks_with_accounts")
         .map(|path| BlockGeneratorAccountsOption::AccountsPath(path.to_string()));
+
     // For now, select all generators by default
     let selected_generators = EnumSet::<BlockGeneratorOption>::all();
     if let Some(accounts) = accounts {

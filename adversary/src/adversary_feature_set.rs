@@ -144,6 +144,32 @@ pub mod drop_turbine_votes {
     }
 }
 
+/// This attack will wait until near the end of the node's leader slot and then
+/// insert a single invalid transaction into the otherwise valid block. The
+/// single invalid transaction should invalidate the entire blocks; other
+/// nodes on the network should reject the entire block, ideally with little
+/// cost. This attack can be used with regular banking stage, or the generated
+/// replay attack blocks.
+pub mod invalidate_leader_block {
+    pub const ID: &str = "invalidate_leader_block";
+    adversarial_feature_impl!(InvalidateLeaderBlock);
+
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub enum InvalidationKind {
+        /// Invalidates the block by recording a transaction with an invalid fee payer.
+        InvalidFeePayer,
+        /// Invalidates the block by recording a transaction with an invalid signature.
+        InvalidSignature,
+    }
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub invalidation_kind: Option<InvalidationKind>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -160,6 +186,8 @@ pub enum AdversaryFeatureConfig {
     SendDuplicateBlocks(send_duplicate_blocks::AdversarialConfig),
     #[serde(rename = "turbineVotes")]
     DropTurbineVotes(drop_turbine_votes::AdversarialConfig),
+    #[serde(rename = "invalidateLeaderBlockConfig")]
+    InvalidateLeaderBlock(invalidate_leader_block::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
@@ -198,6 +226,12 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     drop_turbine_votes::ID.to_string(),
                     AdversaryFeatureConfig::DropTurbineVotes(
                         drop_turbine_votes::AdversarialConfig::default(),
+                    ),
+                ),
+                (
+                    invalidate_leader_block::ID.to_string(),
+                    AdversaryFeatureConfig::InvalidateLeaderBlock(
+                        invalidate_leader_block::AdversarialConfig::default(),
                     ),
                 ),
             ]
