@@ -102,15 +102,32 @@ impl From<BlockGeneratorAccountsOption> for AccountsFile {
 }
 
 type GeneratorBuilder = fn(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator;
-type GeneratorBuilderWithMeta = (GeneratorBuilder, usize);
-impl From<BlockGeneratorOption> for GeneratorBuilderWithMeta {
-    fn from(val: BlockGeneratorOption) -> Self {
+struct GeneratorBuilderWithConfig {
+    pub builder: GeneratorBuilder,
+    /// Run the generator this may times at once, when producing transactions.
+    /// Generators that do little work per transaction should use a larger batch size.
+    pub batch_size: usize,
+}
+
+impl GeneratorBuilderWithConfig {
+    fn new(builder: GeneratorBuilder, batch_size: usize) -> Self {
+        GeneratorBuilderWithConfig {
+            builder,
+            batch_size,
+        }
+    }
+}
+
+impl From<BlockGeneratorOption> for GeneratorBuilderWithConfig {
+    fn from(val: BlockGeneratorOption) -> GeneratorBuilderWithConfig {
+        use BlockGeneratorOption::*;
+
         match val {
-            BlockGeneratorOption::TransferRandom => (generator_transfer_random, 100),
-            BlockGeneratorOption::CreateNonceAccounts => (generator_create_nonce_accounts, 10),
-            BlockGeneratorOption::AllocateRandomLarge => (generator_allocate_random_large, 1),
-            BlockGeneratorOption::AllocateRandomSmall => (generator_allocate_random_small, 10),
-            BlockGeneratorOption::ChainTransactions => (generator_chain_transactions, 10),
+            TransferRandom => Self::new(generator_transfer_random, 100),
+            CreateNonceAccounts => Self::new(generator_create_nonce_accounts, 10),
+            AllocateRandomLarge => Self::new(generator_allocate_random_large, 1),
+            AllocateRandomSmall => Self::new(generator_allocate_random_small, 10),
+            ChainTransactions => Self::new(generator_chain_transactions, 10),
         }
     }
 }
@@ -121,7 +138,7 @@ pub fn get_transaction_generators(
 ) -> Vec<(TransactionGenerator, /* tx batches */ usize)> {
     let accounts = Arc::new(AccountsFile::from(block_generator_config.accounts));
 
-    let generators: Vec<GeneratorBuilderWithMeta> = block_generator_config
+    let generators: Vec<GeneratorBuilderWithConfig> = block_generator_config
         .selected_generators
         .iter()
         .map(|generator_option| generator_option.into())
@@ -129,7 +146,12 @@ pub fn get_transaction_generators(
 
     generators
         .into_iter()
-        .map(|(gen, tx_batches)| (gen(accounts.clone(), num_workers), tx_batches))
+        .map(
+            |GeneratorBuilderWithConfig {
+                 builder,
+                 batch_size,
+             }| { (builder(accounts.clone(), num_workers), batch_size) },
+        )
         .collect()
 }
 
