@@ -3,9 +3,10 @@ use {
     clap::{App, Arg, ArgMatches},
     enumset::EnumSet,
     indoc::indoc,
+    std::str::FromStr,
 };
 
-fn banking_stage_arg<'a, 'b>() -> Arg<'a, 'b> {
+fn generate_blocks_with_accounts_arg<'a, 'b>() -> Arg<'a, 'b> {
     Arg::with_name("generate_blocks_with_accounts")
         .long("generate-blocks-with-accounts")
         .takes_value(true)
@@ -22,13 +23,25 @@ fn banking_stage_arg<'a, 'b>() -> Arg<'a, 'b> {
         "})
 }
 
+fn generator_types_arg<'a, 'b>() -> Arg<'a, 'b> {
+    Arg::with_name("generator_types")
+        .long("generator-types")
+        .multiple(true)
+        .takes_value(true)
+        .hidden(false)
+        .requires("generate_blocks_with_accounts")
+        .possible_values(BlockGeneratorOption::cli_names())
+        .help(BlockGeneratorOption::cli_message())
+}
+
 pub trait BankingStageArgs {
     fn banking_stage_args(self) -> Self;
 }
 
 impl BankingStageArgs for App<'_, '_> {
     fn banking_stage_args(self) -> Self {
-        self.arg(banking_stage_arg())
+        self.arg(generate_blocks_with_accounts_arg())
+            .arg(generator_types_arg())
     }
 }
 
@@ -39,9 +52,20 @@ pub fn initialize_validator_config(
     let accounts = matches
         .value_of("generate_blocks_with_accounts")
         .map(|path| BlockGeneratorAccountsOption::AccountsPath(path.to_string()));
+    let selected_generators = if let Some(selected) = matches.values_of("generator_types") {
+        selected
+            .map(|name| {
+                BlockGeneratorOption::from_str(name)
+                    .expect("clap verified values against BlockGeneratorOption::cli_names()")
+            })
+            .fold(
+                EnumSet::<BlockGeneratorOption>::empty(),
+                |acc, generator| acc | generator,
+            )
+    } else {
+        EnumSet::<BlockGeneratorOption>::all()
+    };
 
-    // For now, select all generators by default
-    let selected_generators = EnumSet::<BlockGeneratorOption>::all();
     if let Some(accounts) = accounts {
         *block_generator_config = Some(BlockGeneratorConfig {
             accounts,

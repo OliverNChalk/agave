@@ -297,7 +297,8 @@ impl SchedulerPacing {
 }
 
 /// Configuration for the block generator invalidator for replay.
-#[derive(EnumSetType, Debug)]
+#[derive(Debug, EnumSetType, EnumString, EnumVariantNames)]
+#[strum(serialize_all = "kebab-case")]
 pub enum BlockGeneratorOption {
     TransferRandom,
     CreateNonceAccounts,
@@ -306,7 +307,18 @@ pub enum BlockGeneratorOption {
     ChainTransactions,
 }
 
-/// This enum defines possible ways to specify setup accounts:
+impl BlockGeneratorOption {
+    pub const fn cli_names() -> &'static [&'static str] {
+        Self::VARIANTS
+    }
+
+    pub fn cli_message() -> &'static str {
+        "Specify type of the attack, if not specified all attacks except for program-based will be \
+         launched in round-robin fashion"
+    }
+}
+
+/// Defines possible ways to specify setup accounts:
 /// * read accounts from file (used for private cluster or testnet)
 /// * use accounts provided as part of genesis (used for local cluster tests)
 #[derive(Clone, Debug)]
