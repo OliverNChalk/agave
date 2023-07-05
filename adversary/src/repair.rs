@@ -133,9 +133,10 @@ impl RepairPacketFlood {
                 reqs_v.push((vec![val], peer.serve_repair(Protocol::UDP).unwrap()));
             }
         });
-        let packet_count = reqs_v.len();
+        let mut packet_count = reqs_v.len();
         let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
         if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
+            packet_count = packet_count.saturating_sub(num_failed);
             error!(
                 "batch_send failed to send {}/{} packets first error {:?}",
                 num_failed,
@@ -175,9 +176,10 @@ impl RepairPacketFlood {
                 ));
             }
         });
-        let packet_count = reqs_v.len();
+        let mut packet_count = reqs_v.len();
         let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
         if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
+            packet_count = packet_count.saturating_sub(num_failed);
             error!(
                 "batch_send failed to send {}/{} packets first error {:?}",
                 num_failed,
@@ -248,6 +250,7 @@ impl RepairPacketFlood {
                 if let Err(SendPktsError::IoError(err, num_failed)) =
                     batch_send(repair_socket, reqs_iter)
                 {
+                    packet_count = packet_count.saturating_sub(num_failed);
                     error!(
                         "batch_send failed to send {}/{} packets first error {:?}",
                         num_failed,
@@ -284,9 +287,10 @@ impl RepairPacketFlood {
                 ));
             }
         });
-        let packet_count = reqs_v.len();
+        let mut packet_count = reqs_v.len();
         let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
         if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
+            packet_count = packet_count.saturating_sub(num_failed);
             error!(
                 "batch_send failed to send {}/{} packets first error {:?}",
                 num_failed,
@@ -354,14 +358,15 @@ impl RepairPacketFlood {
                 .map(|shred| (shred.payload(), peer.tvu(Protocol::UDP).unwrap()))
                 .collect();
             let packets_len = packets.len();
+            packet_count = packet_count.saturating_add(packets_len);
             if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, packets)
             {
+                packet_count = packet_count.saturating_sub(num_failed);
                 error!(
                     "batch_send failed to send {num_failed}/{packets_len} packets first error \
                      {err:?}",
                 );
             }
-            packet_count = packet_count.saturating_add(packets_len);
         });
         packet_count
     }
