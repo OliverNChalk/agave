@@ -69,6 +69,53 @@ pub trait Adversary {
         meta: Self::Metadata,
         config: invalidate_leader_block::AdversarialConfig,
     ) -> Result<()>;
+
+    fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>;
+}
+
+// Detects which adversarial attacks are active and outputs metrics for each attack
+fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfig>) {
+    let mut repair_packet_flood = false;
+    let mut send_duplicate_blocks = false;
+    let mut drop_turbine_votes = false;
+    let mut invalidate_leader_block = false;
+    for adversary_feature_config in adversary_feature_configs {
+        match adversary_feature_config {
+            AdversaryFeatureConfig::RepairPacketFlood(config) => {
+                if !config.configs.is_empty() {
+                    repair_packet_flood = true;
+                }
+            }
+            AdversaryFeatureConfig::SendDuplicateBlocks(config) => {
+                if config.num_duplicate_validators.is_some() {
+                    send_duplicate_blocks = true;
+                }
+            }
+            AdversaryFeatureConfig::DropTurbineVotes(config) => {
+                if config.drop_turbine_votes {
+                    drop_turbine_votes = true;
+                }
+            }
+            AdversaryFeatureConfig::InvalidateLeaderBlock(config) => {
+                if config.invalidation_kind.is_some() {
+                    invalidate_leader_block = true;
+                }
+            }
+            AdversaryFeatureConfig::Example(_)
+            | AdversaryFeatureConfig::RepairParameters(_)
+            | AdversaryFeatureConfig::ShredReceiverAddress(_) => {}
+        }
+    }
+
+    datapoint_info!(
+        "adversary",
+        ("repair_packet_flood", repair_packet_flood, i64),
+        ("send_duplicate_blocks", send_duplicate_blocks, i64),
+        ("drop_turbine_votes", drop_turbine_votes, i64),
+        ("invalidate_leader_block", invalidate_leader_block, i64),
+    );
 }
 
 pub struct AdversaryImpl;
@@ -93,73 +140,95 @@ impl Adversary for AdversaryImpl {
         meta: Self::Metadata,
         config: repair_packet_flood::AdversarialConfig,
     ) -> Result<()> {
-        for config in &config.configs {
-            if let Some(PeerIdentifier::Pubkey(pubkey)) = &config.target {
-                verify_pubkey(pubkey.as_str())?;
+        self.perform_configuration(meta.clone(), || {
+            for config in &config.configs {
+                if let Some(PeerIdentifier::Pubkey(pubkey)) = &config.target {
+                    verify_pubkey(pubkey.as_str())?;
+                }
             }
-        }
-        let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
-            .repair_packet_flood
-            .write()
-            .unwrap();
-        if let Some(context) = adversary_repair.take() {
-            context.join().unwrap();
-        }
-        repair_packet_flood::set_config(config.clone());
-        if !config.configs.is_empty() {
-            *adversary_repair = Some(RepairPacketFlood::new(
-                meta.serve_repair_socket(),
-                meta.bank_forks(),
-                meta.cluster_info(),
-                meta.leader_schedule_cache(),
-                config.configs,
-            ));
-        }
-        Ok(())
+            let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
+                .repair_packet_flood
+                .write()
+                .unwrap();
+            if let Some(context) = adversary_repair.take() {
+                context.join().unwrap();
+            }
+            repair_packet_flood::set_config(config.clone());
+            if !config.configs.is_empty() {
+                *adversary_repair = Some(RepairPacketFlood::new(
+                    meta.serve_repair_socket(),
+                    meta.bank_forks(),
+                    meta.cluster_info(),
+                    meta.leader_schedule_cache(),
+                    config.configs,
+                ));
+            }
+            Ok(())
+        })
     }
 
     fn configure_repair_parameters(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         config: repair_parameters::AdversarialConfig,
     ) -> Result<()> {
-        repair_parameters::set_config(config);
-        Ok(())
+        self.perform_configuration(meta, || {
+            repair_parameters::set_config(config);
+            Ok(())
+        })
     }
 
     fn configure_send_duplicate_blocks(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         config: send_duplicate_blocks::AdversarialConfig,
     ) -> Result<()> {
-        send_duplicate_blocks::set_config(config);
-        Ok(())
+        self.perform_configuration(meta, || {
+            send_duplicate_blocks::set_config(config);
+            Ok(())
+        })
     }
 
     fn configure_shred_receiver_address(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         config: shred_receiver_address::AdversarialConfig,
     ) -> Result<()> {
-        shred_receiver_address::set_config(config);
-        Ok(())
+        self.perform_configuration(meta, || {
+            shred_receiver_address::set_config(config);
+            Ok(())
+        })
     }
 
     fn configure_drop_turbine_votes(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         config: drop_turbine_votes::AdversarialConfig,
     ) -> Result<()> {
-        drop_turbine_votes::set_config(config);
-        Ok(())
+        self.perform_configuration(meta, || {
+            drop_turbine_votes::set_config(config);
+            Ok(())
+        })
     }
 
     fn configure_invalidate_leader_block(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         config: invalidate_leader_block::AdversarialConfig,
     ) -> Result<()> {
-        invalidate_leader_block::set_config(config);
+        self.perform_configuration(meta, || {
+            invalidate_leader_block::set_config(config);
+            Ok(())
+        })
+    }
+
+    fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        output_adversary_metrics(self.get_status(meta.clone())?);
+        configuration()?;
+        output_adversary_metrics(self.get_status(meta)?);
         Ok(())
     }
 }
