@@ -2,15 +2,19 @@
 
 set -e
 
-# get affected files
-pr_number="$BUILDKITE_PULL_REQUEST"
-readarray -t affected_files < <(gh pr diff --name-only "$pr_number")
-if [[ ${#affected_files[*]} -eq 0 ]]; then
-  echo "Unable to determine the files affected by this PR"
-  exit 1
+if [[ -z "$TRIGGER_ALL_STEPS" ]]; then
+  # get affected files
+  pr_number="$BUILDKITE_PULL_REQUEST"
+  readarray -t affected_files < <(gh pr diff --name-only "$pr_number")
+  if [[ ${#affected_files[*]} -eq 0 ]]; then
+    echo "Unable to determine the files affected by this PR"
+    exit 1
+  fi
+  echo "~~~ Affected files"
+  printf '%s\n' "${affected_files[@]}"
+else
+  echo "trigger all steps so ignore affected files"
 fi
-echo "~~~ Affected files"
-printf '%s\n' "${affected_files[@]}"
 
 affects() {
   if [[ -n "$TRIGGER_ALL_STEPS" ]]; then
