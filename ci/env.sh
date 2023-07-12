@@ -15,7 +15,7 @@ if [[ -n $CI ]]; then
     export CI_COMMIT=$BUILDKITE_COMMIT
     export CI_JOB_ID=$BUILDKITE_JOB_ID
 
-    if [[ -n $BUILDKITE_PULL_REQUEST ]]; then
+    if [[ $BUILDKITE_PULL_REQUEST != "false" ]]; then
       export CI_BASE_BRANCH=$BUILDKITE_PULL_REQUEST_BASE_BRANCH
       export CI_PULL_REQUEST=true
     else
