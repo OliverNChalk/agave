@@ -14,10 +14,8 @@ if [[ -n $CI ]]; then
     fi
     export CI_COMMIT=$BUILDKITE_COMMIT
     export CI_JOB_ID=$BUILDKITE_JOB_ID
-    # The standard BUILDKITE_PULL_REQUEST environment variable is always "false" due
-    # to how solana-ci-gate is used to trigger PR builds rather than using the
-    # standard Buildkite PR trigger.
-    if [[ $CI_BRANCH =~ pull/* ]]; then
+
+    if [[ -n $BUILDKITE_PULL_REQUEST ]]; then
       export CI_BASE_BRANCH=$BUILDKITE_PULL_REQUEST_BASE_BRANCH
       export CI_PULL_REQUEST=true
     else
