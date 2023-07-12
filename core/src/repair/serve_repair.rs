@@ -537,8 +537,9 @@ impl ServeRepair {
             .serve_repair_max_requests_per_iteration
             .unwrap_or(max_requests_per_iteration);
         let max_buffered_packets = adv_repair_parameters
-            .serve_repair_max_requests_per_iteration
-            .unwrap_or(max_buffered_packets);
+            .serve_repair_oversampled_requests_per_iteration
+            .unwrap_or(max_buffered_packets)
+            .max(max_requests_per_iteration);
 
         let mut dropped_requests = 0;
         let mut well_formed_requests = discard_malformed_repair_requests(&mut requests, stats);
