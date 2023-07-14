@@ -50,6 +50,7 @@ pub mod example {
     }
 }
 
+/// Configuration for flooding repair packets
 pub mod repair_packet_flood {
     use std::net::IpAddr;
     pub const ID: &str = "repair_packet_flood";
@@ -65,22 +66,38 @@ pub mod repair_packet_flood {
     #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub enum FloodStrategy {
+        /// Single byte payload (invalid) packets
         MinimalPackets,
+        /// Well formed `HighestWindowIndex` packets. Packets duplicated per peer per iteration.
         SignedPackets,
+        /// Send bursts of `HighestWidowIndex` packets to each peer with each packet signed
+        /// using a unique keypair.
         PingCacheOverflow,
+        /// Signed `Orphan` packets. Packets duplicated per peer per iteration.
         Orphan,
+        /// Prematurely create shred data for this validator's future slots from the leader
+        /// schedule.
         FakeFutureLeaderSlots,
     }
 
+    /// Define a flood strategy which will be executed on its own thread. The thread will
+    /// continue flooding with the defined configuration until stopped.
     #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct FloodConfig {
+        /// Flood strategy to use for this configuration.
         pub flood_strategy: FloodStrategy,
+        /// Number of packets which will be sent to each peer during each iteration of the
+        /// flood strategy loop.
         pub packets_per_peer_per_iteration: u32,
+        /// Time to sleep between iterations of the flood strategy loop.
         pub iteration_delay_us: u64,
+        /// Optional target to limit the flood configuration to a specific peer.
         pub target: Option<PeerIdentifier>,
     }
 
+    /// Define a list of flood configurations, each configuration will be executed on its
+    /// own thread. An empty list disables all repair flooding.
     #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct AdversarialConfig {
@@ -88,6 +105,7 @@ pub mod repair_packet_flood {
     }
 }
 
+/// Configurable adversarial testing parameters for repair protocol
 pub mod repair_parameters {
     pub const ID: &str = "repair_parameters";
     adversarial_feature_impl!(RepairParameters);
@@ -95,7 +113,12 @@ pub mod repair_parameters {
     #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct AdversarialConfig {
+        /// Max number of requests processed in a single iteration of the repair protocol server
+        /// processing loop.
         pub serve_repair_max_requests_per_iteration: Option<usize>,
+        /// Max number of packets to buffer during each iteration of the repair server processing
+        /// loop. The top `serve_repair_max_requests_per_iteration` packets based on stake weight
+        /// will then be processed and the remainder dropped.
         pub serve_repair_oversampled_requests_per_iteration: Option<usize>,
         /// Return results for `AncestorHashes` requests with garbage hash values.
         pub serve_repair_ancestor_hashes_invalid_respones: Option<bool>,
