@@ -6,8 +6,10 @@ use {
     },
     crate::repair::repair_response,
     bincode::serialize,
+    rand::Rng,
     solana_clock::Slot,
     solana_gossip::cluster_info::ClusterInfo,
+    solana_hash::HASH_BYTES,
     solana_ledger::{
         ancestor_iterator::{AncestorIterator, AncestorIteratorWithHash},
         blockstore::Blockstore,
@@ -96,7 +98,23 @@ pub trait RepairHandler {
         slot: Slot,
         nonce: Nonce,
     ) -> Option<PacketBatch> {
-        let ancestor_slot_hashes = if self.blockstore().is_duplicate_confirmed(slot) {
+        let adv_repair_parameters =
+            solana_adversary::adversary_feature_set::repair_parameters::get_config();
+        let ancestor_slot_hashes = if adv_repair_parameters
+            .serve_repair_ancestor_hashes_invalid_respones
+            .unwrap_or(false)
+        {
+            let ancestor_iterator = AncestorIterator::new_inclusive(slot, self.blockstore());
+            let mut rng = rand::thread_rng();
+            ancestor_iterator
+                .take(MAX_ANCESTOR_RESPONSES)
+                .map(|slot| {
+                    let mut hash_buf = [0u8; HASH_BYTES];
+                    rng.fill(&mut hash_buf);
+                    (slot, hash_buf.into())
+                })
+                .collect()
+        } else if self.blockstore().is_duplicate_confirmed(slot) {
             let ancestor_iterator = AncestorIteratorWithHash::from(
                 AncestorIterator::new_inclusive(slot, self.blockstore()),
             );

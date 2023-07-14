@@ -305,6 +305,7 @@ pub mod tests {
                 "repairParametersConfig": {
                     "serveRepairMaxRequestsPerIteration": null,
                     "serveRepairOversampledRequestsPerIteration": null,
+                    "serveRepairAncestorHashesInvalidRespones": null,
                 },
             },
             {

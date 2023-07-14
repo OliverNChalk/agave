@@ -97,6 +97,8 @@ pub mod repair_parameters {
     pub struct AdversarialConfig {
         pub serve_repair_max_requests_per_iteration: Option<usize>,
         pub serve_repair_oversampled_requests_per_iteration: Option<usize>,
+        /// Return results for `AncestorHashes` requests with garbage hash values.
+        pub serve_repair_ancestor_hashes_invalid_respones: Option<bool>,
     }
 }
 
