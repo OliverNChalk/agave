@@ -60,15 +60,17 @@ pub mod example {
         _meta: Self::Metadata,
         config: example::AdversarialConfig,
     ) -> Result<()> {
-        example::set_config(config);
-        Ok(())
+        self.perform_configuration(meta, || Ok(example::set_config(config)))
     }
 ```
 
-6. In the desired location, use code similar to below to access configuration
+6. To write which attack has been launched to the metrics database, extend function `output_adversary_metrics`.
+
+7. In the desired location, use code similar to below to access configuration
    for the desired adversarial feature.
 ```rust
 // ...
 let config = adversary_feature_set::example::get_config();
 // ... some code that uses this config
+```
 
