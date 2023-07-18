@@ -3,6 +3,7 @@
 //! For details on how to add adversarial features, see the README in the root
 //! of this crate.
 use {
+    enum_iterator::{all, Sequence},
     serde::{Deserialize, Serialize},
     std::{
         collections::HashMap,
@@ -52,7 +53,7 @@ pub mod example {
 
 /// Configuration for flooding repair packets
 pub mod repair_packet_flood {
-    use std::net::IpAddr;
+    use {enum_iterator::Sequence, std::net::IpAddr};
     pub const ID: &str = "repair_packet_flood";
     adversarial_feature_impl!(RepairPacketFlood);
 
@@ -63,7 +64,7 @@ pub mod repair_packet_flood {
         Ip(IpAddr),
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, Sequence, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub enum FloodStrategy {
         /// Single byte payload (invalid) packets
@@ -176,10 +177,11 @@ pub mod drop_turbine_votes {
 /// cost. This attack can be used with regular banking stage, or the generated
 /// replay attack blocks.
 pub mod invalidate_leader_block {
+    use enum_iterator::Sequence;
     pub const ID: &str = "invalidate_leader_block";
     adversarial_feature_impl!(InvalidateLeaderBlock);
 
-    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, Eq, PartialEq, Sequence, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub enum InvalidationKind {
         /// Invalidates the block by recording a transaction with an invalid fee payer.
@@ -298,4 +300,13 @@ fn set_adversary_feature_config(feature_id: &str, config: AdversaryFeatureConfig
     );
 
     feature_map.insert(feature_id.to_string(), config);
+}
+
+pub fn all_enum_variants_as_json_strings<T: Sequence + Serialize>() -> Vec<String> {
+    all::<T>()
+        .map(|enum_value| {
+            let json_value = serde_json::to_value(enum_value).unwrap();
+            json_value.as_str().unwrap().to_owned()
+        })
+        .collect::<Vec<String>>()
 }

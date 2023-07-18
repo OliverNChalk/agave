@@ -1,0 +1,23 @@
+[package]
+name = "solana-invalidator-client"
+description = "Client for interacting with Solana Invalidator nodes"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+clap = { workspace = true }
+enum-iterator = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+solana-adversary = { workspace = true }
+solana-clap-utils = { workspace = true }
+solana-logger = { workspace = true }
+solana-net-utils = { workspace = true }

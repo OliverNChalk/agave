@@ -7198,17 +7198,27 @@ dependencies = [
 name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
+ "clap 2.33.3",
+ "enum-iterator",
+ "futures 0.3.31",
  "log",
  "rand 0.8.5",
  "rayon",
+ "reqwest 0.12.24",
  "serde",
  "serde_derive",
+ "serde_json",
+ "solana-clap-utils",
+ "solana-clock",
+ "solana-compute-budget",
  "solana-entry",
  "solana-gossip",
  "solana-hash",
  "solana-keypair",
  "solana-ledger",
+ "solana-logger",
  "solana-net-protocol",
+ "solana-net-utils",
  "solana-pubkey",
  "solana-rayon-threadlimit",
  "solana-runtime",
@@ -9064,6 +9074,23 @@ dependencies = [
  "solana-sdk-ids",
  "solana-serialize-utils",
  "solana-sysvar-id",
+]
+
+[[package]]
+name = "solana-invalidator-client"
+version = "3.1.0"
+dependencies = [
+ "clap 2.33.3",
+ "enum-iterator",
+ "futures 0.3.31",
+ "log",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "solana-adversary",
+ "solana-clap-utils",
+ "solana-logger",
+ "solana-net-utils",
 ]
 
 [[package]]

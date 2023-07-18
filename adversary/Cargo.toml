@@ -14,17 +14,27 @@ edition = { workspace = true }
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+clap = { workspace = true }
+enum-iterator = { workspace = true }
+futures = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_derive = { workspace = true }
+serde_json = { workspace = true }
+solana-clap-utils = { workspace = true }
+solana-clock = { workspace = true }
+solana-compute-budget = { workspace = true }
 solana-entry = { workspace = true }
 solana-gossip = { workspace = true }
 solana-hash = { workspace = true }
 solana-keypair = { workspace = true }
 solana-ledger = { workspace = true }
+solana-logger = { workspace = true }
 solana-net-protocol = { path = "../net-protocol" }
+solana-net-utils = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rayon-threadlimit = { workspace = true }
 solana-runtime = { workspace = true }
