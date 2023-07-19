@@ -1,5 +1,8 @@
 use {
-    crate::validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig, BlockGeneratorOption},
+    crate::{
+        banking_stage::adversary::accounts_file::BlockGeneratorOption,
+        validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
+    },
     clap::{App, Arg, ArgMatches},
     enumset::EnumSet,
     indoc::indoc,
@@ -63,7 +66,9 @@ pub fn initialize_validator_config(
                 |acc, generator| acc | generator,
             )
     } else {
-        EnumSet::<BlockGeneratorOption>::all()
+        // For now, by default select all generators except those which are executing on-chain programs
+        // because they require specific setup
+        EnumSet::<BlockGeneratorOption>::all() ^ BlockGeneratorOption::WriteProgram
     };
 
     if let Some(accounts) = accounts {

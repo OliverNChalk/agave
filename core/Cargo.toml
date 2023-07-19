@@ -58,6 +58,7 @@ assert_matches = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }
+borsh = { workspace = true }
 bs58 = { workspace = true }
 bytemuck = { workspace = true }
 bytes = { workspace = true }
@@ -121,7 +122,7 @@ solana-geyser-plugin-manager = { workspace = true }
 solana-gossip = { workspace = true, features = ["agave-unstable-api"] }
 solana-hard-forks = { workspace = true }
 solana-hash = { workspace = true }
-solana-instruction = { workspace = true }
+solana-instruction = { workspace = true, features = ["borsh"] }
 solana-keypair = { workspace = true }
 solana-ledger = { workspace = true, features = ["agave-unstable-api"] }
 solana-loader-v3-interface = { workspace = true }
@@ -147,6 +148,7 @@ solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
 solana-runtime-transaction = { workspace = true }
 solana-sanitize = { workspace = true }
+solana-sbf-block-generator-stress-test = { path = "../programs/block-generator-stress-test", features = ["no-entrypoint"] }
 solana-sdk-ids = { workspace = true }
 solana-send-transaction-service = { workspace = true }
 solana-sha256-hasher = { workspace = true }

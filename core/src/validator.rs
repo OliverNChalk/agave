@@ -5,7 +5,9 @@ use {
     crate::{
         admin_rpc_post_init::{AdminRpcRequestMetadataPostInit, KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
+            adversary::accounts_file::{AccountsFile, BlockGeneratorOption},
+            transaction_scheduler::scheduler_controller::SchedulerConfig,
+            BankingStage,
         },
         banking_trace::{self, BankingTracer, TraceError},
         cluster_info_vote_listener::VoteTracker,
@@ -40,7 +42,7 @@ use {
     },
     anyhow::{anyhow, Context, Result},
     crossbeam_channel::{bounded, unbounded, Receiver},
-    enumset::{EnumSet, EnumSetType},
+    enumset::EnumSet,
     quinn::Endpoint,
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -296,35 +298,14 @@ impl SchedulerPacing {
     }
 }
 
-/// Configuration for the block generator invalidator for replay.
-#[derive(Debug, EnumSetType, EnumString, EnumVariantNames)]
-#[strum(serialize_all = "kebab-case")]
-pub enum BlockGeneratorOption {
-    TransferRandom,
-    CreateNonceAccounts,
-    AllocateRandomLarge,
-    AllocateRandomSmall,
-    ChainTransactions,
-}
-
-impl BlockGeneratorOption {
-    pub const fn cli_names() -> &'static [&'static str] {
-        Self::VARIANTS
-    }
-
-    pub fn cli_message() -> &'static str {
-        "Specify type of the attack, if not specified all attacks except for program-based will be \
-         launched in round-robin fashion"
-    }
-}
-
 /// Defines possible ways to specify setup accounts:
 /// * read accounts from file (used for private cluster or testnet)
 /// * use accounts provided as part of genesis (used for local cluster tests)
 #[derive(Clone, Debug)]
 pub enum BlockGeneratorAccountsOption {
     AccountsPath(String),
-    StartingKeypairs(Arc<Vec<Keypair>>),
+    // Arc to make it clonable which is needed for validator::new
+    Accounts(Arc<AccountsFile>),
 }
 
 /// Configuration for the block generator invalidator for replay.

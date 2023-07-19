@@ -1,14 +1,19 @@
 //! Generators for testing banking stage
 
 use {
+    super::accounts_file::{AccountsFile, AccountsFileRaw, BlockGeneratorOption},
     crate::{
         banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
-        validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig, BlockGeneratorOption},
+        validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
     },
-    rand::{seq::SliceRandom, thread_rng},
-    serde::Deserialize,
+    block_generator_stress_test::BlockGeneratorStressTestInstruction,
+    rand::{seq::SliceRandom, thread_rng, Rng},
+    solana_compute_budget_interface::ComputeBudgetInstruction,
+    solana_instruction::{AccountMeta, Instruction},
     solana_keypair::Keypair,
+    solana_message::Message,
     solana_nonce::state as nonce_state,
+    solana_pubkey::Pubkey,
     solana_rent::Rent,
     solana_runtime::bank::Bank,
     solana_signer::Signer,
@@ -20,82 +25,26 @@ use {
 
 pub type TransactionGenerator = Box<dyn Send + FnMut(&Bank) -> (Vec<SanitizedTransaction>, usize)>;
 
-#[derive(Default)]
-struct AccountsFile {
-    payers: Vec<Keypair>,
-    _max_size: Vec<Keypair>,
-}
-
-impl AccountsFile {
-    pub fn with_payers(payers: &[Keypair]) -> Self {
-        let payers = payers
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
-        Self {
-            payers,
-            ..Default::default()
-        }
-    }
-}
-
-impl From<AccountsFileRaw> for AccountsFile {
-    fn from(raw: AccountsFileRaw) -> Self {
-        let AccountsFileRaw { payers, max_size } = raw;
-
-        let payers = payers.into_iter().map(Into::into).collect();
-        let max_size = max_size.into_iter().map(Into::into).collect();
-
-        Self {
-            payers,
-            _max_size: max_size,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct AccountsFileRaw {
-    #[serde(default)]
-    payers: Vec<KeypairRaw>,
-    #[serde(default)]
-    max_size: Vec<KeypairRaw>,
-}
-
-#[derive(Deserialize)]
-struct KeypairRaw {
-    #[serde(rename = "publicKey")]
-    pub _pubkey: String,
-    #[serde(rename = "secretKey")]
-    pub secret_key: Vec<u8>,
-}
-
-impl From<KeypairRaw> for Keypair {
-    fn from(raw: KeypairRaw) -> Self {
-        assert_eq!(raw.secret_key.len(), 64);
-        Self::new_from_array(raw.secret_key[..32].try_into().unwrap())
-    }
-}
-
-impl From<BlockGeneratorAccountsOption> for AccountsFile {
-    fn from(block_generator_config: BlockGeneratorAccountsOption) -> AccountsFile {
+impl From<BlockGeneratorAccountsOption> for Arc<AccountsFile> {
+    fn from(block_generator_config: BlockGeneratorAccountsOption) -> Arc<AccountsFile> {
         match block_generator_config {
             BlockGeneratorAccountsOption::AccountsPath(file_name) => {
                 let file_content = std::fs::read_to_string(file_name)
                     .expect("Failed to read the accounts file.\nPath: {file_name}");
-                serde_json::from_str::<AccountsFileRaw>(&file_content)
+                let accounts = serde_json::from_str::<AccountsFileRaw>(&file_content)
                     .expect(
                         "Failed to parse accounts file.\nPath: \
                          {file_name}\nContent:\n{file_content}",
                     )
-                    .into()
+                    .into();
+                Arc::new(accounts)
             }
-            BlockGeneratorAccountsOption::StartingKeypairs(keypairs) => {
+            BlockGeneratorAccountsOption::Accounts(account_file) => {
                 debug!(
                     "Saving accounts for {} starting keypairs into 'payers' group",
-                    keypairs.len()
+                    account_file.payers.len()
                 );
-
-                AccountsFile::with_payers(&keypairs[..])
+                account_file
             }
         }
     }
@@ -119,7 +68,7 @@ impl GeneratorBuilderWithConfig {
 }
 
 impl From<BlockGeneratorOption> for GeneratorBuilderWithConfig {
-    fn from(val: BlockGeneratorOption) -> GeneratorBuilderWithConfig {
+    fn from(val: BlockGeneratorOption) -> Self {
         use BlockGeneratorOption::*;
 
         match val {
@@ -128,6 +77,7 @@ impl From<BlockGeneratorOption> for GeneratorBuilderWithConfig {
             AllocateRandomLarge => Self::new(generator_allocate_random_large, 1),
             AllocateRandomSmall => Self::new(generator_allocate_random_small, 10),
             ChainTransactions => Self::new(generator_chain_transactions, 10),
+            WriteProgram => Self::new(generator_write_program, 1),
         }
     }
 }
@@ -136,7 +86,7 @@ pub fn get_transaction_generators(
     block_generator_config: BlockGeneratorConfig,
     num_workers: usize,
 ) -> Vec<(TransactionGenerator, /* tx batches */ usize)> {
-    let accounts = Arc::new(AccountsFile::from(block_generator_config.accounts));
+    let accounts = Arc::<AccountsFile>::from(block_generator_config.accounts);
 
     let generators: Vec<GeneratorBuilderWithConfig> = block_generator_config
         .selected_generators
@@ -343,6 +293,90 @@ fn generator_chain_transactions(
             ));
         }
 
+        batch_index = (batch_index + 1) % num_batches;
+        (transactions, worker_index)
+    })
+}
+
+fn create_write_message(
+    payer: &Keypair,
+    program_id: &Pubkey,
+    accounts_meta: &[AccountMeta],
+) -> Message {
+    let rnd = thread_rng().gen_range(0..=u64::MAX);
+    let data = BlockGeneratorStressTestInstruction::WriteAccounts {
+        value: 128,
+        random: rnd,
+    };
+    // Explicitly specify the CU budget to avoid dropping some transactions on the CU check side
+    // The constraint is that 48M/64 > CU limit
+    // To maximize number of txs in the block, it is beneficial to set CU limit to be close to the real CU consumption
+    // Default is 200k
+    let set_cu_instruction = ComputeBudgetInstruction::set_compute_unit_limit(25_000);
+    let write_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta.to_vec());
+    Message::new(
+        &[set_cu_instruction, write_instruction],
+        Some(&payer.pubkey()),
+    )
+}
+
+/// Creates a generator that executes the program
+fn generator_write_program(
+    accounts: Arc<AccountsFile>,
+    num_workers: usize,
+) -> TransactionGenerator {
+    let num_payers = accounts.payers.len();
+    let program_id = accounts.owner_program_id.expect(
+        "Accounts owner program is not specified. Cannot generate write program transactions.",
+    );
+    let accounts_meta: Vec<AccountMeta> = accounts
+        .max_size
+        .iter()
+        .map(|account| AccountMeta::new(account.pubkey(), false))
+        .collect();
+
+    // assumptions that allow to simplify the code
+    assert!(
+        num_payers != 0,
+        "Need at least one payer to pay for the generated transactions"
+    );
+    if num_payers < TARGET_NUM_TRANSACTIONS_PER_BATCH {
+        warn!(
+            "Number of payers ({num_payers}) is less than size of the transactions batch \
+             ({TARGET_NUM_TRANSACTIONS_PER_BATCH}), this will lead to AccountInUse errors"
+        );
+    }
+    if accounts.max_size.len() % num_payers != 0 {
+        info!(
+            "Only first {} accounts will be used for write accounts attack",
+            accounts.max_size.len() - accounts.max_size.len() % num_payers
+        );
+    }
+    let num_accounts_per_tx = accounts_meta.len() / num_payers;
+    let batch_size: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH * num_accounts_per_tx;
+    let mut batch_index = 0;
+    let num_batches = accounts.max_size.len() / batch_size;
+
+    Box::new(move |bank: &Bank| {
+        let payers = accounts.payers.iter().cycle();
+        let blockhash = bank.last_blockhash();
+        let mut transactions = vec![];
+
+        // splits all the accounts into set of batches
+        // which are regularly distributed among workers
+        let worker_index = batch_index % num_workers;
+        // get current batch
+        let batch_begin = batch_index * batch_size;
+        let batch_end = batch_begin + batch_size;
+        let batch = &accounts_meta[batch_begin..batch_end];
+
+        for (tx_accounts, payer) in batch.chunks(num_accounts_per_tx).zip(payers) {
+            let message = create_write_message(payer, &program_id, tx_accounts);
+            let transaction = Transaction::new(&[payer], message, blockhash);
+            transactions.push(SanitizedTransaction::from_transaction_for_tests(
+                transaction,
+            ));
+        }
         batch_index = (batch_index + 1) % num_batches;
         (transactions, worker_index)
     })
