@@ -466,6 +466,8 @@ fn retransmit_shred(
         stats.num_shreds_skipped.fetch_add(1, Ordering::Relaxed);
         return None;
     }
+    let adv_packet_drop_config =
+        solana_adversary::adversary_feature_set::packet_drop_parameters::get_config();
     let mut compute_turbine_peers = Measure::start("turbine_start");
     let (root_distance, mut addrs) =
         get_retransmit_addrs(&key, root_bank, cache, addr_cache, socket_addr_space, stats)?;
@@ -487,7 +489,14 @@ fn retransmit_shred(
         Cow::Borrowed(addrs) => {
             let filtered: Vec<_> = addrs
                 .iter()
-                .filter(|addr| socket_addr_space.check(addr))
+                .filter(|addr| {
+                    socket_addr_space.check(addr)
+                        && adv_packet_drop_config
+                            .retransmit_packet_drop_percent
+                            .is_none_or(|drop_percent| {
+                                rand::thread_rng().gen_range(0..100) >= drop_percent
+                            })
+                })
                 .cloned()
                 .collect();
             if filtered.len() == addrs.len() {
@@ -499,7 +508,14 @@ fn retransmit_shred(
         Cow::Owned(addrs) => {
             let filtered: Vec<_> = addrs
                 .into_iter()
-                .filter(|addr| socket_addr_space.check(addr))
+                .filter(|addr| {
+                    socket_addr_space.check(addr)
+                        && adv_packet_drop_config
+                            .retransmit_packet_drop_percent
+                            .is_none_or(|drop_percent| {
+                                rand::thread_rng().gen_range(0..100) >= drop_percent
+                            })
+                })
                 .collect();
             Cow::Owned(filtered)
         }

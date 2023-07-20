@@ -5,7 +5,7 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, drop_turbine_votes, example, invalidate_leader_block,
+            self, drop_turbine_votes, example, invalidate_leader_block, packet_drop_parameters,
             repair_packet_flood::{self, PeerIdentifier},
             repair_parameters, send_duplicate_blocks, shred_receiver_address,
             AdversaryFeatureConfig,
@@ -71,6 +71,13 @@ pub trait Adversary {
         config: invalidate_leader_block::AdversarialConfig,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "configurePacketDropParameters")]
+    fn configure_packet_drop_parameters(
+        &self,
+        meta: Self::Metadata,
+        config: packet_drop_parameters::AdversarialConfig,
+    ) -> Result<()>;
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>;
@@ -120,6 +127,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                 }
             }
             AdversaryFeatureConfig::Example(_)
+            | AdversaryFeatureConfig::PacketDropParameters(_)
             | AdversaryFeatureConfig::RepairParameters(_)
             | AdversaryFeatureConfig::ShredReceiverAddress(_) => {}
         }
@@ -238,6 +246,17 @@ impl Adversary for AdversaryImpl {
         })
     }
 
+    fn configure_packet_drop_parameters(
+        &self,
+        meta: Self::Metadata,
+        config: packet_drop_parameters::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta, || {
+            packet_drop_parameters::set_config(config);
+            Ok(())
+        })
+    }
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>,
@@ -313,6 +332,12 @@ pub mod tests {
             {
                 "invalidateLeaderBlockConfig": {
                     "invalidationKind": null,
+                },
+            },
+            {
+                "packetDropParametersConfig": {
+                    "broadcastPacketDropPercent": null,
+                    "retransmitPacketDropPercent": null,
                 },
             },
             {
@@ -630,6 +655,37 @@ pub mod tests {
         // Reset the config
         let config = invalidate_leader_block::AdversarialConfig::default();
         let request = create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_packet_drop_parameters() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = packet_drop_parameters::AdversarialConfig {
+            broadcast_packet_drop_percent: Some(10),
+            retransmit_packet_drop_percent: None,
+        };
+
+        {
+            // Update the config for network_parameters, ensuring that request succeeds
+            let meta = meta.clone();
+            let request =
+                create_test_request("configurePacketDropParameters", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, packet_drop_parameters::get_config());
+
+        // Reset the config
+        let config = packet_drop_parameters::AdversarialConfig::default();
+        let request = create_test_request("configurePacketDropParameters", Some(json!([config])));
         let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
         assert_eq!(result, json!(null));
     }

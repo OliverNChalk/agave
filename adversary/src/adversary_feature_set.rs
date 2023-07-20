@@ -197,6 +197,21 @@ pub mod invalidate_leader_block {
     }
 }
 
+/// Configurable packet drop parameters
+pub mod packet_drop_parameters {
+    pub const ID: &str = "packet_drop_parameters";
+    adversarial_feature_impl!(PacketDropParameters);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        /// Percentage of outgoing packets to randomly drop during broadcast stage.
+        pub broadcast_packet_drop_percent: Option<u8>,
+        /// Percentage of outgoing packets to randomly drop during retransmit stage.
+        pub retransmit_packet_drop_percent: Option<u8>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -215,6 +230,8 @@ pub enum AdversaryFeatureConfig {
     DropTurbineVotes(drop_turbine_votes::AdversarialConfig),
     #[serde(rename = "invalidateLeaderBlockConfig")]
     InvalidateLeaderBlock(invalidate_leader_block::AdversarialConfig),
+    #[serde(rename = "packetDropParametersConfig")]
+    PacketDropParameters(packet_drop_parameters::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
@@ -259,6 +276,12 @@ static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureC
                     invalidate_leader_block::ID.to_string(),
                     AdversaryFeatureConfig::InvalidateLeaderBlock(
                         invalidate_leader_block::AdversarialConfig::default(),
+                    ),
+                ),
+                (
+                    packet_drop_parameters::ID.to_string(),
+                    AdversaryFeatureConfig::PacketDropParameters(
+                        packet_drop_parameters::AdversarialConfig::default(),
                     ),
                 ),
             ]

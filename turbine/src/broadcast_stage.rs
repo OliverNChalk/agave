@@ -15,6 +15,7 @@ use {
     bytes::Bytes,
     crossbeam_channel::{unbounded, Receiver, RecvError, RecvTimeoutError, Sender},
     itertools::Itertools,
+    rand::Rng,
     solana_adversary::adversary_feature_set,
     solana_clock::Slot,
     solana_gossip::{
@@ -497,6 +498,9 @@ pub fn broadcast_shreds(
     quic_endpoint_sender: &AsyncSender<(SocketAddr, Bytes)>,
     destinations: Option<&[SocketAddr]>,
 ) -> Result<()> {
+    let adv_packet_drop_config =
+        solana_adversary::adversary_feature_set::packet_drop_parameters::get_config();
+
     let mut result = Ok(());
     // Compute destinations & transmission protocols for each of the shreds to be sent
     let mut shred_select = Measure::start("shred_select");
@@ -552,6 +556,12 @@ pub fn broadcast_shreds(
             update_peer_stats(&cluster_nodes, last_datapoint_submit);
 
             for shred in shreds {
+                if let Some(drop_percent) = adv_packet_drop_config.broadcast_packet_drop_percent {
+                    if rand::thread_rng().gen_range(0..100) < drop_percent {
+                        continue;
+                    }
+                }
+
                 let key = shred.id();
                 let protocol = cluster_nodes::get_broadcast_protocol(&key);
 
