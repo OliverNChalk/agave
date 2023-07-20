@@ -540,6 +540,11 @@ pub fn set_panic_hook(program: &'static str, version: Option<String>) {
     });
 }
 
+pub fn public_metrics_db() -> Result<bool, String> {
+    let config = get_metrics_config()?;
+    Ok(matches!(&config.db[..], "mainnet-beta" | "tds" | "devnet"))
+}
+
 pub mod test_mocks {
     use super::*;
 

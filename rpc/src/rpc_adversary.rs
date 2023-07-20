@@ -12,6 +12,7 @@ use {
         },
         repair::RepairPacketFlood,
     },
+    solana_metrics::metrics::public_metrics_db,
 };
 
 #[rpc]
@@ -77,6 +78,21 @@ pub trait Adversary {
 
 // Detects which adversarial attacks are active and outputs metrics for each attack
 fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfig>) {
+    match public_metrics_db() {
+        Ok(false) => (),
+        Ok(true) => {
+            info!("Bypassing adversary metrics for public cluster database.");
+            return;
+        }
+        Err(e) => {
+            error!(
+                "Bypassing adversary metrics for unknown cluster database. Failed to query \
+                 metrics configuration: {e}."
+            );
+            return;
+        }
+    }
+
     let mut repair_packet_flood = false;
     let mut send_duplicate_blocks = false;
     let mut drop_turbine_votes = false;
