@@ -160,7 +160,8 @@ pub struct ClusterInfo {
     entrypoints: RwLock<Vec<ContactInfo>>,
     outbound_budget: DataBudget,
     my_contact_info: RwLock<ContactInfo>,
-    ping_cache: Mutex<PingCache>,
+    // ping_cache exposed as pub(crate) for invalidator.
+    pub(crate) ping_cache: Mutex<PingCache>,
     pub(crate) stats: GossipStats,
     local_message_pending_push_queue: Mutex<Vec<CrdsValue>>,
     contact_debug_interval: u64, // milliseconds, 0 = disabled

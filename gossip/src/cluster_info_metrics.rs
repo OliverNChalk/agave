@@ -1,5 +1,8 @@
 use {
-    crate::{crds_gossip::CrdsGossip, crds_value::CrdsValue, protocol::Protocol},
+    crate::{
+        crds_gossip::CrdsGossip, crds_value::CrdsValue, ping_pong::PingCacheStats,
+        protocol::Protocol,
+    },
     itertools::Itertools,
     solana_clock::Slot,
     solana_measure::measure::Measure,
@@ -207,6 +210,7 @@ pub(crate) fn submit_gossip_stats(
     stats: &GossipStats,
     gossip: &CrdsGossip,
     stakes: &HashMap<Pubkey, u64>,
+    ping_cache_stats: &PingCacheStats,
 ) {
     let (crds_stats, table_size, num_nodes, num_pubkeys, purged_values_size, failed_inserts_size) = {
         let gossip_crds = gossip.crds.read().unwrap();
@@ -673,6 +677,21 @@ pub(crate) fn submit_gossip_stats(
         ("RestartHeaviestFork-pull", crds_stats.pull.fails[13], i64),
         ("all-push", crds_stats.push.fails.iter().sum::<usize>(), i64),
         ("all-pull", crds_stats.pull.fails.iter().sum::<usize>(), i64),
+    );
+    datapoint_info!(
+        "cluster_info-ping_cache",
+        ("pings_count", ping_cache_stats.pings.count, i64),
+        (
+            "pings_age_delta_us",
+            (ping_cache_stats.pings.mru - ping_cache_stats.pings.lru).as_micros(),
+            i64
+        ),
+        ("pongs_count", ping_cache_stats.pongs.count, i64),
+        (
+            "pongs_age_delta_us",
+            (ping_cache_stats.pongs.mru - ping_cache_stats.pongs.lru).as_micros(),
+            i64
+        ),
     );
     if !log::log_enabled!(log::Level::Trace) {
         return;

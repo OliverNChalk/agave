@@ -120,7 +120,13 @@ impl GossipService {
                             .cloned()
                             .unwrap_or_default();
 
-                        submit_gossip_stats(&cluster_info.stats, &cluster_info.gossip, &stakes);
+                        let ping_cache_stats = cluster_info.ping_cache.lock().unwrap().stats();
+                        submit_gossip_stats(
+                            &cluster_info.stats,
+                            &cluster_info.gossip,
+                            &stakes,
+                            &ping_cache_stats,
+                        );
                         gossip_receiver_stats.report();
                     }
                 }
