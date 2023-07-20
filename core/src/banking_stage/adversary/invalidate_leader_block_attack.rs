@@ -24,6 +24,11 @@ use {
     },
 };
 
+// This value was empirically derived by running this attack case and observing
+// invalidation success rate. 100% success rate was observed with this value
+// while lower values were associated with ever-decreasing success rate.
+const END_OF_BLOCK_TICK_MARGIN: u64 = 5;
+
 pub struct InvalidateLeaderBlockAttack {
     transaction_recorder: TransactionRecorder,
     shared_leader_state: SharedLeaderState,
@@ -66,7 +71,9 @@ impl InvalidateLeaderBlockAttack {
             };
 
             // Wait until near the end of the block.
-            let target_tick_height = leader_bank.max_tick_height() - 1;
+            let target_tick_height = leader_bank
+                .max_tick_height()
+                .saturating_sub(END_OF_BLOCK_TICK_MARGIN);
             match target_tick_height.checked_sub(leader_bank.tick_height()) {
                 None | Some(0) => {} // Bank is complete, or already at target height.
                 Some(tick_distance_from_target) => {
