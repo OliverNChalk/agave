@@ -21,22 +21,8 @@ use {
     tokio::sync::mpsc::Sender as AsyncSender,
 };
 
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
-pub struct BroadcastDuplicateBlocksConfig {
-    /// Number of duplicate blocks to send out.
-    pub num_duplicate_validators: usize,
-    /// Where to insert the new entry in a slot, insert before this number of entries
-    /// counting from the slot end.
-    pub new_entry_index_from_end: usize,
-    /// Number of miliseconds to wait between sending out duplicates and original.
-    pub send_original_after_ms: u64,
-    /// Allow sending original and different duplicate block to different network partitions.
-    pub send_destinations: Vec<Arc<Vec<SocketAddr>>>,
-}
-
 #[derive(Clone)]
 pub struct StandardBroadcastRun {
-    config: BroadcastDuplicateBlocksConfig,
     slot: Slot,
     parent: Slot,
     chained_merkle_root: Hash,
@@ -135,7 +121,6 @@ impl StandardBroadcastRun {
             CLUSTER_NODES_CACHE_TTL,
         ));
         Self {
-            config: BroadcastDuplicateBlocksConfig::default(),
             slot: Slot::MAX,
             parent: Slot::MAX,
             chained_merkle_root: Hash::default(),
@@ -154,21 +139,6 @@ impl StandardBroadcastRun {
             reed_solomon_cache: Arc::<ReedSolomonCache>::default(),
             recent_blockhash: None,
             shreds_to_send: Vec::default(),
-        }
-    }
-
-    pub fn update_config(&mut self, adv_config: AdversarialConfig) {
-        if let Some(num_duplicate_validators) = adv_config.num_duplicate_validators {
-            self.config.num_duplicate_validators = num_duplicate_validators
-        }
-        if let Some(new_entry_index_from_end) = adv_config.new_entry_index_from_end {
-            self.config.new_entry_index_from_end = new_entry_index_from_end
-        }
-        if let Some(send_original_after_ms) = adv_config.send_original_after_ms {
-            self.config.send_original_after_ms = send_original_after_ms
-        }
-        if let Some(send_destinations) = adv_config.send_destinations {
-            self.config.send_destinations = send_destinations.into_iter().map(Arc::new).collect();
         }
     }
 
@@ -212,6 +182,7 @@ impl StandardBroadcastRun {
     #[allow(clippy::too_many_arguments)]
     fn entries_to_shreds(
         &mut self,
+        config: &AdversarialConfig,
         keypair: &Keypair,
         entries: &[Entry],
         reference_tick: u8,
@@ -289,11 +260,7 @@ impl StandardBroadcastRun {
             None
         };
 
-        let mut destinations = None;
-        if validator_index < self.config.send_destinations.len() {
-            destinations = Some(self.config.send_destinations[validator_index].clone());
-        }
-
+        let destinations = config.send_destinations.get(validator_index).cloned();
         Ok(Some(BroadcastShredsData {
             data_shreds: Arc::new(data_shreds),
             coding_shreds: Arc::new(coding_shreds),
@@ -309,8 +276,10 @@ impl StandardBroadcastRun {
     }
 
     #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
     fn test_process_receive_results(
         &mut self,
+        config: &AdversarialConfig,
         keypair: &Keypair,
         cluster_info: &ClusterInfo,
         sock: &UdpSocket,
@@ -325,6 +294,7 @@ impl StandardBroadcastRun {
 
         let mut process_stats = ProcessShredsStats::default();
         self.process_receive_results(
+            config,
             keypair,
             blockstore,
             &ssend,
@@ -363,6 +333,7 @@ impl StandardBroadcastRun {
 
     fn process_receive_results(
         &mut self,
+        config: &AdversarialConfig,
         keypair: &Keypair,
         blockstore: &Blockstore,
         socket_sender: &Sender<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>,
@@ -447,7 +418,7 @@ impl StandardBroadcastRun {
         }
 
         let send_time = if is_last_in_slot {
-            now.checked_add(Duration::from_millis(self.config.send_original_after_ms))
+            now.checked_add(Duration::from_millis(config.send_original_after_ms))
                 .unwrap_or(now)
         } else {
             now
@@ -457,6 +428,7 @@ impl StandardBroadcastRun {
 
         if let Some(shred_data) = self
             .entries_to_shreds(
+                config,
                 keypair,
                 &receive_results.entries,
                 reference_tick as u8,
@@ -491,9 +463,10 @@ impl StandardBroadcastRun {
                 1,
                 new_entries
                     .len()
-                    .saturating_sub(self.config.new_entry_index_from_end),
+                    .saturating_sub(config.new_entry_index_from_end),
             );
-            for validator_index in 0..self.config.num_duplicate_validators {
+            for validator_index in 0..config.num_duplicate_validators {
+                // Cut original entries into two parts, we will insert transaction in between.
                 let mut popped = new_entries.split_off(original_entries_to_keep);
                 if validator_index > 0 {
                     popped.remove(0);
@@ -509,6 +482,7 @@ impl StandardBroadcastRun {
 
                 if let Some(shred_data) = self
                     .entries_to_shreds(
+                        config,
                         keypair,
                         &new_entries,
                         reference_tick as u8,
@@ -737,11 +711,11 @@ impl BroadcastRun for StandardBroadcastRun {
 
         let adv_config =
             solana_adversary::adversary_feature_set::send_duplicate_blocks::get_config();
-        self.update_config(adv_config);
 
         // TODO: Confirm that last chunk of coding shreds
         // will not be lost or delayed for too long.
         self.process_receive_results(
+            &adv_config,
             keypair,
             blockstore,
             socket_sender,
@@ -850,11 +824,11 @@ mod test {
         let keypair = Arc::new(Keypair::new());
         let mut run = StandardBroadcastRun::new(0);
         assert!(run.completed);
-        run.update_config(AdversarialConfig {
-            num_duplicate_validators: Some(1),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![]),
+        adversary_feature_set::send_duplicate_blocks::set_config(AdversarialConfig {
+            num_duplicate_validators: 1,
+            new_entry_index_from_end: 1,
+            send_original_after_ms: 0,
+            send_destinations: vec![],
         });
 
         // Set up the slot to be interrupted
@@ -907,14 +881,15 @@ mod test {
 
         // Step 1: Make an incomplete transmission for slot 0
         let mut broadcast_duplicate_blocks_run = StandardBroadcastRun::new(0);
-        broadcast_duplicate_blocks_run.update_config(AdversarialConfig {
-            num_duplicate_validators: Some(1),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![]),
-        });
+        let config = AdversarialConfig {
+            num_duplicate_validators: 1,
+            new_entry_index_from_end: 1,
+            send_original_after_ms: 0,
+            send_destinations: vec![],
+        };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &config,
                 &leader_keypair,
                 &cluster_info,
                 &socket,
@@ -987,6 +962,7 @@ mod test {
         };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &config,
                 &leader_keypair,
                 &cluster_info,
                 &socket,
@@ -1046,12 +1022,6 @@ mod test {
         let (ssend, _srecv) = unbounded();
         let mut last_tick_height = 0;
         let mut broadcast_duplicate_blocks_run = StandardBroadcastRun::new(0);
-        broadcast_duplicate_blocks_run.update_config(AdversarialConfig {
-            num_duplicate_validators: Some(1),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![]),
-        });
         let mut process_stats = ProcessShredsStats::default();
         let mut process_ticks = |num_ticks| {
             let ticks = create_ticks(num_ticks, 0, genesis_config.hash());
@@ -1063,6 +1033,12 @@ mod test {
             };
             broadcast_duplicate_blocks_run
                 .process_receive_results(
+                    &AdversarialConfig {
+                        num_duplicate_validators: 1,
+                        new_entry_index_from_end: 1,
+                        send_original_after_ms: 0,
+                        send_destinations: vec![],
+                    },
                     &leader_keypair,
                     &blockstore,
                     &ssend,
@@ -1117,14 +1093,14 @@ mod test {
         };
 
         let mut broadcast_duplicate_blocks_run = StandardBroadcastRun::new(0);
-        broadcast_duplicate_blocks_run.update_config(AdversarialConfig {
-            num_duplicate_validators: Some(1),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![]),
-        });
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &AdversarialConfig {
+                    num_duplicate_validators: 1,
+                    new_entry_index_from_end: 1,
+                    send_original_after_ms: 0,
+                    send_destinations: vec![],
+                },
                 &leader_keypair,
                 &cluster_info,
                 &socket,
@@ -1297,14 +1273,15 @@ mod test {
         };
 
         let mut broadcast_duplicate_blocks_run = StandardBroadcastRun::new(0);
-        broadcast_duplicate_blocks_run.update_config(AdversarialConfig {
-            num_duplicate_validators: Some(2),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![]),
-        });
+        let config = AdversarialConfig {
+            num_duplicate_validators: 2,
+            new_entry_index_from_end: 1,
+            send_original_after_ms: 0,
+            send_destinations: vec![],
+        };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &config,
                 &leader_keypair,
                 &cluster_info,
                 &socket,
@@ -1331,6 +1308,7 @@ mod test {
         };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &config,
                 &leader_keypair,
                 &cluster_info,
                 &socket,
@@ -1349,6 +1327,7 @@ mod test {
         };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
+                &config,
                 &leader_keypair,
                 &cluster_info,
                 &socket,

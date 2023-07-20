@@ -105,7 +105,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                 }
             }
             AdversaryFeatureConfig::SendDuplicateBlocks(config) => {
-                if config.num_duplicate_validators.is_some() {
+                if config.num_duplicate_validators > 0 {
                     send_duplicate_blocks = true;
                 }
             }
@@ -266,7 +266,10 @@ pub mod tests {
             tpu_info::NullTpuInfo, transaction_client::ConnectionCacheClient,
         },
         solana_streamer::socket::SocketAddrSpace,
-        std::net::{IpAddr, SocketAddr},
+        std::{
+            net::{IpAddr, SocketAddr},
+            sync::Arc,
+        },
     };
 
     fn setup_test_meta() -> JsonRpcRequestProcessor {
@@ -326,10 +329,10 @@ pub mod tests {
             },
             {
                 "sendDuplicateBlocksConfig": {
-                    "numDuplicateValidators": null,
-                    "newEntryIndexFromEnd": null,
-                    "sendOriginalAfterMs": null,
-                    "sendDestinations": null,
+                    "numDuplicateValidators": 0,
+                    "newEntryIndexFromEnd": 0,
+                    "sendOriginalAfterMs": 0,
+                    "sendDestinations": [],
                 },
             },
             {
@@ -513,10 +516,10 @@ pub mod tests {
         io.extend_with(AdversaryImpl.to_delegate());
 
         let config = send_duplicate_blocks::AdversarialConfig {
-            num_duplicate_validators: Some(2),
-            new_entry_index_from_end: Some(1),
-            send_original_after_ms: Some(500),
-            send_destinations: Some(vec![]),
+            num_duplicate_validators: 2,
+            new_entry_index_from_end: 1,
+            send_original_after_ms: 500,
+            send_destinations: vec![],
         };
         {
             // Update the config for send_duplicate_packets, ensuring that request succeeds
@@ -530,16 +533,16 @@ pub mod tests {
         assert_eq!(config, send_duplicate_blocks::get_config());
 
         let config = send_duplicate_blocks::AdversarialConfig {
-            num_duplicate_validators: Some(3),
-            new_entry_index_from_end: Some(2),
-            send_original_after_ms: Some(0),
-            send_destinations: Some(vec![
-                vec![
+            num_duplicate_validators: 3,
+            new_entry_index_from_end: 2,
+            send_original_after_ms: 0,
+            send_destinations: vec![
+                Arc::new(vec![
                     SocketAddr::from(([127, 0, 0, 1], 234)),
                     SocketAddr::from(([10, 0, 0, 2], 345)),
-                ],
-                vec![SocketAddr::from(([0x2023, 0, 0, 0, 0, 0, 0, 1], 987))],
-            ]),
+                ]),
+                Arc::new(vec![SocketAddr::from(([0x2023, 0, 0, 0, 0, 0, 0, 1], 987))]),
+            ],
         };
         {
             // Update the config for send_duplicate_packets, ensuring that request succeeds

@@ -128,7 +128,7 @@ pub mod repair_parameters {
 
 /// Configuration for sending duplicate blocks.
 pub mod send_duplicate_blocks {
-    use std::net::SocketAddr;
+    use std::{net::SocketAddr, sync::Arc};
 
     pub const ID: &str = "send_duplicate_blocks";
     adversarial_feature_impl!(SendDuplicateBlocks);
@@ -137,14 +137,14 @@ pub mod send_duplicate_blocks {
     #[serde(rename_all = "camelCase")]
     pub struct AdversarialConfig {
         /// Number of duplicate blocks to send out.
-        pub num_duplicate_validators: Option<usize>,
+        pub num_duplicate_validators: usize,
         /// Where to insert the new entry in a slot, insert before this number of entries
         /// counting from the slot end.
-        pub new_entry_index_from_end: Option<usize>,
+        pub new_entry_index_from_end: usize,
         /// Number of miliseconds to wait between sending out duplicates and original.
-        pub send_original_after_ms: Option<u64>,
+        pub send_original_after_ms: u64,
         /// Allow sending original and different duplicate block to different network partitions.
-        pub send_destinations: Option<Vec<Vec<SocketAddr>>>,
+        pub send_destinations: Vec<Arc<Vec<SocketAddr>>>,
     }
 }
 
