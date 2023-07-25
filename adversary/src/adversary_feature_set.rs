@@ -2,13 +2,12 @@
 //!
 //! For details on how to add adversarial features, see the README in the root
 //! of this crate.
+
 use {
+    dashmap::DashMap,
     enum_iterator::{all, Sequence},
     serde::{Deserialize, Serialize},
-    std::{
-        collections::HashMap,
-        sync::{Arc, LazyLock, RwLock},
-    },
+    std::sync::LazyLock,
 };
 
 // Macro to implement convenience methods for getting and setting the
@@ -234,95 +233,88 @@ pub enum AdversaryFeatureConfig {
     PacketDropParameters(packet_drop_parameters::AdversarialConfig),
 }
 
-static FEATURE_CONFIG_MAP: LazyLock<Arc<RwLock<HashMap<String, AdversaryFeatureConfig>>>> =
+static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig>> =
     LazyLock::new(|| {
-        Arc::new(RwLock::new(
-            [
-                (
-                    example::ID.to_string(),
-                    AdversaryFeatureConfig::Example(example::AdversarialConfig::default()),
+        [
+            (
+                example::ID,
+                AdversaryFeatureConfig::Example(example::AdversarialConfig::default()),
+            ),
+            (
+                repair_packet_flood::ID,
+                AdversaryFeatureConfig::RepairPacketFlood(
+                    repair_packet_flood::AdversarialConfig::default(),
                 ),
-                (
-                    repair_packet_flood::ID.to_string(),
-                    AdversaryFeatureConfig::RepairPacketFlood(
-                        repair_packet_flood::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                repair_parameters::ID,
+                AdversaryFeatureConfig::RepairParameters(
+                    repair_parameters::AdversarialConfig::default(),
                 ),
-                (
-                    repair_parameters::ID.to_string(),
-                    AdversaryFeatureConfig::RepairParameters(
-                        repair_parameters::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                shred_receiver_address::ID,
+                AdversaryFeatureConfig::ShredReceiverAddress(
+                    shred_receiver_address::AdversarialConfig::default(),
                 ),
-                (
-                    shred_receiver_address::ID.to_string(),
-                    AdversaryFeatureConfig::ShredReceiverAddress(
-                        shred_receiver_address::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                send_duplicate_blocks::ID,
+                AdversaryFeatureConfig::SendDuplicateBlocks(
+                    send_duplicate_blocks::AdversarialConfig::default(),
                 ),
-                (
-                    send_duplicate_blocks::ID.to_string(),
-                    AdversaryFeatureConfig::SendDuplicateBlocks(
-                        send_duplicate_blocks::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                drop_turbine_votes::ID,
+                AdversaryFeatureConfig::DropTurbineVotes(
+                    drop_turbine_votes::AdversarialConfig::default(),
                 ),
-                (
-                    drop_turbine_votes::ID.to_string(),
-                    AdversaryFeatureConfig::DropTurbineVotes(
-                        drop_turbine_votes::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                invalidate_leader_block::ID,
+                AdversaryFeatureConfig::InvalidateLeaderBlock(
+                    invalidate_leader_block::AdversarialConfig::default(),
                 ),
-                (
-                    invalidate_leader_block::ID.to_string(),
-                    AdversaryFeatureConfig::InvalidateLeaderBlock(
-                        invalidate_leader_block::AdversarialConfig::default(),
-                    ),
+            ),
+            (
+                packet_drop_parameters::ID,
+                AdversaryFeatureConfig::PacketDropParameters(
+                    packet_drop_parameters::AdversarialConfig::default(),
                 ),
-                (
-                    packet_drop_parameters::ID.to_string(),
-                    AdversaryFeatureConfig::PacketDropParameters(
-                        packet_drop_parameters::AdversarialConfig::default(),
-                    ),
-                ),
-            ]
-            .iter()
-            .cloned()
-            .collect(),
-        ))
+            ),
+        ]
+        .into_iter()
+        .collect()
     });
 
 /// Return the current configuration of all adversarial feature.
 pub fn get_adversary_feature_status() -> Vec<AdversaryFeatureConfig> {
-    let feature_map = FEATURE_CONFIG_MAP.read().unwrap();
-
-    let mut features: Vec<_> = feature_map.iter().collect();
+    let mut features: Vec<(&'static str, AdversaryFeatureConfig)> = FEATURE_CONFIG_MAP
+        .iter()
+        .map(|kv| (*kv.key(), kv.value().clone()))
+        .collect();
     features.sort_by(|(a_id, _), (b_id, _)| a_id.cmp(b_id));
-    features
-        .into_iter()
-        .map(|(_, config)| config.clone())
-        .collect()
+    features.into_iter().map(|(_, config)| config).collect()
 }
 
 /// Get the configuration for the specified adversarial feature.
 fn get_adversary_feature_config(feature_id: &str) -> AdversaryFeatureConfig {
-    let feature_map = FEATURE_CONFIG_MAP.read().unwrap();
-    assert!(
-        feature_map.contains_key(feature_id),
-        "Adversarial feature {feature_id} not found in feature config map.",
-    );
-
-    feature_map.get(feature_id).unwrap().clone()
+    FEATURE_CONFIG_MAP
+        .get(feature_id)
+        .unwrap_or_else(|| {
+            panic!("Adversarial feature {feature_id} not found in feature config map")
+        })
+        .clone()
 }
 
 /// Set the configuration for the specified adversarial feature.
 fn set_adversary_feature_config(feature_id: &str, config: AdversaryFeatureConfig) {
-    let mut feature_map = FEATURE_CONFIG_MAP.write().unwrap();
-    assert!(
-        feature_map.contains_key(feature_id),
-        "Adversarial feature {feature_id} not found in feature config map.",
-    );
-
-    feature_map.insert(feature_id.to_string(), config);
+    *FEATURE_CONFIG_MAP
+        .get_mut(feature_id)
+        .unwrap_or_else(|| {
+            panic!("Adversarial feature {feature_id} not found in feature config map")
+        })
+        .value_mut() = config;
 }
 
 pub fn all_enum_variants_as_json_strings<T: Sequence + Serialize>() -> Vec<String> {

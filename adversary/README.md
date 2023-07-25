@@ -37,7 +37,7 @@ pub mod example {
 3. Add an entry for the ID / configuration struct to the feature map.
 ```rust
             (
-                example::ID.to_string(),
+                example::ID,
                 AdversaryFeatureConfig::Example(example::AdversarialConfig::default())
             ),
 ```

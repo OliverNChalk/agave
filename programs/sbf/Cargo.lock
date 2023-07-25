@@ -5896,6 +5896,7 @@ name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
  "clap",
+ "dashmap",
  "enum-iterator",
  "futures 0.3.31",
  "log",
