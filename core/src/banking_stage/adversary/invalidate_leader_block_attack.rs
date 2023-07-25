@@ -25,9 +25,8 @@ use {
 };
 
 // This value was empirically derived by running this attack case and observing
-// invalidation success rate. 100% success rate was observed with this value
-// while lower values were associated with ever-decreasing success rate.
-const END_OF_BLOCK_TICK_MARGIN: u64 = 5;
+// invalidation success rate. 100% success rate was observed with this value.
+const END_OF_BLOCK_TICK_MARGIN: u64 = 2;
 
 pub struct InvalidateLeaderBlockAttack {
     transaction_recorder: TransactionRecorder,
@@ -71,17 +70,26 @@ impl InvalidateLeaderBlockAttack {
             };
 
             // Wait until near the end of the block.
-            let target_tick_height = leader_bank
-                .max_tick_height()
-                .saturating_sub(END_OF_BLOCK_TICK_MARGIN);
-            match target_tick_height.checked_sub(leader_bank.tick_height()) {
-                None | Some(0) => {} // Bank is complete, or already at target height.
-                Some(tick_distance_from_target) => {
-                    // wait for tick_distance ticks
-                    let wait_duration = Duration::from_millis(
-                        tick_distance_from_target * DEFAULT_MS_PER_SLOT / DEFAULT_TICKS_PER_SLOT,
-                    );
-                    std::thread::sleep(wait_duration);
+            let target_tick_height = leader_bank.max_tick_height();
+            loop {
+                match target_tick_height.checked_sub(leader_bank.tick_height()) {
+                    None | Some(0) => break, // Bank is complete, or already at target height.
+                    Some(tick_distance_from_target) => {
+                        if tick_distance_from_target <= END_OF_BLOCK_TICK_MARGIN {
+                            break;
+                        }
+                        // Target sleep duration is half the time to the target
+                        // tick height so that we don't miss our invalidation
+                        // window. Ticks are only a rough approximation of time,
+                        // so using precise translation results in missing a lot
+                        // of invalidations.
+                        let wait_duration = Duration::from_millis(
+                            tick_distance_from_target * DEFAULT_MS_PER_SLOT
+                                / DEFAULT_TICKS_PER_SLOT
+                                / 2,
+                        );
+                        std::thread::sleep(wait_duration);
+                    }
                 }
             }
 
