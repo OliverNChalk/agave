@@ -19,7 +19,7 @@ impl Command for InvalidateLeaderBlockConfig {
     const RPC_METHOD: &'static str = "configureInvalidateLeaderBlock";
 }
 
-pub fn configure_send_duplicate_blocks_enable(rpc_endpoint_url: String) {
+pub fn configure_send_duplicate_blocks_enable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_send_duplicate_blocks(
         &rpc_endpoint_url,
         SendDuplicateBlocksConfig {
@@ -28,11 +28,11 @@ pub fn configure_send_duplicate_blocks_enable(rpc_endpoint_url: String) {
             send_original_after_ms: 0,
             send_destinations: Vec::new(),
         },
-    );
+    )
 }
 
-pub fn configure_send_duplicate_blocks_disable(rpc_endpoint_url: String) {
-    configure_send_duplicate_blocks(&rpc_endpoint_url, SendDuplicateBlocksConfig::default());
+pub fn configure_send_duplicate_blocks_disable(rpc_endpoint_url: String) -> Result<(), String> {
+    configure_send_duplicate_blocks(&rpc_endpoint_url, SendDuplicateBlocksConfig::default())
 }
 
 pub fn configure_send_duplicate_blocks_args(
@@ -80,34 +80,32 @@ pub fn configure_send_duplicate_blocks_args(
             send_original_after_ms,
             send_destinations,
         },
-    );
-
-    Ok(())
+    )
 }
 
 pub fn configure_send_duplicate_blocks(
     rpc_endpoint_url: &str,
     send_duplicate_blocks_config: SendDuplicateBlocksConfig,
-) {
-    send_duplicate_blocks_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    send_duplicate_blocks_config.send(rpc_endpoint_url)
 }
 
-pub fn configure_invalidate_leader_block_enable(rpc_endpoint_url: String) {
+pub fn configure_invalidate_leader_block_enable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_invalidate_leader_block(
         &rpc_endpoint_url,
         InvalidateLeaderBlockConfig {
             invalidation_kind: Some(InvalidationKind::InvalidFeePayer),
         },
-    );
+    )
 }
 
-pub fn configure_invalidate_leader_block_disable(rpc_endpoint_url: String) {
+pub fn configure_invalidate_leader_block_disable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_invalidate_leader_block(
         &rpc_endpoint_url,
         InvalidateLeaderBlockConfig {
             invalidation_kind: None,
         },
-    );
+    )
 }
 
 pub fn configure_invalidate_leader_block_args(
@@ -126,14 +124,12 @@ pub fn configure_invalidate_leader_block_args(
     configure_invalidate_leader_block(
         rpc_endpoint_url,
         InvalidateLeaderBlockConfig { invalidation_kind },
-    );
-
-    Ok(())
+    )
 }
 
 pub fn configure_invalidate_leader_block(
     rpc_endpoint_url: &str,
     invalidate_leader_block_config: InvalidateLeaderBlockConfig,
-) {
-    invalidate_leader_block_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    invalidate_leader_block_config.send(rpc_endpoint_url)
 }

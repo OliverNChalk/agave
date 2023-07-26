@@ -8,22 +8,22 @@ impl Command for DropTurbineVotesConfig {
     const RPC_METHOD: &'static str = "turbineVotes";
 }
 
-pub fn configure_drop_turbine_votes_enable(rpc_endpoint_url: String) {
+pub fn configure_drop_turbine_votes_enable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_drop_turbine_votes(
         &rpc_endpoint_url,
         DropTurbineVotesConfig {
             drop_turbine_votes: true,
         },
-    );
+    )
 }
 
-pub fn configure_drop_turbine_votes_disable(rpc_endpoint_url: String) {
+pub fn configure_drop_turbine_votes_disable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_drop_turbine_votes(
         &rpc_endpoint_url,
         DropTurbineVotesConfig {
             drop_turbine_votes: false,
         },
-    );
+    )
 }
 
 pub fn configure_drop_turbine_votes_args(
@@ -35,14 +35,12 @@ pub fn configure_drop_turbine_votes_args(
     configure_drop_turbine_votes(
         rpc_endpoint_url,
         DropTurbineVotesConfig { drop_turbine_votes },
-    );
-
-    Ok(())
+    )
 }
 
 pub fn configure_drop_turbine_votes(
     rpc_endpoint_url: &str,
     drop_turbine_votes_config: DropTurbineVotesConfig,
-) {
-    drop_turbine_votes_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    drop_turbine_votes_config.send(rpc_endpoint_url)
 }

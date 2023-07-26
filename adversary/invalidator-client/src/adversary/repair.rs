@@ -21,7 +21,7 @@ impl Command for RepairParametersConfig {
     const RPC_METHOD: &'static str = "configureRepairParameters";
 }
 
-pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) {
+pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_repair_packet_flood(
         &rpc_endpoint_url,
         RepairPacketFloodConfig {
@@ -34,14 +34,14 @@ pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) {
                 target: None,
             }],
         },
-    );
+    )
 }
 
-pub fn configure_repair_packet_flood_disable(rpc_endpoint_url: String) {
+pub fn configure_repair_packet_flood_disable(rpc_endpoint_url: String) -> Result<(), String> {
     configure_repair_packet_flood(
         &rpc_endpoint_url,
         RepairPacketFloodConfig { configs: vec![] },
-    );
+    )
 }
 
 pub fn configure_repair_packet_flood_args(
@@ -71,17 +71,14 @@ pub fn configure_repair_packet_flood_args(
             target,
         }]
     };
-
-    configure_repair_packet_flood(rpc_endpoint_url, RepairPacketFloodConfig { configs });
-
-    Ok(())
+    configure_repair_packet_flood(rpc_endpoint_url, RepairPacketFloodConfig { configs })
 }
 
 pub fn configure_repair_packet_flood(
     rpc_endpoint_url: &str,
     repair_packet_flood_config: RepairPacketFloodConfig,
-) {
-    repair_packet_flood_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    repair_packet_flood_config.send(rpc_endpoint_url)
 }
 
 pub fn configure_repair_parameters_args(
@@ -105,14 +102,12 @@ pub fn configure_repair_parameters_args(
             serve_repair_oversampled_requests_per_iteration,
             serve_repair_ancestor_hashes_invalid_respones,
         },
-    );
-
-    Ok(())
+    )
 }
 
 pub fn configure_repair_parameters(
     rpc_endpoint_url: &str,
     repair_parameters_config: RepairParametersConfig,
-) {
-    repair_parameters_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    repair_parameters_config.send(rpc_endpoint_url)
 }

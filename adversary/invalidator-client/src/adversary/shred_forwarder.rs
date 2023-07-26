@@ -21,14 +21,12 @@ pub fn configure_shred_receiver_address_args(
         ShredReceiverAddressConfig {
             shred_receiver_address,
         },
-    );
-
-    Ok(())
+    )
 }
 
 pub fn configure_shred_receiver_address(
     rpc_endpoint_url: &str,
     shred_receiver_address_config: ShredReceiverAddressConfig,
-) {
-    shred_receiver_address_config.send(rpc_endpoint_url);
+) -> Result<(), String> {
+    shred_receiver_address_config.send(rpc_endpoint_url)
 }

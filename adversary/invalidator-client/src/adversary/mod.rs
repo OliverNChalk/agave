@@ -20,7 +20,7 @@ pub mod shred_forwarder;
 pub trait Command: Serialize {
     const RPC_METHOD: &'static str;
 
-    fn send(&self, url: &str) {
+    fn send(&self, url: &str) -> Result<(), String> {
         let params = serde_json::json!([self]);
         let payload = RpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -31,21 +31,15 @@ pub trait Command: Serialize {
         let client = Client::new();
         info!("sending rpc command: {}", Self::RPC_METHOD);
         trace!("rpc command payload: {payload:#?}");
-
-        let response = match client.post(url).json(&payload).send() {
-            Ok(response) => response,
-            Err(err) => {
-                error!("RPC Send Error: {err:?}");
-                return;
-            }
-        };
-        let response = match response.json::<serde_json::Value>() {
-            Ok(response) => response,
-            Err(err) => {
-                error!("RPC Parse Response Error: {err:?}");
-                return;
-            }
-        };
+        let response = client
+            .post(url)
+            .json(&payload)
+            .send()
+            .map_err(|e| format!("RPC Send Error: {e:?}"))?;
+        let response = response
+            .json::<serde_json::Value>()
+            .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
         trace!("rpc command response: {response:#?}");
+        Ok(())
     }
 }
