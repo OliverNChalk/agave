@@ -122,6 +122,8 @@ pub mod repair_parameters {
         pub serve_repair_oversampled_requests_per_iteration: Option<usize>,
         /// Return results for `AncestorHashes` requests with garbage hash values.
         pub serve_repair_ancestor_hashes_invalid_respones: Option<bool>,
+        /// Set the number of validators to sample for ancestor repair
+        pub ancestor_hash_repair_sample_size: Option<usize>,
     }
 }
 

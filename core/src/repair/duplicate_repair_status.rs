@@ -16,6 +16,11 @@ use {
 static ANCESTOR_HASH_REPAIR_SAMPLE_SIZE: AtomicUsize = AtomicUsize::new(21);
 
 pub fn get_ancestor_hash_repair_sample_size() -> usize {
+    let adv_repair_parameters =
+        solana_adversary::adversary_feature_set::repair_parameters::get_config();
+    if let Some(sample_size) = adv_repair_parameters.ancestor_hash_repair_sample_size {
+        return sample_size;
+    }
     ANCESTOR_HASH_REPAIR_SAMPLE_SIZE.load(Ordering::Relaxed)
 }
 

@@ -350,6 +350,7 @@ pub mod tests {
                     "serveRepairMaxRequestsPerIteration": null,
                     "serveRepairOversampledRequestsPerIteration": null,
                     "serveRepairAncestorHashesInvalidRespones": null,
+                    "ancestorHashRepairSampleSize": null,
                 },
             },
             {

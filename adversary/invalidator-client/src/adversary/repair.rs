@@ -94,6 +94,9 @@ pub fn configure_repair_parameters_args(
     let serve_repair_ancestor_hashes_invalid_respones = sub_matches
         .value_of("serve_repair_ancestor_hashes_invalid_respones")
         .map(|s| s.parse::<bool>().unwrap());
+    let ancestor_hash_repair_sample_size = sub_matches
+        .value_of("ancestor_hash_repair_sample_size")
+        .map(|s| s.parse::<usize>().unwrap());
 
     configure_repair_parameters(
         rpc_endpoint_url,
@@ -101,6 +104,7 @@ pub fn configure_repair_parameters_args(
             serve_repair_max_requests_per_iteration,
             serve_repair_oversampled_requests_per_iteration,
             serve_repair_ancestor_hashes_invalid_respones,
+            ancestor_hash_repair_sample_size,
         },
     )
 }

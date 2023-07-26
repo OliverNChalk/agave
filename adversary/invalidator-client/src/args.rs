@@ -126,6 +126,14 @@ pub fn run_command() -> Result<(), String> {
                         .value_name("BOOLEAN")
                         .validator(input_validators::is_parsable::<bool>)
                         .help("Return invalid ancestor hashes values"),
+                )
+                .arg(
+                    Arg::with_name("ancestor_hash_repair_sample_size")
+                        .long("ancestor-hash-repair-sample-size")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Override ancestor hash repair sample size"),
                 ),
         )
         .subcommand(
