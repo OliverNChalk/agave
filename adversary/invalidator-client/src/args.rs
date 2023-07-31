@@ -213,6 +213,26 @@ pub fn run_command() -> Result<(), String> {
                         ),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("configure-packet-drop-parameters")
+                .about("Configure parameters to control dropping packets")
+                .arg(
+                    Arg::with_name("broadcast_packet_drop_percent")
+                        .long("broadcast-packet-drop-percent")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_valid_percentage)
+                        .help("Percent of outgoing broadcast packets to drop"),
+                )
+                .arg(
+                    Arg::with_name("retransmit_packet_drop_percent")
+                        .long("retransmit-packet-drop-percent")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_valid_percentage)
+                        .help("Percent of outgoing retransmit packets to drop"),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 
@@ -260,6 +280,12 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-drop-turbine-votes", Some(sub_matches)) => {
             crate::adversary::drop_turbine_votes::configure_drop_turbine_votes_args(
+                RPC_ENDPOINT_URL,
+                sub_matches,
+            )
+        }
+        ("configure-packet-drop-parameters", Some(sub_matches)) => {
+            crate::adversary::packet_drop::configure_packet_drop_parameters_args(
                 RPC_ENDPOINT_URL,
                 sub_matches,
             )

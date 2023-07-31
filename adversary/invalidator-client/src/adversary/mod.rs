@@ -14,6 +14,7 @@ struct RpcRequest {
 
 pub mod drop_turbine_votes;
 pub mod leader_block;
+pub mod packet_drop;
 pub mod repair;
 pub mod shred_forwarder;
 
