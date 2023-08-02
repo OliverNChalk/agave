@@ -1,16 +1,15 @@
 use {
-    crate::rpc::{verify_pubkey, JsonRpcRequestProcessor},
-    jsonrpc_core::Result,
+    crate::rpc::JsonRpcRequestProcessor,
+    jsonrpc_core::{Error, Result},
     jsonrpc_derive::rpc,
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
             self, drop_turbine_votes, example, invalidate_leader_block, packet_drop_parameters,
-            repair_packet_flood::{self, PeerIdentifier},
-            repair_parameters, send_duplicate_blocks, shred_receiver_address,
+            repair_packet_flood, repair_parameters, send_duplicate_blocks, shred_receiver_address,
             AdversaryFeatureConfig,
         },
-        repair::RepairPacketFlood,
+        repair::{verify_peer_identifier, RepairPacketFlood},
     },
     solana_metrics::metrics::public_metrics_db,
 };
@@ -166,8 +165,9 @@ impl Adversary for AdversaryImpl {
     ) -> Result<()> {
         self.perform_configuration(meta.clone(), || {
             for config in &config.configs {
-                if let Some(PeerIdentifier::Pubkey(pubkey)) = &config.target {
-                    verify_pubkey(pubkey.as_str())?;
+                if let Some(target) = &config.target {
+                    verify_peer_identifier(target)
+                        .map_err(|e| Error::invalid_params(format!("Invalid param: {e}.")))?;
                 }
             }
             let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
@@ -285,10 +285,7 @@ pub mod tests {
             tpu_info::NullTpuInfo, transaction_client::ConnectionCacheClient,
         },
         solana_streamer::socket::SocketAddrSpace,
-        std::{
-            net::{IpAddr, SocketAddr},
-            sync::Arc,
-        },
+        std::{net::SocketAddr, sync::Arc},
     };
 
     fn setup_test_meta() -> JsonRpcRequestProcessor {
@@ -411,9 +408,7 @@ pub mod tests {
                 flood_strategy: FloodStrategy::MinimalPackets,
                 packets_per_peer_per_iteration: 1,
                 iteration_delay_us: 1_000_000,
-                target: Some(PeerIdentifier::Pubkey(
-                    "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string(),
-                )),
+                target: Some("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string()),
             }],
         };
 
@@ -450,7 +445,7 @@ pub mod tests {
                 flood_strategy: FloodStrategy::MinimalPackets,
                 packets_per_peer_per_iteration: 123,
                 iteration_delay_us: 456,
-                target: Some(PeerIdentifier::Ip(IpAddr::V4("10.0.0.9".parse().unwrap()))),
+                target: Some("10.0.0.9".to_string()),
             }],
         });
         let expected_config = json!({
@@ -458,7 +453,7 @@ pub mod tests {
                 "floodStrategy": "minimalPackets",
                 "iterationDelayUs": 456,
                 "packetsPerPeerPerIteration": 123,
-                "target": {"ip": "10.0.0.9"},
+                "target": "10.0.0.9",
             }]
         });
         assert_eq!(encoded_config, expected_config);
@@ -468,7 +463,7 @@ pub mod tests {
                 flood_strategy: FloodStrategy::SignedPackets,
                 packets_per_peer_per_iteration: 123,
                 iteration_delay_us: 456,
-                target: Some(PeerIdentifier::Ip(IpAddr::V6("::1".parse().unwrap()))),
+                target: Some("::1".to_string()),
             }],
         });
         let expected_config = json!({
@@ -476,7 +471,7 @@ pub mod tests {
                 "floodStrategy": "signedPackets",
                 "iterationDelayUs": 456,
                 "packetsPerPeerPerIteration": 123,
-                "target": {"ip": "::1"},
+                "target": "::1",
             }]
         });
         assert_eq!(encoded_config, expected_config);
@@ -487,7 +482,7 @@ pub mod tests {
                 flood_strategy: FloodStrategy::MinimalPackets,
                 packets_per_peer_per_iteration: 123,
                 iteration_delay_us: 456,
-                target: Some(PeerIdentifier::Pubkey(pubkey_str.to_string())),
+                target: Some(pubkey_str.to_string()),
             }],
         });
         let expected_config = json!({
@@ -495,7 +490,7 @@ pub mod tests {
                 "floodStrategy": "minimalPackets",
                 "iterationDelayUs": 456,
                 "packetsPerPeerPerIteration": 123,
-                "target": {"pubkey": "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq"},
+                "target": "9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq",
             }]
         });
         assert_eq!(encoded_config, expected_config);

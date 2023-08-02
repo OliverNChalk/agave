@@ -1,17 +1,24 @@
 use {
     super::Command,
-    clap::{value_t_or_exit, ArgMatches},
-    solana_adversary::adversary_feature_set::{
-        repair_packet_flood::{
-            AdversarialConfig as RepairPacketFloodConfig, FloodConfig, FloodStrategy,
-            PeerIdentifier,
+    crate::adversary::trace,
+    clap::{value_t, ArgMatches, Error as ClapError, ErrorKind as ClapErrorKind},
+    solana_adversary::{
+        adversary_feature_set::{
+            repair_packet_flood::{
+                AdversarialConfig as RepairPacketFloodConfig, FloodConfig, FloodStrategy,
+            },
+            repair_parameters::AdversarialConfig as RepairParametersConfig,
         },
-        repair_parameters::AdversarialConfig as RepairParametersConfig,
+        repair::verify_peer_identifier,
     },
 };
 
-pub const DEFAULT_PACKETS_PER_PEER_PER_ITERATION: &str = "10";
-pub const DEFAULT_ITERATION_DELAY_US: &str = "1000000";
+// Sentinel value used to indicate to read from stdin instead of file
+pub const STDIN_TOKEN: &str = "-";
+
+const DEFAULT_PACKETS_PER_PEER_PER_ITERATION: u32 = 10;
+const DEFAULT_ITERATION_DELAY_US: u64 = 1_000_000;
+const DEFAULT_FLOOD_STRATEGY: &str = "minimalPackets";
 
 impl Command for RepairPacketFloodConfig {
     const RPC_METHOD: &'static str = "configureRepairPacketFlood";
@@ -27,10 +34,8 @@ pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) -> Result<
         RepairPacketFloodConfig {
             configs: vec![FloodConfig {
                 flood_strategy: FloodStrategy::MinimalPackets,
-                packets_per_peer_per_iteration: DEFAULT_PACKETS_PER_PEER_PER_ITERATION
-                    .parse()
-                    .unwrap(),
-                iteration_delay_us: DEFAULT_ITERATION_DELAY_US.parse().unwrap(),
+                packets_per_peer_per_iteration: DEFAULT_PACKETS_PER_PEER_PER_ITERATION,
+                iteration_delay_us: DEFAULT_ITERATION_DELAY_US,
                 target: None,
             }],
         },
@@ -44,34 +49,83 @@ pub fn configure_repair_packet_flood_disable(rpc_endpoint_url: String) -> Result
     )
 }
 
+fn load_configuration(path: &String) -> Result<String, String> {
+    match &path[..] {
+        STDIN_TOKEN => std::io::read_to_string(std::io::stdin())
+            .map_err(|e| format!("Failed to read configuration from stdin: {e}")),
+        _ => std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read configuration file {path}: {e}")),
+    }
+}
+
 pub fn configure_repair_packet_flood_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
-    let disable = value_t_or_exit!(sub_matches, "disable", bool);
-    let flood_strategy: FloodStrategy = serde_json::from_str(&format!(
-        r#""{}""#,
-        value_t_or_exit!(sub_matches, "flood_strategy", String)
-    ))
-    .map_err(|e| format!("Error converting to enum from string: {e}"))?;
-    let packets_per_peer_per_iteration =
-        value_t_or_exit!(sub_matches, "packets_per_peer_per_iteration", u64);
-    let iteration_delay_us = value_t_or_exit!(sub_matches, "iteration_delay_us", u64);
-    let target = sub_matches
-        .value_of("target")
-        .map(|pubkey| PeerIdentifier::Pubkey(pubkey.to_owned()));
-
-    let configs = if disable {
-        vec![]
+    let flood_config = if let Ok(path) = value_t!(sub_matches, "toml_config", String) {
+        let config_data = load_configuration(&path)?;
+        let data: RepairPacketFloodConfig = toml::from_str(&config_data)
+            .map_err(|e| format!("Failed to parse TOML configuration from {path}: {e}"))?;
+        trace!("Parsed config:\n{data:#?}");
+        data
     } else {
-        vec![FloodConfig {
-            flood_strategy,
-            packets_per_peer_per_iteration: (packets_per_peer_per_iteration as u32),
-            iteration_delay_us,
-            target,
-        }]
+        let disable = match value_t!(sub_matches, "disable", bool) {
+            Ok(val) => val,
+            Err(ClapError {
+                kind: ClapErrorKind::ArgumentNotFound,
+                ..
+            }) => false,
+            Err(e) => Err(e.to_string())?,
+        };
+
+        let flood_strategy = match value_t!(sub_matches, "flood_strategy", String) {
+            Ok(val) => val,
+            Err(ClapError {
+                kind: ClapErrorKind::ArgumentNotFound,
+                ..
+            }) => DEFAULT_FLOOD_STRATEGY.to_string(),
+            Err(e) => Err(e.to_string())?,
+        };
+        let flood_strategy: FloodStrategy = serde_json::from_str(&format!(r#""{flood_strategy}""#))
+            .map_err(|e| format!("Error converting to enum from string: {e}"))?;
+
+        let packets_per_peer_per_iteration =
+            match value_t!(sub_matches, "packets_per_peer_per_iteration", u32) {
+                Ok(val) => val,
+                Err(ClapError {
+                    kind: ClapErrorKind::ArgumentNotFound,
+                    ..
+                }) => DEFAULT_PACKETS_PER_PEER_PER_ITERATION,
+                Err(e) => Err(e.to_string())?,
+            };
+
+        let iteration_delay_us = match value_t!(sub_matches, "iteration_delay_us", u64) {
+            Ok(val) => val,
+            Err(ClapError {
+                kind: ClapErrorKind::ArgumentNotFound,
+                ..
+            }) => DEFAULT_ITERATION_DELAY_US,
+            Err(e) => Err(e.to_string())?,
+        };
+
+        let target = sub_matches.value_of("target").map(|s| s.to_string());
+        if let Some(ref target) = target {
+            verify_peer_identifier(target)?;
+        }
+
+        let configs = if disable {
+            vec![]
+        } else {
+            vec![FloodConfig {
+                flood_strategy,
+                packets_per_peer_per_iteration,
+                iteration_delay_us,
+                target,
+            }]
+        };
+        RepairPacketFloodConfig { configs }
     };
-    configure_repair_packet_flood(rpc_endpoint_url, RepairPacketFloodConfig { configs })
+    configure_repair_packet_flood(rpc_endpoint_url, flood_config)
 }
 
 pub fn configure_repair_packet_flood(

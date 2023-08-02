@@ -1,7 +1,5 @@
 use {
-    crate::adversary_feature_set::repair_packet_flood::{
-        FloodConfig, FloodStrategy, PeerIdentifier,
-    },
+    crate::adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
     log::*,
     rand::{thread_rng, Rng},
     rayon::{prelude::*, ThreadPool},
@@ -17,7 +15,7 @@ use {
         shred::{Nonce, ProcessShredsStats, ReedSolomonCache, Shredder},
     },
     solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
-    solana_pubkey::{ParsePubkeyError, Pubkey},
+    solana_pubkey::Pubkey,
     solana_rayon_threadlimit::get_thread_count,
     solana_runtime::bank_forks::BankForks,
     solana_signer::Signer,
@@ -41,17 +39,21 @@ enum PeerIdentifierSanitized {
     Ip(IpAddr),
 }
 
-impl TryFrom<&PeerIdentifier> for PeerIdentifierSanitized {
-    type Error = ParsePubkeyError;
-    fn try_from(source: &PeerIdentifier) -> Result<Self, Self::Error> {
-        match source {
-            PeerIdentifier::Pubkey(pubkey) => {
-                let pubkey = Pubkey::try_from(pubkey.as_str())?;
-                Ok(PeerIdentifierSanitized::Pubkey(pubkey))
-            }
-            PeerIdentifier::Ip(ip) => Ok(PeerIdentifierSanitized::Ip(*ip)),
+impl TryFrom<&String> for PeerIdentifierSanitized {
+    type Error = String;
+    fn try_from(source: &String) -> Result<Self, Self::Error> {
+        if let Ok(pubkey) = Pubkey::try_from(&source[..]) {
+            return Ok(PeerIdentifierSanitized::Pubkey(pubkey));
         }
+        Ok(PeerIdentifierSanitized::Ip(source.parse().map_err(
+            |e| format!("Failed to parse peer identifier {source}: {e}"),
+        )?))
     }
+}
+
+pub fn verify_peer_identifier(identifier: &String) -> Result<(), String> {
+    PeerIdentifierSanitized::try_from(identifier)?;
+    Ok(())
 }
 
 #[derive(Debug, Default)]

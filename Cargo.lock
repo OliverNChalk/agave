@@ -7229,6 +7229,7 @@ dependencies = [
  "solana-system-transaction",
  "solana-time-utils",
  "solana-validator-exit",
+ "toml 0.8.12",
 ]
 
 [[package]]
@@ -9094,6 +9095,7 @@ dependencies = [
  "solana-clap-utils",
  "solana-logger",
  "solana-net-utils",
+ "toml 0.8.12",
 ]
 
 [[package]]

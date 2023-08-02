@@ -1,7 +1,5 @@
 use {
-    crate::adversary::repair::{
-        DEFAULT_ITERATION_DELAY_US, DEFAULT_PACKETS_PER_PEER_PER_ITERATION,
-    },
+    crate::adversary::repair::STDIN_TOKEN,
     clap::{value_t_or_exit, App, AppSettings, Arg, SubCommand},
     solana_adversary::adversary_feature_set::{
         all_enum_variants_as_json_strings, invalidate_leader_block::InvalidationKind,
@@ -55,15 +53,14 @@ pub fn run_command() -> Result<(), String> {
                 .arg(
                     Arg::with_name("disable")
                         .long("disable")
-                        .default_value("false")
                         .value_name("BOOLEAN")
                         .validator(input_validators::is_parsable::<bool>)
-                        .help("Whether to disable flooding repair packets"),
+                        .help("Whether to disable flooding repair packets")
+                        .conflicts_with("toml_config"),
                 )
                 .arg(
                     Arg::with_name("flood_strategy")
                         .long("flood-strategy")
-                        .default_value("minimalPackets")
                         .value_name("ENUM STRING")
                         .possible_values(
                             all_enum_variants_as_json_strings::<FloodStrategy>()
@@ -72,23 +69,24 @@ pub fn run_command() -> Result<(), String> {
                                 .collect::<Vec<&str>>()
                                 .as_slice(),
                         )
-                        .help("Which strategy to use for flooding repair packets"),
+                        .help("Which strategy to use for flooding repair packets")
+                        .conflicts_with_all(&["toml_config", "disable"]),
                 )
                 .arg(
                     Arg::with_name("packets_per_peer_per_iteration")
                         .long("packets-per-peer-per-iteration")
-                        .default_value(DEFAULT_PACKETS_PER_PEER_PER_ITERATION)
                         .value_name("NUMBER")
-                        .validator(input_validators::is_parsable::<u64>)
-                        .help("Number of packets to send to each peer each iteration"),
+                        .validator(input_validators::is_parsable::<u32>)
+                        .help("Number of packets to send to each peer each iteration")
+                        .conflicts_with_all(&["toml_config", "disable"]),
                 )
                 .arg(
                     Arg::with_name("iteration_delay_us")
                         .long("iteration-delay-us")
-                        .default_value(DEFAULT_ITERATION_DELAY_US)
                         .value_name("MICROSECONDS")
                         .validator(input_validators::is_parsable::<u64>)
-                        .help("Delay between iterations in microseconds"),
+                        .help("Delay between iterations in microseconds")
+                        .conflicts_with_all(&["toml_config", "disable"]),
                 )
                 .arg(
                     Arg::with_name("target")
@@ -96,7 +94,17 @@ pub fn run_command() -> Result<(), String> {
                         .takes_value(true)
                         .value_name("PUBKEY")
                         .validator(input_validators::is_pubkey)
-                        .help("Peer to target with repair packets"),
+                        .help("Peer to target with repair packets")
+                        .conflicts_with_all(&["toml_config", "disable"]),
+                )
+                .arg(
+                    Arg::with_name("toml_config")
+                        .long("toml")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .help(&format!(
+                            "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
+                        )),
                 ),
         )
         .subcommand(

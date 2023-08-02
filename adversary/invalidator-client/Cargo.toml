@@ -21,3 +21,4 @@ solana-adversary = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-logger = { workspace = true }
 solana-net-utils = { workspace = true }
+toml = { workspace = true }

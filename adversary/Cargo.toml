@@ -45,3 +45,4 @@ solana-streamer = { workspace = true }
 solana-system-transaction = { workspace = true }
 solana-time-utils = { workspace = true }
 solana-validator-exit = { workspace = true }
+toml = { workspace = true }

@@ -52,16 +52,9 @@ pub mod example {
 
 /// Configuration for flooding repair packets
 pub mod repair_packet_flood {
-    use {enum_iterator::Sequence, std::net::IpAddr};
+    use enum_iterator::Sequence;
     pub const ID: &str = "repair_packet_flood";
     adversarial_feature_impl!(RepairPacketFlood);
-
-    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub enum PeerIdentifier {
-        Pubkey(String),
-        Ip(IpAddr),
-    }
 
     #[derive(Clone, Debug, Sequence, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -93,7 +86,7 @@ pub mod repair_packet_flood {
         /// Time to sleep between iterations of the flood strategy loop.
         pub iteration_delay_us: u64,
         /// Optional target to limit the flood configuration to a specific peer.
-        pub target: Option<PeerIdentifier>,
+        pub target: Option<String>,
     }
 
     /// Define a list of flood configurations, each configuration will be executed on its
