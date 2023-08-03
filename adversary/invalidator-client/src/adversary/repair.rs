@@ -18,7 +18,6 @@ pub const STDIN_TOKEN: &str = "-";
 
 const DEFAULT_PACKETS_PER_PEER_PER_ITERATION: u32 = 10;
 const DEFAULT_ITERATION_DELAY_US: u64 = 1_000_000;
-const DEFAULT_FLOOD_STRATEGY: &str = "minimalPackets";
 
 impl Command for RepairPacketFloodConfig {
     const RPC_METHOD: &'static str = "configureRepairPacketFlood";
@@ -69,25 +68,18 @@ pub fn configure_repair_packet_flood_args(
         trace!("Parsed config:\n{data:#?}");
         data
     } else {
-        let disable = match value_t!(sub_matches, "disable", bool) {
-            Ok(val) => val,
-            Err(ClapError {
-                kind: ClapErrorKind::ArgumentNotFound,
-                ..
-            }) => false,
-            Err(e) => Err(e.to_string())?,
-        };
-
         let flood_strategy = match value_t!(sub_matches, "flood_strategy", String) {
-            Ok(val) => val,
+            Ok(val) => {
+                let flood_strategy: FloodStrategy = serde_json::from_str(&format!(r#""{val}""#))
+                    .map_err(|e| format!("Error converting to enum from string: {e}"))?;
+                Some(flood_strategy)
+            }
             Err(ClapError {
                 kind: ClapErrorKind::ArgumentNotFound,
                 ..
-            }) => DEFAULT_FLOOD_STRATEGY.to_string(),
+            }) => None,
             Err(e) => Err(e.to_string())?,
         };
-        let flood_strategy: FloodStrategy = serde_json::from_str(&format!(r#""{flood_strategy}""#))
-            .map_err(|e| format!("Error converting to enum from string: {e}"))?;
 
         let packets_per_peer_per_iteration =
             match value_t!(sub_matches, "packets_per_peer_per_iteration", u32) {
@@ -113,15 +105,15 @@ pub fn configure_repair_packet_flood_args(
             verify_peer_identifier(target)?;
         }
 
-        let configs = if disable {
-            vec![]
-        } else {
+        let configs = if let Some(flood_strategy) = flood_strategy {
             vec![FloodConfig {
                 flood_strategy,
                 packets_per_peer_per_iteration,
                 iteration_delay_us,
                 target,
             }]
+        } else {
+            vec![]
         };
         RepairPacketFloodConfig { configs }
     };

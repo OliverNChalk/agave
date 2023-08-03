@@ -51,14 +51,6 @@ pub fn run_command() -> Result<(), String> {
             SubCommand::with_name("configure-repair-packet-flood")
                 .about("Configure flooding repair packet requests")
                 .arg(
-                    Arg::with_name("disable")
-                        .long("disable")
-                        .value_name("BOOLEAN")
-                        .validator(input_validators::is_parsable::<bool>)
-                        .help("Whether to disable flooding repair packets")
-                        .conflicts_with("toml_config"),
-                )
-                .arg(
                     Arg::with_name("flood_strategy")
                         .long("flood-strategy")
                         .value_name("ENUM STRING")
@@ -70,7 +62,7 @@ pub fn run_command() -> Result<(), String> {
                                 .as_slice(),
                         )
                         .help("Which strategy to use for flooding repair packets")
-                        .conflicts_with_all(&["toml_config", "disable"]),
+                        .conflicts_with("toml_config"),
                 )
                 .arg(
                     Arg::with_name("packets_per_peer_per_iteration")
@@ -78,7 +70,8 @@ pub fn run_command() -> Result<(), String> {
                         .value_name("NUMBER")
                         .validator(input_validators::is_parsable::<u32>)
                         .help("Number of packets to send to each peer each iteration")
-                        .conflicts_with_all(&["toml_config", "disable"]),
+                        .conflicts_with("toml_config")
+                        .requires("flood_strategy"),
                 )
                 .arg(
                     Arg::with_name("iteration_delay_us")
@@ -86,7 +79,8 @@ pub fn run_command() -> Result<(), String> {
                         .value_name("MICROSECONDS")
                         .validator(input_validators::is_parsable::<u64>)
                         .help("Delay between iterations in microseconds")
-                        .conflicts_with_all(&["toml_config", "disable"]),
+                        .conflicts_with("toml_config")
+                        .requires("flood_strategy"),
                 )
                 .arg(
                     Arg::with_name("target")
@@ -95,7 +89,8 @@ pub fn run_command() -> Result<(), String> {
                         .value_name("PUBKEY")
                         .validator(input_validators::is_pubkey)
                         .help("Peer to target with repair packets")
-                        .conflicts_with_all(&["toml_config", "disable"]),
+                        .conflicts_with("toml_config")
+                        .requires("flood_strategy"),
                 )
                 .arg(
                     Arg::with_name("toml_config")
@@ -104,7 +99,8 @@ pub fn run_command() -> Result<(), String> {
                         .value_name("FILE")
                         .help(&format!(
                             "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
-                        )),
+                        ))
+                        .conflicts_with("flood_strategy"),
                 ),
         )
         .subcommand(
