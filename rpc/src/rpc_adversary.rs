@@ -6,8 +6,8 @@ use {
         adversary_context,
         adversary_feature_set::{
             self, drop_turbine_votes, example, invalidate_leader_block, packet_drop_parameters,
-            repair_packet_flood, repair_parameters, send_duplicate_blocks, shred_receiver_address,
-            AdversaryFeatureConfig,
+            repair_packet_flood, repair_parameters, replay_stage_attack, send_duplicate_blocks,
+            shred_receiver_address, AdversaryFeatureConfig,
         },
         repair::{verify_peer_identifier, RepairPacketFlood},
     },
@@ -77,6 +77,13 @@ pub trait Adversary {
         config: packet_drop_parameters::AdversarialConfig,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "configureReplayStageAttack")]
+    fn configure_replay_stage_attack(
+        &self,
+        meta: Self::Metadata,
+        config: replay_stage_attack::AdversarialConfig,
+    ) -> Result<()>;
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>;
@@ -103,6 +110,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
     let mut send_duplicate_blocks = false;
     let mut drop_turbine_votes = false;
     let mut invalidate_leader_block = false;
+    let mut replay_stage_attack = false;
     for adversary_feature_config in adversary_feature_configs {
         match adversary_feature_config {
             AdversaryFeatureConfig::RepairPacketFlood(config) => {
@@ -125,6 +133,9 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                     invalidate_leader_block = true;
                 }
             }
+            AdversaryFeatureConfig::ReplayStageAttack(config) => {
+                replay_stage_attack = config.selected_attack.is_some();
+            }
             AdversaryFeatureConfig::Example(_)
             | AdversaryFeatureConfig::PacketDropParameters(_)
             | AdversaryFeatureConfig::RepairParameters(_)
@@ -138,6 +149,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         ("send_duplicate_blocks", send_duplicate_blocks, i64),
         ("drop_turbine_votes", drop_turbine_votes, i64),
         ("invalidate_leader_block", invalidate_leader_block, i64),
+        ("replay_stage_attack", replay_stage_attack, i64),
     );
 }
 
@@ -257,6 +269,17 @@ impl Adversary for AdversaryImpl {
         })
     }
 
+    fn configure_replay_stage_attack(
+        &self,
+        meta: Self::Metadata,
+        config: replay_stage_attack::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta, || {
+            replay_stage_attack::set_config(config);
+            Ok(())
+        })
+    }
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>,
@@ -277,7 +300,10 @@ pub mod tests {
         serial_test::serial,
         solana_adversary::{
             adversary_context::ADVERSARY_CONTEXT,
-            adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
+            adversary_feature_set::{
+                repair_packet_flood::{FloodConfig, FloodStrategy},
+                replay_stage_attack,
+            },
         },
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::bank::Bank,
@@ -349,6 +375,11 @@ pub mod tests {
                     "serveRepairAncestorHashesInvalidRespones": null,
                     "ancestorHashRepairSampleSize": null,
                 },
+            },
+            {
+                "replayStageAttack": {
+                    "selectedAttack": null
+                }
             },
             {
                 "sendDuplicateBlocksConfig": {
@@ -682,6 +713,33 @@ pub mod tests {
         // Reset the config
         let config = packet_drop_parameters::AdversarialConfig::default();
         let request = create_test_request("configurePacketDropParameters", Some(json!([config])));
+        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        assert_eq!(result, json!(null));
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_replay_stage_attack() {
+        let meta = setup_test_meta();
+        let mut io = MetaIoHandler::default();
+        io.extend_with(AdversaryImpl.to_delegate());
+
+        let config = replay_stage_attack::AdversarialConfig {
+            selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
+        };
+        {
+            // Update the config for invalidate_leader_block, ensuring that request succeeds
+            let meta = meta.clone();
+            let request = create_test_request("configureReplayStageAttack", Some(json!([config])));
+            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+            assert_eq!(result, json!(null));
+        }
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, replay_stage_attack::get_config());
+
+        // Reset the config
+        let config = replay_stage_attack::AdversarialConfig::default();
+        let request = create_test_request("configureReplayStageAttack", Some(json!([config])));
         let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
         assert_eq!(result, json!(null));
     }

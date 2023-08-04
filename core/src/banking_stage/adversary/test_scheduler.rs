@@ -3,9 +3,9 @@
 //!       or in creating stress-tests on a local network.
 
 use {
-    super::test_generators::TransactionGenerator,
     crate::{
         banking_stage::{
+            adversary::test_generators::ActiveGenerator,
             committer::Committer,
             consumer::Consumer,
             decision_maker::DecisionMaker,
@@ -18,7 +18,7 @@ use {
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError},
-    solana_clock::NUM_CONSECUTIVE_LEADER_SLOTS,
+    solana_adversary::adversary_feature_set,
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_poh::{poh_recorder::PohRecorder, transaction_recorder::TransactionRecorder},
     solana_runtime::{
@@ -199,10 +199,7 @@ fn spawn_adverserial_scheduler_and_workers(
         non_vote_receiver,
         work_senders,
         finished_work_receiver,
-        crate::banking_stage::adversary::test_generators::get_transaction_generators(
-            block_generator_config,
-            num_workers,
-        ),
+        ActiveGenerator::new(block_generator_config, num_workers),
     );
     non_vote_thread_hdls.push(
         Builder::new()
@@ -233,11 +230,8 @@ pub struct TestScheduler {
     finished_consume_work_receiver:
         Receiver<FinishedConsumeWork<RuntimeTransaction<SanitizedTransaction>>>,
 
-    /// Transaction batch generators
-    transaction_generators: Vec<(TransactionGenerator, usize)>,
-
-    /// Index of the transaction generator to use
-    tx_gen_idx: usize,
+    /// Selected generator
+    active_generator: ActiveGenerator,
 }
 
 impl TestScheduler {
@@ -248,20 +242,15 @@ impl TestScheduler {
         finished_consume_work_receiver: Receiver<
             FinishedConsumeWork<RuntimeTransaction<SanitizedTransaction>>,
         >,
-        transaction_generators: Vec<(TransactionGenerator, usize)>,
+        active_generator: ActiveGenerator,
     ) -> Self {
         Self {
             decision_maker,
             non_vote_receiver,
             consume_work_senders,
             finished_consume_work_receiver,
-            transaction_generators,
-            tx_gen_idx: 0,
+            active_generator,
         }
-    }
-
-    fn advance_tx_gen_idx(&mut self) {
-        self.tx_gen_idx = (self.tx_gen_idx + 1) % self.transaction_generators.len();
     }
 
     pub fn run(mut self) {
@@ -288,6 +277,12 @@ impl TestScheduler {
                 .try_iter()
                 .for_each(drop);
 
+            self.update_active_attack();
+            if !self.active_generator.is_active() {
+                sleep(Duration::from_millis(100));
+                continue;
+            }
+
             let decision = self.decision_maker.make_consume_or_forward_decision();
 
             let Some(bank) = decision.bank() else {
@@ -299,21 +294,14 @@ impl TestScheduler {
 
             if bank_slot != bank.slot() {
                 bank_slot = bank.slot();
-                // Advance to next tx generator on consecutive leader slot boundary
-                if (bank_slot % NUM_CONSECUTIVE_LEADER_SLOTS) == 0 {
-                    self.advance_tx_gen_idx();
-                }
-
-                trace!(
-                    "Generating transactions for slot {bank_slot} w/ generator {}",
-                    self.tx_gen_idx
-                );
+                trace!("Generating transactions for slot {bank_slot}");
             }
 
-            let (generator, num_tx_batches) = &mut self.transaction_generators[self.tx_gen_idx];
+            let num_tx_batches = self.active_generator.get_num_tx_batches();
             // Batch transactions to amortize decision cost.
-            for _ in 0..*num_tx_batches {
-                let (transactions, worker_index) = (*generator)(bank);
+            for _ in 0..num_tx_batches {
+                let (transactions, worker_index) =
+                    self.active_generator.generate_transactions(bank);
 
                 let transactions = transactions
                     .into_iter()
@@ -346,5 +334,11 @@ impl TestScheduler {
                     .unwrap();
             }
         }
+    }
+
+    fn update_active_attack(&mut self) {
+        let adv_config = adversary_feature_set::replay_stage_attack::get_config();
+        self.active_generator
+            .ensure_active(adv_config.selected_attack);
     }
 }

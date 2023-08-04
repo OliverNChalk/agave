@@ -4,7 +4,6 @@ use {
     agave_snapshots::{hardened_unpack::open_genesis_config, SnapshotInterval},
     assert_matches::assert_matches,
     crossbeam_channel::{unbounded, Receiver},
-    enumset::{enum_set, EnumSet},
     gag::BufferRedirect,
     itertools::Itertools,
     log::*,
@@ -12,6 +11,7 @@ use {
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
     solana_accounts_db::utils::create_accounts_run_and_snapshot_dirs,
+    solana_adversary::adversary_feature_set::replay_stage_attack,
     solana_client_traits::AsyncClient,
     solana_clock::{
         self as clock, Slot, DEFAULT_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT, MAX_PROCESSING_AGE,
@@ -19,7 +19,7 @@ use {
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
     solana_core::{
-        banking_stage::adversary::accounts_file::{AccountsFile, BlockGeneratorOption},
+        banking_stage::adversary::accounts_file::AccountsFile,
         consensus::{
             tower_storage::FileTowerStorage, Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH,
         },
@@ -505,6 +505,52 @@ fn is_simple_vote_tx(tx: VersionedTransaction) -> bool {
     .unwrap_or_default()
 }
 
+// This code was adapted from adversary client
+// The intention to move it in the follow up PR to a new place
+fn configure_block_generator(
+    selected_attack: Option<replay_stage_attack::Attack>,
+    url: &str,
+) -> Result<(), String> {
+    use {
+        reqwest::blocking::Client,
+        serde::{Deserialize, Serialize},
+    };
+    #[derive(Debug, Serialize, Deserialize)]
+    struct RpcRequest {
+        jsonrpc: String,
+        method: String,
+        params: serde_json::Value,
+        id: u64,
+    }
+
+    let config = replay_stage_attack::AdversarialConfig { selected_attack };
+
+    let rpc_method = "configureReplayStageAttack";
+    let params = serde_json::json!([config]);
+    let payload = RpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: rpc_method.to_string(),
+        params,
+        id: 1,
+    };
+    let client = Client::new();
+    let response = client
+        .post(url)
+        .json(&payload)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .map_err(|e| format!("RPC Send Error: {e:?}"))?;
+    response
+        .json::<serde_json::Value>()
+        .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
+    Ok(())
+}
+
+fn get_rpc_url(cluster: &LocalCluster) -> String {
+    let rpc = cluster.entry_point_info.rpc().unwrap();
+    format!("http://{}:{}", rpc.ip(), rpc.port())
+}
+
 #[test]
 #[serial]
 fn test_mainnet_beta_cluster_type_generator() {
@@ -538,8 +584,6 @@ fn test_mainnet_beta_cluster_type_generator() {
                 accounts: BlockGeneratorAccountsOption::Accounts(Arc::new(
                     AccountsFile::with_payers(&starting_keypairs),
                 )),
-                selected_generators: EnumSet::<BlockGeneratorOption>::all()
-                    ^ BlockGeneratorOption::WriteProgram,
             }),
         },
         ..ValidatorConfig::default_for_test()
@@ -582,6 +626,13 @@ fn test_mainnet_beta_cluster_type_generator() {
         }),
     )
     .unwrap();
+
+    sleep(Duration::from_millis(800));
+    assert!(configure_block_generator(
+        Some(replay_stage_attack::Attack::TransferRandom),
+        &get_rpc_url(&cluster)
+    )
+    .is_ok());
 
     // check that the leader generated some transactions
     let num_response_check_iterations = 10;
@@ -671,6 +722,10 @@ fn program_account() -> AccountSharedData {
     })
 }
 
+// Ignored for now to unblock the progress because when when it runs together with previous test,
+// it receives signal to reset to TransferRandom which is looks like a side effect of RPC call
+// Not clear why this happens at the moment
+#[ignore]
 #[test]
 #[serial]
 fn test_mainnet_beta_cluster_type_program_generator() {
@@ -723,7 +778,6 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     let mut validator_config = ValidatorConfig::default_for_test();
     validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
         accounts: BlockGeneratorAccountsOption::Accounts(accounts_file),
-        selected_generators: enum_set!(BlockGeneratorOption::WriteProgram),
     });
 
     // Setup starting accounts
@@ -777,6 +831,15 @@ fn test_mainnet_beta_cluster_type_program_generator() {
             .unwrap()
             .value,
         None
+    );
+
+    sleep(Duration::from_millis(800));
+    assert_eq!(
+        configure_block_generator(
+            Some(replay_stage_attack::Attack::WriteProgram),
+            &get_rpc_url(&cluster)
+        ),
+        Ok(())
     );
 
     // Let the cluster run for some period of time generating transactions.

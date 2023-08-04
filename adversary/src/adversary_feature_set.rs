@@ -39,6 +39,8 @@ macro_rules! adversarial_feature_impl {
     };
 }
 
+pub mod replay_stage_attack;
+
 pub mod example {
     pub const ID: &str = "example";
     adversarial_feature_impl!(Example);
@@ -226,6 +228,8 @@ pub enum AdversaryFeatureConfig {
     InvalidateLeaderBlock(invalidate_leader_block::AdversarialConfig),
     #[serde(rename = "packetDropParametersConfig")]
     PacketDropParameters(packet_drop_parameters::AdversarialConfig),
+    #[serde(rename = "replayStageAttack")]
+    ReplayStageAttack(replay_stage_attack::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig>> =
@@ -275,6 +279,12 @@ static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig
                 packet_drop_parameters::ID,
                 AdversaryFeatureConfig::PacketDropParameters(
                     packet_drop_parameters::AdversarialConfig::default(),
+                ),
+            ),
+            (
+                replay_stage_attack::ID,
+                AdversaryFeatureConfig::ReplayStageAttack(
+                    replay_stage_attack::AdversarialConfig::default(),
                 ),
             ),
         ]

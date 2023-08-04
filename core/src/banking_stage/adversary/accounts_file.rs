@@ -1,34 +1,4 @@
-use {
-    enumset::EnumSetType,
-    serde::Deserialize,
-    solana_keypair::Keypair,
-    solana_pubkey::Pubkey,
-    std::str::FromStr,
-    strum::VariantNames,
-    strum_macros::{EnumString, EnumVariantNames},
-};
-
-#[derive(Debug, EnumSetType, EnumString, EnumVariantNames)]
-#[strum(serialize_all = "kebab-case")]
-pub enum BlockGeneratorOption {
-    TransferRandom,
-    CreateNonceAccounts,
-    AllocateRandomLarge,
-    AllocateRandomSmall,
-    ChainTransactions,
-    WriteProgram,
-}
-
-impl BlockGeneratorOption {
-    pub const fn cli_names() -> &'static [&'static str] {
-        Self::VARIANTS
-    }
-
-    pub fn cli_message() -> &'static str {
-        "Specify type of the attack, if not specified all attacks except for program-based will be \
-         launched in a round-robin fashion"
-    }
-}
+use {serde::Deserialize, solana_keypair::Keypair, solana_pubkey::Pubkey, std::str::FromStr};
 
 #[derive(Default, Debug)]
 pub struct AccountsFile {

@@ -5,9 +5,8 @@ use {
     crate::{
         admin_rpc_post_init::{AdminRpcRequestMetadataPostInit, KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            adversary::accounts_file::{AccountsFile, BlockGeneratorOption},
-            transaction_scheduler::scheduler_controller::SchedulerConfig,
-            BankingStage,
+            adversary::accounts_file::AccountsFile,
+            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
         },
         banking_trace::{self, BankingTracer, TraceError},
         cluster_info_vote_listener::VoteTracker,
@@ -42,7 +41,6 @@ use {
     },
     anyhow::{anyhow, Context, Result},
     crossbeam_channel::{bounded, unbounded, Receiver},
-    enumset::EnumSet,
     quinn::Endpoint,
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -312,7 +310,6 @@ pub enum BlockGeneratorAccountsOption {
 #[derive(Clone, Debug)]
 pub struct BlockGeneratorConfig {
     pub accounts: BlockGeneratorAccountsOption,
-    pub selected_generators: EnumSet<BlockGeneratorOption>,
 }
 
 /// Configuration for adversarial testing.

@@ -78,13 +78,15 @@ trees = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
-enumset = { workspace = true }
 fs_extra = { workspace = true }
 gag = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 serial_test = { workspace = true }
+solana-adversary = { workspace = true }
 solana-core = { workspace = true, features = ["dev-context-only-utils"] }
 solana-download-utils = { workspace = true }
 solana-ledger = { workspace = true, features = ["dev-context-only-utils"] }
 solana-local-cluster = { path = ".", features = ["agave-unstable-api", "dev-context-only-utils"] }
 solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
-tempfile = { workspace = true }

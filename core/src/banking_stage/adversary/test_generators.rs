@@ -1,13 +1,14 @@
 //! Generators for testing banking stage
 
 use {
-    super::accounts_file::{AccountsFile, AccountsFileRaw, BlockGeneratorOption},
+    super::accounts_file::{AccountsFile, AccountsFileRaw},
     crate::{
         banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
         validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
     },
     block_generator_stress_test::BlockGeneratorStressTestInstruction,
     rand::{seq::SliceRandom, thread_rng, Rng},
+    solana_adversary::adversary_feature_set::replay_stage_attack,
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_instruction::{AccountMeta, Instruction},
     solana_keypair::Keypair,
@@ -67,9 +68,9 @@ impl GeneratorBuilderWithConfig {
     }
 }
 
-impl From<BlockGeneratorOption> for GeneratorBuilderWithConfig {
-    fn from(val: BlockGeneratorOption) -> Self {
-        use BlockGeneratorOption::*;
+impl From<replay_stage_attack::Attack> for GeneratorBuilderWithConfig {
+    fn from(val: replay_stage_attack::Attack) -> Self {
+        use replay_stage_attack::Attack::*;
 
         match val {
             TransferRandom => Self::new(generator_transfer_random, 100),
@@ -82,27 +83,64 @@ impl From<BlockGeneratorOption> for GeneratorBuilderWithConfig {
     }
 }
 
-pub fn get_transaction_generators(
-    block_generator_config: BlockGeneratorConfig,
+/// Encapsulate logic for managing selected generator
+pub struct ActiveGenerator {
     num_workers: usize,
-) -> Vec<(TransactionGenerator, /* tx batches */ usize)> {
-    let accounts = Arc::<AccountsFile>::from(block_generator_config.accounts);
+    accounts: Arc<AccountsFile>,
+    current: Option<(TransactionGenerator, /* tx batches */ usize)>,
+    // used to simplify check if the selected_generator should be changed
+    current_attack: Option<replay_stage_attack::Attack>,
+}
 
-    let generators: Vec<GeneratorBuilderWithConfig> = block_generator_config
-        .selected_generators
-        .iter()
-        .map(|generator_option| generator_option.into())
-        .collect();
+impl ActiveGenerator {
+    pub fn new(block_generator_config: BlockGeneratorConfig, num_workers: usize) -> Self {
+        let accounts = Arc::<AccountsFile>::from(block_generator_config.accounts);
+        Self {
+            num_workers,
+            accounts,
+            current: None,
+            current_attack: None,
+        }
+    }
 
-    generators
-        .into_iter()
-        .map(
-            |GeneratorBuilderWithConfig {
-                 builder,
-                 batch_size,
-             }| { (builder(accounts.clone(), num_workers), batch_size) },
-        )
-        .collect()
+    /// Get number of of transaction batches
+    /// Used for performance optimization
+    pub fn get_num_tx_batches(&self) -> usize {
+        self.current
+            .as_ref()
+            .map(|generator| generator.1)
+            .unwrap_or(0)
+    }
+
+    /// Generate transactions using current generator
+    pub fn generate_transactions(&mut self, bank: &Bank) -> (Vec<SanitizedTransaction>, usize) {
+        self.current
+            .as_mut()
+            .map(|generator| (generator.0)(bank))
+            .unwrap_or((vec![], 0))
+    }
+
+    /// Create a new generator using existing accounts and reset the state of the structure
+    pub fn ensure_active(&mut self, attack: Option<replay_stage_attack::Attack>) {
+        if self.current_attack == attack {
+            return;
+        }
+        info!("Reset selected generator to: {attack:?}");
+        self.current_attack = attack.clone();
+        self.current = attack.map(|attack| {
+            let GeneratorBuilderWithConfig {
+                builder,
+                batch_size,
+            } = attack.into();
+
+            (builder(self.accounts.clone(), self.num_workers), batch_size)
+        });
+    }
+
+    /// Check if any generator has been selected
+    pub fn is_active(&self) -> bool {
+        self.current.is_some()
+    }
 }
 
 /// Generates transfers between a set of accounts.
