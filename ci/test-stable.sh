@@ -101,6 +101,16 @@ test-stable-sbf)
 
   exit 0
   ;;
+test-local-cluster-replay-attack)
+  _ cargo build --release --bins ${V:+--verbose}
+  if need_to_upload_test_result; then
+    _ cargo test --release --package solana-local-cluster --test local_cluster_replay_attack ${V:+--verbose} -- --test-threads=1 -Z unstable-options --format json --report-time | tee results.json
+    exit_if_error "${PIPESTATUS[0]}"
+  else
+    _ ci/intercept.sh cargo test --release --package solana-local-cluster --test local_cluster_replay_attack ${V:+--verbose} -- --nocapture --test-threads=1
+  fi
+  exit 0
+  ;;
 test-docs)
   _ cargo test --jobs "$JOBS" --all --doc --exclude solana-local-cluster ${V:+--verbose} -- --nocapture
   exit 0

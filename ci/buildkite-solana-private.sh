@@ -179,6 +179,10 @@ EOF
       "Stable-SBF skipped as no relevant files were modified"
   fi
 
+  command_step "local-cluster-replay-attack" \
+    ". ci/rust-version.sh; ci/docker-run.sh \$\$rust_stable_docker_image ci/test-local-cluster-replay-attack.sh" \
+    40
+
   # Coverage...
   if affects \
              .rs$ \

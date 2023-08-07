@@ -104,6 +104,15 @@ if affects \
     60
 fi
 
+## local-cluster-replay-attack
+if affects \
+  .rs$ \
+  ; then
+  add_step "local-cluster-replay-attack" \
+    "ci/docker-run-default-image.sh ci/test-local-cluster-replay-attack.sh" \
+    60
+fi
+
 ## local-cluster-flakey
 if affects \
   .rs$ \
