@@ -9,7 +9,8 @@ use {
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
             adversary::{
-                invalidate_leader_block_attack::InvalidateLeaderBlockAttack, test_scheduler,
+                adversarial_banking_stage::AdversarialBankingStage,
+                invalidate_leader_block_attack::InvalidateLeaderBlockAttack,
             },
             transaction_scheduler::scheduler_controller::SchedulerConfig,
             BankingStage,
@@ -108,6 +109,7 @@ pub struct Tpu {
     vote_sigverify_stage: SigVerifyStage,
     banking_stage: Arc<RwLock<Option<BankingStage>>>,
     forwarding_stage: JoinHandle<()>,
+    adversarial_banking_stage: AdversarialBankingStage,
     cluster_info_vote_listener: ClusterInfoVoteListener,
     broadcast_stage: BroadcastStage,
     tpu_quic_t: Option<thread::JoinHandle<()>>,
@@ -328,25 +330,10 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        let banking_stage = if let Some(block_generator_config) = block_generator_config {
-            test_scheduler::new_adverserial_banking_stage(
-                block_production_method,
-                poh_recorder,
-                transaction_recorder.clone(),
-                non_vote_receiver,
-                tpu_vote_receiver,
-                gossip_vote_receiver,
-                block_production_num_workers,
-                transaction_status_sender,
-                replay_vote_sender,
-                log_messages_bytes_limit,
-                bank_forks.clone(),
-                prioritization_fee_cache,
-                block_generator_config,
-            )
-        } else {
+        let drop_packets = Arc::new(AtomicBool::new(false));
+        let banking_stage = {
             BankingStage::new_num_threads(
-                block_production_method,
+                block_production_method.clone(),
                 poh_recorder.clone(),
                 transaction_recorder.clone(),
                 non_vote_receiver,
@@ -354,13 +341,27 @@ impl Tpu {
                 gossip_vote_receiver,
                 block_production_num_workers,
                 block_production_scheduler_config,
-                transaction_status_sender,
-                replay_vote_sender,
+                transaction_status_sender.clone(),
+                replay_vote_sender.clone(),
                 log_messages_bytes_limit,
                 bank_forks.clone(),
                 prioritization_fee_cache.clone(),
             )
         };
+
+        let adversarial_banking_stage = AdversarialBankingStage::new(
+            exit.clone(),
+            block_production_method,
+            poh_recorder,
+            transaction_recorder.clone(),
+            block_production_num_workers,
+            transaction_status_sender,
+            replay_vote_sender,
+            log_messages_bytes_limit,
+            prioritization_fee_cache,
+            block_generator_config,
+            drop_packets,
+        );
 
         let SpawnForwardingStageResult {
             join_handle: forwarding_stage,
@@ -421,6 +422,7 @@ impl Tpu {
             vote_sigverify_stage,
             banking_stage: Arc::new(RwLock::new(Some(banking_stage))),
             forwarding_stage,
+            adversarial_banking_stage,
             cluster_info_vote_listener,
             broadcast_stage,
             tpu_quic_t,
@@ -450,6 +452,7 @@ impl Tpu {
                 .expect("banking_stage must be Some")
                 .join(),
             self.forwarding_stage.join(),
+            self.adversarial_banking_stage.join(),
             self.staked_nodes_updater_service.join(),
             self.tpu_quic_t.map_or(Ok(()), |t| t.join()),
             self.tpu_forwards_quic_t.map_or(Ok(()), |t| t.join()),

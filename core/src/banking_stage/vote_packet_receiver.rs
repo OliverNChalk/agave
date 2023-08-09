@@ -19,7 +19,8 @@ use {
 };
 
 pub struct VotePacketReceiver {
-    banking_packet_receiver: BankingPacketReceiver,
+    // exposed as pub in invalidator.
+    pub banking_packet_receiver: BankingPacketReceiver,
 }
 
 impl VotePacketReceiver {
@@ -243,4 +244,6 @@ pub struct PacketReceiverStats {
     pub failed_prioritization_count: Saturating<u64>,
     /// Number of vote packets dropped
     pub invalid_vote_count: Saturating<u64>,
+    /// Number of packets dropped due to an active attack
+    pub attack_is_active_count: Saturating<u64>,
 }
