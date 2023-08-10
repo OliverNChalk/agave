@@ -137,6 +137,11 @@ all_test_steps() {
   command_step checks "ci/docker-run-default-image.sh ci/test-checks.sh" 20
   wait_step
 
+  if affects ^scripts/pre-rebase-hook.sh ^scripts/pre-rebase-hook/ ; then
+    command_step "pre-rebase hook checks" \
+      ". ci/test-pre-rebase-hook.sh" 5
+  fi
+
   # Full test suite
   .buildkite/scripts/build-stable.sh default >> "$output_file"
 

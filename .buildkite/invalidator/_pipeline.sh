@@ -16,17 +16,18 @@ else
   echo "trigger all steps so ignore affected files"
 fi
 
+declare -a mandatory_affected_files=(
+  Cargo.toml$
+  Cargo.lock$
+  ^ci/buildkite-pipeline.sh
+  ^ci/docker/Dockerfile
+)
+
 affects() {
   if [[ -n "$TRIGGER_ALL_STEPS" ]]; then
     return 0
   fi
 
-  mandatory_affected_files=(
-    Cargo.toml$
-    Cargo.lock$
-    ^ci/buildkite-pipeline.sh
-    ^ci/docker/Dockerfile
-  )
   for pattern in "${mandatory_affected_files[@]}" "$@"; do
     for file in "${affected_files[@]}"; do
       if [[ $file =~ $pattern ]]; then
@@ -39,10 +40,15 @@ affects() {
 }
 
 add_step() {
+  local name=$1
+  local timeout_in_minutes=$2
+  local command=$3
+  local retry=${4:-0}
+
   cat >>pipeline <<EOF
-  - name: "$1"
-    command: "$2"
-    timeout_in_minutes: $3
+  - name: "$name"
+    command: "$command"
+    timeout_in_minutes: $timeout_in_minutes
     cancel_on_build_failing: true
     agents:
       queue: "invalidator"
@@ -57,6 +63,17 @@ EOF
   fi
 }
 
+add_step_in_docker() {
+  local name=$1
+  local timeout_in_minutes=$2
+  local command=$3
+  local retry=${4:-0}
+
+  command="ci/docker-run-default-image.sh ${command}"
+
+  add_step "$name" "$timeout_in_minutes" "$command" "$retry"
+}
+
 wait_step() {
   echo "  - wait" >>pipeline
 }
@@ -64,80 +81,59 @@ wait_step() {
 echo "steps:" >pipeline
 
 ## sanity
-add_step "sanity" "ci/test-sanity.sh" 5
+add_step sanity 5 \
+  ci/test-sanity.sh
 
 ## shellcheck
-if affects \
-  .sh$ \
-  ; then
-  add_step "shellcheck" "ci/shellcheck.sh" 5
+if affects .sh$ ; then
+  add_step shellcheck 5 \
+    ci/shellcheck.sh
+fi
+
+## pre-rebase hook
+if affects ^scripts/pre-rebase-hook.sh ^scripts/pre-rebase-hook/ ; then
+  add_step pre-rebase-hook 5 \
+    ci/test-pre-rebase-hook.sh
 fi
 
 ## checks
-add_step "checks" "ci/docker-run-default-image.sh ci/test-checks.sh" 20
+add_step_in_docker checks 20 \
+  ci/test-checks.sh
 wait_step
 
 ## stable
-if affects \
-  .rs$ \
-  ^ci/rust-version.sh \
-  ^ci/test-stable.sh \
-  ; then
-  add_step "stable" "ci/docker-run-default-image.sh ci/test-stable.sh" 60
+if affects .rs$ ^ci/rust-version.sh ^ci/test-stable.sh ; then
+  add_step_in_docker stable 60 \
+    ci/test-stable.sh
 fi
 
 ## docs
-if affects \
-  .rs$ \
-  ^ci/rust-version.sh \
-  ^ci/test-docs.sh \
-  ; then
-  add_step doctest "ci/test-docs.sh" 15
+if affects .rs$ ^ci/rust-version.sh ^ci/test-docs.sh ; then
+  add_step doctest 15 \
+    ci/test-docs.sh
 fi
 
-## local-cluster
-if affects \
-  .rs$ \
-  ; then
-  add_step "local-cluster" \
-    "ci/docker-run-default-image.sh ci/test-local-cluster.sh" \
-    60
-fi
+if affects .rs$ ; then
 
-## local-cluster-replay-attack
-if affects \
-  .rs$ \
-  ; then
-  add_step "local-cluster-replay-attack" \
-    "ci/docker-run-default-image.sh ci/test-local-cluster-replay-attack.sh" \
-    60
-fi
+  ## local-cluster
+  add_step_in_docker local-cluster 60 \
+    ci/test-local-cluster.sh
 
-## local-cluster-flakey
-if affects \
-  .rs$ \
-  ; then
-  add_step "local-cluster-flakey" \
-    "ci/docker-run-default-image.sh ci/test-local-cluster-flakey.sh" \
-    30
-fi
+  ## local-cluster-replay-attack
+  add_step_in_docker local-cluster-replay-attack 60 \
+    ci/test-local-cluster-replay-attack.sh
 
-## local-cluster-slow-1
-if affects \
-  .rs$ \
-  ; then
-  add_step "local-cluster-slow-1" \
-    "ci/docker-run-default-image.sh ci/test-local-cluster-slow-1.sh" \
-    60
-fi
+  ## local-cluster-flakey
+  add_step_in_docker local-cluster-flakey 30 \
+    ci/test-local-cluster-flakey.sh
 
-## local-cluster-slow-2
-if affects \
-  .rs$ \
-  ; then
-  add_step "local-cluster-slow-2" \
-    "ci/docker-run-default-image.sh ci/test-local-cluster-slow-2.sh" \
-    60
+  ## local-cluster-slow-1
+  add_step_in_docker local-cluster-slow-1 60 \
+    ci/test-local-cluster-slow-1.sh
+
+  ## local-cluster-slow-2
+  add_step_in_docker local-cluster-slow-2 60 \
+    ci/test-local-cluster-slow-2.sh
 fi
 
 cat pipeline

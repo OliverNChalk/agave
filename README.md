@@ -1,3 +1,46 @@
+# Invalidator
+
+This repo contains attack patterns for the [Solana
+validator](https://github.com/solana-labs/solana).  Changes from the upstream
+
+https://github.com/solana-labs/solana
+
+are regularly merged in and the `master` branch is rebased when that happens.
+
+## Do after cloning
+
+You are **strongly** encouraged to add a git client side hook to your local
+checkout, to make sure your local changes correctly cross a `master` rebase:
+
+```sh
+# Fork https://github.com/solana-labs/invalidator.git on GitHub
+git clone git@github.com:my-github-name/invalidator.git
+cd invalidator
+cp scripts/pre-rebase-hook.sh .git/hooks/pre-rebase
+```
+
+If you do not enable the pre-rebase hook you might need to deal with a complex
+rebase when `master` itself is rebased.
+
+Synchronization process is described in detail in
+[docs/upstream-sync.md](./docs/upstream-sync.md).
+
+## Publishing changes upstream
+
+**NOTE** Any changes related to untested attacks or those known to demonstrate
+unmitigated vulnerabilities should never be upstreamed.
+
+For now, in order to publish a change upstream, one needs to cherry pick it into
+`https://github.com/solana-labs/solana` and it should then be merged back into
+this repository during the next synchronization process.
+
+# Original README.md
+
+Below is the original `README.md` from the `solana` repo.  Let's keep it this
+way.
+
+---
+
 <p align="center">
   <a href="https://anza.xyz">
     <img alt="Anza" src="https://i.postimg.cc/VkKTnMM9/agave-logo-talc-1.png" width="250" />

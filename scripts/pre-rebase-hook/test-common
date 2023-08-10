@@ -1,0 +1,459 @@
+# Common code used by the `pre-rebase` hook tests.
+#
+# This file should be sourced by the test script.
+
+#
+# === Sandbox setup ===
+#
+
+# Directory to be used for any temporary files created by the test.  To be
+# removed when the test exist, unless `PRE_REBASE_HOOK_TEST_KEEP_SANDBOX` is
+# set.
+# Populated by a `setupSandbox` call.
+sandboxRoot=
+
+# Directory where a temporary git workspace is created.  It will be inside the
+# `$sandboxRoot`.
+# Populated by a `setupSandbox` call.
+# `setupSandbox` will also `cd` into this directory.
+gitRoot=
+
+if [[ -z "$here" ]]; then
+  cat <<EOM
+\`test-common\` expects \$here to be set.  A number of functions rely on it to
+be set correctly to the \`test-common\` location.  Set it before sourcing the
+script.
+EOM
+  exit 1
+fi
+
+if [[ ! "$here" =~ /* ]]; then
+  cat <<EOM
+\`test-common\` expects \$here to be an absolute path, starting with '/'.
+This is requried, as the current directory may change.
+Set it like this:
+
+here=\$(realpath "\$(dirname "\${BASH_SOURCE[0]}")")
+
+Got: $here
+EOM
+  exit 1
+fi
+
+# Tests should run this function to prepare a git workspace in a temporary
+# folder and populate `sandboxRoot` with this workspace path.
+#
+# Adds an EXIT trap to remove this temporary folder.
+#
+# Set PRE_REBASE_HOOK_TEST_KEEP_SANDBOX to avoid automatic removal at the end of
+# the test.
+setupSandbox() {
+  sandboxRoot=$(mktemp --tmpdir --directory pre-rebase-hook-test.XXXXXXXXXX)
+
+  if [[ -n "$PRE_REBASE_HOOK_TEST_KEEP_SANDBOX" ]]; then
+    echo "Sandbox root: $sandboxRoot"
+  fi
+
+  gitRoot=$sandboxRoot/git
+  cd "$sandboxRoot"
+
+  export GIT_AUTHOR_NAME="PreRebase Test"
+  export GIT_AUTHOR_EMAIL="pre-rebase-test@example.com"
+  export GIT_COMMITTER_NAME="PreRebase Test"
+  export GIT_COMMITTER_EMAIL="pre-rebase-test@example.com"
+
+  # Avoid using global git configuration file, as it may modify some settings,
+  # breaking tests just for some users.
+  export HOME="$sandboxRoot/home"
+  mkdir -p "$HOME"
+
+  # We always want stable SHAs.
+  gitSetOrAdvanceTime
+
+  # "solana" and "invalidator" repos use `master` branch.  So use the same in
+  # tests.
+  git init --quiet git
+  # git init --quiet --initial-branch master git
+  cd git
+
+  # Use "merge" backend, as it is more predictable and it is going to become the
+  # default.  So the tests are forward compatible.
+  git config --local rebase.backend merge
+
+  # Make sure that signatures are not generated, as they would affect commit
+  # SHAs, breaking test assertions.
+  git config --local commit.gpgSign false
+  git config --local push.gpgSign false
+  git config --local tag.gpgSign false
+
+  ln -s "$here/run.sh" .git/hooks/pre-rebase
+
+  # These may affect command output
+  export LANG=C
+  export LC_ALL=C
+  export PAGER=cat
+  export TZ=UTC
+  export COLUMNS=80
+
+  trap cleanupSandbox EXIT
+}
+
+# Automatically called by an EXIT trap after `setupSandbox` is invoked.
+cleanupSandbox() {
+  if [[ -n "$PRE_REBASE_HOOK_TEST_KEEP_SANDBOX" ]]; then
+    return
+  fi
+
+  rm -rf "$sandboxRoot" >/dev/null 2>&1 || true
+}
+
+#
+# === Hook execution ===
+#
+
+# Runs `git rebase`, forwarding all the arguments.
+#
+# Stores the stdout, stderr and the exit code in `$sandboxRoot/capture_stdout`
+# and `$sandboxRoot/capture_stderr`, and `$last_exit`, respectively.  For
+# further assessment via `assertStdout/assertStderr/assertExitCode`.
+runGitRebase() {
+  local args=( "$@" )
+
+  local prevOps
+  prevOps=$(set +o)
+  local prevTerm=$TERM
+
+  # Make it possible to capture the return code without failing.
+  set +o errexit
+
+  # Make sure git rebase does not use fancy terminal control characters.  It
+  # will still output full lines of whitespaces :(
+  export TERM=dumb
+
+  git rebase "${args[@]}" \
+    >"$sandboxRoot/capture_stdout" 2>"$sandboxRoot/capture_stderr"
+  last_exit=$?
+
+  eval "$prevOps"
+  TERM=$prevTerm
+}
+
+# Runs `git log`, forwarding all the arguments,
+#
+# Stores the stdout, stderr and the exit code in `$sandboxRoot/capture_stdout`
+# and `$sandboxRoot/capture_stderr`, and `$last_exit`, respectively.  For
+# further assessment via `assertStdout/assertStderr/assertExitCode`.
+runGitLog() {
+  local args=( "$@" )
+
+  local prevOps
+  prevOps=$(set +o)
+  local prevTerm=$TERM
+
+  # Make it possible to capture the return code without failing.
+  set +o errexit
+
+  # Reduce fancy formatting, simplifying the stdout/stderr assertions.
+  export TERM=dumb
+
+  git log "${args[@]}" \
+    >"$sandboxRoot/capture_stdout" 2>"$sandboxRoot/capture_stderr"
+  last_exit=$?
+
+  eval "$prevOps"
+  TERM=$prevTerm
+}
+
+# Check `$last_exit` to be the specified error code.
+assertExitCode() {
+  if [[ $# -ne 1 ]]; then
+    echo "ERROR: assertExitCode takes 1 argument"
+    exit 1
+  fi
+
+  local expected=$1
+
+  if [[ "$1" -ne "$last_exit" ]]; then
+    cat <<EOM
+Assertion failed: Unexpected exit code for \`git rebase\`.
+  Expected: $expected
+    Actual: $last_exit
+EOM
+    exit 1
+  fi
+}
+
+# Check "$sandboxRoot/capture_stdout" to be equal to the specified string.
+assertStdout() {
+  if [[ $# -ne 1 ]]; then
+    echo "ERROR: assertStdout takes 1 argument"
+    exit 1
+  fi
+
+  local expected=$1
+  local actual
+  actual=$(< "$sandboxRoot/capture_stdout")
+  actual=${actual%$'\n'}
+
+  if [[ -z "$expected" ]]; then
+    if [[ -n "$actual" ]]; then
+      cat <<EOM
+Assertion failed: \`git rebase\` stdout was expected to be empty.
+  Actual:
+EOM
+      # Add two space indentation, and wrap in square brackets to make it
+      # easier to read.
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  else
+    if [[ "$expected" != "$actual" ]]; then
+      cat <<EOM
+Assertion failed: \`git rebase\` stdout does not match the expectation.
+  Expected:
+EOM
+      printf "%s\n" "$expected" | sed -e 's/^/  [/; s/$/]/'
+      cat <<EOM
+  Actual:
+EOM
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  fi
+}
+
+# Check "$sandboxRoot/capture_stderr" to be equal to the specified string.
+#
+# It does some "massaging" of the output, to make the assertion expression more
+# straightforward.  See function body for details.
+assertStderr() {
+  if [[ $# -ne 1 ]]; then
+    echo "ERROR: assertStderr takes 1 argument"
+    exit 1
+  fi
+
+  local expected=$1
+  local actual
+  actual=$(< "$sandboxRoot/capture_stderr")
+  actual=${actual%$'\n'}
+
+  # `git rebase` erases the terminal line, before printing a message, by
+  # printing `\r {term-width}\r` into stderr.  Remove all occurrences of that
+  # sequence, as we do not want to put it into every test assertion.
+  local prevExtglob
+  prevExtglob=$(shopt -p extglob)
+  shopt -s extglob
+  actual=${actual//$'\r'+( )$'\r'}
+  eval "$prevExtglob"
+
+  # `git rebase` also uses `\r` to "erase" existing output, while printing
+  # progress.  So far, progress is deterministic and it seems better to include
+  # it in the checks.  But including `\r`s is inconvenient, and the assertions
+  # look much better when they can use newlines instead.
+  actual=${actual//$'\r'/$'\n'}
+
+  if [[ -z "$expected" ]]; then
+    if [[ -n "$actual" ]]; then
+      cat <<EOM
+Assertion failed: \`git rebase\` stderr was expected to be empty.
+  Actual:
+EOM
+      # Add two space indentation, and wrap in square brackets to make it
+      # easier to read.
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  else
+    if [[ "$expected" != "$actual" ]]; then
+      cat <<EOM
+Assertion failed: \`git rebase\` stderr does not match the expectation.
+  Expected:
+EOM
+      printf "%s\n" "$expected" | sed -e 's/^/  [/; s/$/]/'
+      cat <<EOM
+  Actual:
+EOM
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  fi
+}
+
+# Verifies that `runGitRebase` was successful.
+#
+# Takes expected success messages for both `apply` and `merge` git rebase backends.
+#
+# Our CI is running a 4 years old version of git :'(
+# 2.25 is the last version that does not have a modern `merge` backed for rebase.  It
+# uses an `apply` backend that outputs progress to stdout, instead of stderr.  So
+# checks for a successful rebase operation are different.
+#
+# See https://github.com/git/git/blob/master/Documentation/RelNotes/2.26.0.txt
+#
+# Remove this when CI machines are updated.
+assertSuccesfulRebase() {
+  if [[ $# -ne 2 ]]; then
+    echo "ERROR: assertSuccesfulRebase takes 2 arguments"
+    exit 1
+  fi
+
+  local expectedApplyOutput=$1
+  local expectedMergeOutput=$2
+
+  local gitVersion
+  gitVersion=$(git --version)
+  gitVersion=${gitVersion#git version }
+
+  # Check if current version is at or after 2.26, by checking if it sorts after 2.26.
+  #
+  if printf '2.26\n%s\n' "$gitVersion" | sort -C -V; then
+    assertStdout ''
+    assertStderr "$expectedMergeOutput"
+  else
+    assertStdout "$expectedApplyOutput"
+    assertStderr ''
+  fi
+}
+
+#
+# === Git helpers ===
+#
+
+# In order to make all the commit hashes predictable we need to set both
+# `GIT_COMMITTER_DATE` and `GIT_COMMITTER_DATE` to known values.  Otherwise
+# current time is used as part of the commit SHA calculation.
+#
+# This function sets `GIT_COMMITTER_DATE` and `GIT_AUTHOR_DATE` if they are
+# unset, or advances them by 1 minute on each call.
+gitSetOrAdvanceTime () {
+  local now=$gitSetOrAdvanceTime_now
+
+  if [[ -z "$now" ]]; then
+    now=$(date --date "2023-06-29 16:00 -0700" "+%s")
+  else
+    now=$(($now + 60))
+  fi
+  gitSetOrAdvanceTime_now=$now
+
+  export GIT_COMMITTER_DATE="$now -0700"
+  export GIT_AUTHOR_DATE="$now -0700"
+}
+
+# Adds a remote branch into the current workspace, as if it was received in a
+# `git fetch` invocation.
+#
+# It could be fragile, as git does not provide a tool to do this, and we go
+# directly into the internals to set things up.  But as remotes are pretty
+# fundamental and are used by so many pieces of the git machinery, it is
+# unlikely that it would actually break in practice.  Hopefully, it would not
+# bee too hard to fix should that happen.
+gitMockRemoteBranch() {
+  if [[ $# -ne 3 ]]; then
+    echo "ERROR: gitMockRemoteBranch takes 3 arguments"
+    exit 1
+  fi
+
+  local remote=$1
+  local branch=$2
+  local at=$3
+
+  local prevOps
+  prevOps=$(set +o)
+  set +o errexit
+  local commit
+  commit=$(git rev-parse --verify --end-of-options "$at"^{commit} 2>/dev/null)
+  if [[ $? -ne 0 ]]; then
+    echo "Failed to parse as a commit reference: $at"
+    exit 1
+  fi
+  eval "$prevOps"
+
+  local branchFile=".git/refs/remotes/$remote/$branch"
+  mkdir -p "$(dirname "$branchFile")"
+  printf "%s\n" "$commit" >"$branchFile"
+}
+
+#
+# === Assertion helpers ===
+#
+
+# Make sure that "$sandboxRoot/git/$1" is not present in the repository.
+assertFileAbsent() {
+  if [[ $# -ne 1 ]]; then
+    echo "ERROR: assertFileAbsent takes 1 argument"
+    exit 1
+  fi
+
+  local file=$1
+
+  local fullPath="$sandboxRoot/git/$file"
+
+  if [[ -e "$fullPath" ]]; then
+    cat <<EOM
+Assertion failed: Unexpected file present.
+  Path: git/$file
+  Content:
+EOM
+    # Add two space indentation, and wrap in square brackets to make it
+    # easier to read.
+    printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+    exit 1
+  fi
+}
+
+# Check "$sandboxRoot/git/$1" to be equal to the specified string.
+assertFileContent() {
+  if [[ $# -ne 2 ]]; then
+    echo "ERROR: assertFileContent takes 2 argument"
+    exit 1
+  fi
+
+  local file=$1
+  local expected=$2
+
+  local fullPath="$sandboxRoot/git/$file"
+
+  if [[ ! -e "$fullPath" ]]; then
+    cat <<EOM
+Assertion failed: Expected file is abasent.
+  Path: git/$file
+EOM
+    exit 1
+  fi
+
+  local actual
+  actual=$(< "$fullPath")
+  actual=${actual%$'\n'}
+
+  if [[ -z "$expected" ]]; then
+    if [[ -n "$actual" ]]; then
+      cat <<EOM
+Assertion failed: File was supposed to be empty.
+  Path: git/$file
+  Actual:
+EOM
+      # Add two space indentation, and wrap in square brackets to make it
+      # easier to read.
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  else
+    if [[ "$expected" != "$actual" ]]; then
+      cat <<EOM
+Assertion failed: File content mismatch.
+  Path: git/$file
+  Expected:
+EOM
+      printf "%s\n" "$expected" | sed -e 's/^/  [/; s/$/]/'
+      cat <<EOM
+  Actual:
+EOM
+      printf "%s\n" "$actual" | sed -e 's/^/  [/; s/$/]/'
+      exit 1
+    fi
+  fi
+}
+
+# vim: ft=bash:
+# -*- mode: bash -*-
+# code: language=bash

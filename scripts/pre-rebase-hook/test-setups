@@ -1,0 +1,537 @@
+# Common setups used by the `pre-rebase` hook tests.
+#
+# This file should be sourced by the test script.
+
+#
+# === Git workspace setup ===
+#
+
+# In all setups the following conventions are used:
+#
+# "Sx" commits are commits that originated from the "solana" repo.
+# "Ix" commits are commits that originated from the "invalidator" repo.
+# "Ux" commits are commits from a user branch.  These are supposed to be local
+
+# Setup 1:
+#
+# Normal situation when the "invalidator" repo is in sync with the "solana"
+# repo, and the local workspace changes in branch "user1" are on top of the
+# latest `master` branch state of the "invalidator" repo.
+#
+# S0---S1---S2  remotes/[upstream]/sync/master/upstream/[date]
+# |          \  remotes/[upstream]/sync/master-upstream
+# |           \
+# |            I1'--I2'--I3---I4  remotes/[upstream]/master
+# |                       \       master
+# |                        \
+# +                         U1---U2 user1
+#  \
+#   \
+#    I1---I2  remotes/[upstream]/sync/master/local/[date]
+#             remotes/[upstream]/sync/master-local
+#
+# `user` is the current branch after the setup.
+#
+# "solana" repo contained changes "S0", "S1", and "S2" during the last sync.
+# "invalidator" state was based on change "S0".  "S1" and "S2" were added after
+# the previous sync.
+# "invalidator" repo contained changes "I1" and "I2" at the moment of the sync.
+# They were rebased as "I1'" and "I2'", respectively, on top of "S2" during the
+# last sync.
+# Since they sync, "I3" and "I4" where added to "invalidator" `master` branch.
+# Branch `user` is based on `master`, but is missing the latest change "I4" and
+# contains additional changes "U1" and "U2".
+#
+# Branch `user1` is set to track `remotes/[upstream]/master`.
+#
+# `setup1Upstream` generates commits and branches for the `remotes/*` part on the
+# picture above.  `setup1Local` adds the `user1` branch.
+
+# Creates the setup specified above.  Current directory should be the git
+# workspace.  `master` branch will be augmented with all the commits, eventually
+# ending up as specified on the picture.
+setup1() {
+  if [[ $# -ne 3 ]]; then
+    echo "ERROR: setup1 takes 3 arguments"
+    exit 1
+  fi
+
+  local upstream=$1
+  local date=$2
+  local remoteUrl=$3
+
+  setup1Upstream "$upstream" "$date" "$remoteUrl"
+
+  git switch --quiet --create user1 @~
+  git branch --quiet --set-upstream-to "$upstream/master"
+
+  setup1Local
+}
+
+setup1Upstream() {
+  if [[ $# -ne 3 ]]; then
+    echo "ERROR: setup1Upstream takes 3 arguments"
+    exit 1
+  fi
+
+  local upstream=$1
+  local date=$2
+  local remoteUrl=$3
+
+  git remote add "$upstream" "$remoteUrl"
+
+  # S0
+
+  gitSetOrAdvanceTime
+
+  cat >readme.txt <<EOF
+"setup1" style repo, for pre-rebase hook testing.
+EOF
+  git add readme.txt
+  git commit --quiet --message 'S0: Add readme.txt'
+
+  # S1
+
+  gitSetOrAdvanceTime
+
+  cat >a.txt <<EOF
+File A first line
+EOF
+  git add a.txt
+  git commit --quiet --message 'S1: Add a.txt'
+
+  # S2
+
+  gitSetOrAdvanceTime
+
+  cat >b.txt <<EOF
+File B first line
+EOF
+  git add b.txt
+  git commit --quiet --message 'S2: Add b.txt'
+
+  gitMockRemoteBranch "$upstream" "sync/master/upstream/$date" @
+  gitMockRemoteBranch "$upstream" "sync/master-upstream" @
+
+  git switch --quiet --detach "@^{/^S0:}"
+
+  # I1
+
+  gitSetOrAdvanceTime
+
+  cat >c.txt <<EOF
+File C first line.
+
+Middle point of C.
+
+End of C here.
+EOF
+  git add c.txt
+  git commit --quiet --message 'I1: Add c.txt'
+
+  local I1Hash
+  I1Hash=$( git rev-parse @ )
+
+  # I2
+
+  gitSetOrAdvanceTime
+
+  sed --in-place --expression='
+    /^Middle point/ {
+      i \
+This line is added by I2, removed by I3, and moved by S3.\
+
+    }
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message 'I2: Inserted into c.txt'
+
+  local I2Hash
+  I2Hash=$( git rev-parse @ )
+
+  gitMockRemoteBranch "$upstream" "sync/master/local/$date" @
+  gitMockRemoteBranch "$upstream" "sync/master-local" @
+
+  git switch --quiet master
+
+  # I1'
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I1Hash"
+  git commit --quiet --message "I1': Add c.txt"
+
+  # I2'
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I2Hash"
+  git commit --quiet --message "I2': Inserted into c.txt"
+
+  # I3
+
+  gitSetOrAdvanceTime
+
+  sed --in-place --expression='
+    /^This line is added by I2/d
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message 'I3: Removed from c.txt'
+
+  # I4
+
+  gitSetOrAdvanceTime
+
+  cat >d.txt <<EOF
+Now with d.txt
+EOF
+  git add d.txt
+  git commit --quiet --message 'I4: Added d.txt'
+
+  gitMockRemoteBranch "$upstream" "master" @
+}
+
+setup1Local() {
+  if [[ $# -ne 0 ]]; then
+    echo "ERROR: setup1Local takes no arguments"
+    exit 1
+  fi
+
+  # U1
+
+  gitSetOrAdvanceTime
+
+  cat >>a.txt <<EOF
+
+More stuff in a.txt
+EOF
+  git add a.txt
+  git commit --quiet --message 'U1: Extended a.txt'
+
+  # U2
+
+  gitSetOrAdvanceTime
+
+  cat >>b.txt <<EOF
+
+More stuff in b.txt
+EOF
+  git add b.txt
+  git commit --quiet --message 'U2: Extended b.txt'
+}
+
+# Setup 2:
+#
+# This is a development of setup1.  "solana" got "I1'" and "I2'" cherry picked
+# into the `master` branch, and "S3" was added on top.  `master` in the
+# "invalidator" was rebased on top of the updated `solana/master`, but the
+# `user1` branch still contains old version of `invalidator/master` as part of
+# its history chain.
+#
+# `master` has no new changes since the previous sync point, with "I3'" and
+# "I4'" being rebased version of "I3" and "I4", respectively, from before the
+# sync.
+#
+# "Ix'" is a modified version of the corresponding "Ix" commit.  And "Ix''" is a
+# modified version of the "Ix'" commit.
+#
+# S0---S1---S2  remotes/[upstream]/sync/master/upstream/[date1]
+# |         |\
+# |         | \
+# |         |  I1''-I2''-S3  remotes/[upstream]/sync/master/upstream/[date2]
+# |         |             \  remotes/[upstream]/sync/master-upstream
+# |         |              \
+# |         +               I3'--I4' remotes/[upstream]/master
+# |          \                       master
+# |           \
+# |            I1'--I2'--I3---I4  remotes/[upstream]/sync/master/local/[date2]
+# |                       \       remotes/[upstream]/sync/master-local
+# |                        \
+# +                         U1---U2 user1
+#  \
+#   \
+#    I1---I2  remotes/[upstream]/sync/master/local/[date2]
+#
+# "I2" adds a line, "I3" removes it, and "S3" moves line added by "I2".  This
+# makes it such that rebasing `user1`, as is, on top of the rebased `master`
+# will duplicate this line.
+
+# Creates the setup specified above.  Current directory should be the git
+# workspace.  `master` branch will be augmented with all the commits, eventually
+# ending up as specified on the picture.
+#
+# Notice that this function takes 2 dates, and `date2` is supposed to be more
+# recent than `date1`.  In fact, exact values do not matter, as long as they are
+# distinct.
+setup2() {
+  if [[ $# -ne 4 ]]; then
+    echo "ERROR: setup2 takes 4 arguments"
+    exit 1
+  fi
+
+  local upstream=$1
+  local date1=$2
+  local date2=$3
+  local remoteUrl=$4
+
+  if [[ "$date1" = "$date2" ]]; then
+    echo "ERROR: setup2 needs two distinct dates"
+    exit 1
+  fi
+
+  setup2Upstream "$upstream" "$date1" "$date2" "$remoteUrl"
+
+  git switch --quiet --create user1 \
+    "remotes/$upstream/sync/master/local/$date2^{/^I3:}"
+  git branch --quiet --set-upstream-to "$upstream/master"
+
+  setup2Local
+}
+
+setup2Upstream() {
+  if [[ $# -ne 4 ]]; then
+    echo "ERROR: setup2Upstream takes 4 arguments"
+    exit 1
+  fi
+
+  local upstream=$1
+  local date1=$2
+  local date2=$3
+  local remoteUrl=$4
+
+  git remote add "$upstream" "$remoteUrl"
+
+  # S0
+
+  gitSetOrAdvanceTime
+
+  cat >readme.txt <<EOF
+"setup1" style repo, for pre-rebase hook testing.
+EOF
+  git add readme.txt
+  git commit --quiet --message 'S0: Add readme.txt'
+
+  # S1
+
+  gitSetOrAdvanceTime
+
+  cat >a.txt <<EOF
+File A first line
+EOF
+  git add a.txt
+  git commit --quiet --message 'S1: Add a.txt'
+
+  # S2
+
+  gitSetOrAdvanceTime
+
+  cat >b.txt <<EOF
+File B first line
+EOF
+  git add b.txt
+  git commit --quiet --message 'S2: Add b.txt'
+
+  gitMockRemoteBranch "$upstream" "sync/master/upstream/$date1" @
+
+  git switch --quiet --detach "@^{/^S0:}"
+
+  # I1
+
+  gitSetOrAdvanceTime
+
+  cat >c.txt <<EOF
+File C first line.
+
+Middle point of C.
+
+End of C here.
+EOF
+  git add c.txt
+  git commit --quiet --message 'I1: Add c.txt'
+
+  local I1Hash
+  I1Hash=$( git rev-parse @ )
+
+  # I2
+
+  gitSetOrAdvanceTime
+
+  sed --in-place --expression='
+    /^Middle point/ {
+      i \
+This line is added by I2, removed by I3, and moved by S3.\
+
+    }
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message 'I2: Inserted into c.txt'
+
+  local I2Hash
+  I2Hash=$( git rev-parse @ )
+
+  gitMockRemoteBranch "$upstream" "sync/master/local/$date1" @
+
+  git switch --quiet --detach master
+
+  # I1'
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I1Hash"
+  git commit --quiet --message "I1': Add c.txt"
+
+  local I1PrimeHash
+  I1PrimeHash=$( git rev-parse @ )
+
+  # I2'
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I2Hash"
+  git commit --quiet --message "I2': Inserted into c.txt"
+
+  local I2PrimeHash
+  I2PrimeHash=$( git rev-parse @ )
+
+  # I3
+
+  gitSetOrAdvanceTime
+
+  sed --in-place --expression='
+    /^This line is added by I2/d
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message 'I3: Removed from c.txt'
+
+  # I4
+
+  gitSetOrAdvanceTime
+
+  cat >d.txt <<EOF
+Now with d.txt
+EOF
+  git add d.txt
+  git commit --quiet --message 'I4: Added d.txt'
+
+  local I4Hash
+  I4Hash=$( git rev-parse @ )
+
+  gitMockRemoteBranch "$upstream" "sync/master/local/$date2" @
+  gitMockRemoteBranch "$upstream" "sync/master-local" @
+
+  git switch --quiet master
+
+  # I1''
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I1PrimeHash"
+  git commit --quiet --message "I1'': Add c.txt"
+
+  # I2''
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I2PrimeHash"
+  git commit --quiet --message "I2'': Inserted into c.txt"
+
+  # S3
+
+  gitSetOrAdvanceTime
+
+  sed --in-place --expression='
+    /^This line is added by I2/ {
+      # Read one more line into the pattern space and delete both
+      N
+      d
+    }
+
+    /^End of C here/ {
+      i \
+This line is added by I2, removed by I3, and moved by S3.\
+
+    }
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message 'S3: Modified c.txt'
+
+  gitMockRemoteBranch "$upstream" "sync/master/upstream/$date2" @
+  gitMockRemoteBranch "$upstream" "sync/master-upstream" @
+
+  # I3'
+
+  gitSetOrAdvanceTime
+
+  # This change can not be cherry picked.  It needs to be re-applied.
+  sed --in-place --expression='
+    /^This line is added by I2/d
+  ' c.txt
+  git add c.txt
+  git commit --quiet --message "I3': Removed from c.txt"
+
+  # I4'
+
+  gitSetOrAdvanceTime
+
+  git cherry-pick --no-commit "$I4Hash"
+  git commit --quiet --message "I4': Added d.txt"
+
+  gitMockRemoteBranch "$upstream" "master" @
+}
+
+setup2Local() {
+  if [[ $# -ne 0 ]]; then
+    echo "ERROR: setup2Local takes no arguments"
+    exit 1
+  fi
+
+  # U1
+
+  gitSetOrAdvanceTime
+
+  cat >>a.txt <<EOF
+
+More stuff in a.txt
+EOF
+  git add a.txt
+  git commit --quiet --message 'U1: Extended a.txt'
+
+  # U2
+
+  gitSetOrAdvanceTime
+
+  cat >>b.txt <<EOF
+
+More stuff in b.txt
+EOF
+  git add b.txt
+  git commit --quiet --message 'U2: Extended b.txt'
+}
+
+# Creates `remote/[upstream]/sync/*` branches for the specified remote.  Remove
+# should be created separately.  `setup1` and `setup2` will create these
+# already, so this function in only useful in tests that want to simulation
+# situations with more than one remote.
+createRebaseTrackingBranchesFor() {
+  if [[ $# -ne 5 ]]; then
+    echo "ERROR: createRebaseTrackingBranchesFor takes 5 arguments"
+    exit 1
+  fi
+
+  local remote=$1
+  local date=$2
+  local masterUpstream=$3
+  local masterLocal=$4
+  local master=$5
+
+  gitMockRemoteBranch "$remote" "sync/master/upstream/$date" "$masterUpstream"
+  gitMockRemoteBranch "$remote" "sync/master-upstream" "$masterUpstream"
+  gitMockRemoteBranch "$remote" "sync/master/local/$date" "$masterLocal"
+  gitMockRemoteBranch "$remote" "sync/master-local" "$masterLocal"
+  gitMockRemoteBranch "$remote" "master" "$master"
+}
+
+
+# vim: ft=bash:
+# -*- mode: bash -*-
+# code: language=bash

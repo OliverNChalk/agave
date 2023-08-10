@@ -188,6 +188,11 @@ all_test_steps() {
   command_step frozen-abi "ci/docker-run-default-image.sh ci/test-abi.sh" 15 check
   wait_step
 
+  if affects ^scripts/pre-rebase-hook.sh ^scripts/pre-rebase-hook/ ; then
+    command_step "pre-rebase hook checks" \
+      ". ci/test-pre-rebase-hook.sh" 5
+  fi
+
   # Full test suite
   .buildkite/scripts/build-stable.sh >> "$output_file"
 
