@@ -262,6 +262,13 @@ impl ContactInfo {
         self.outset = get_node_outset();
     }
 
+    /// Used by the Invalidator for attacks against Gossip nodes.
+    // TODO Explain why [`hot_swap_pubkey()`] is not good enough, or remove in favour of
+    // [`hot_swap_pubkey()`].
+    pub fn adversary_set_pubkey(&mut self, pubkey: Pubkey) {
+        self.pubkey = pubkey;
+    }
+
     pub fn set_wallclock(&mut self, wallclock: u64) {
         self.wallclock = wallclock;
     }

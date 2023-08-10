@@ -1,5 +1,6 @@
 mod adversary;
 mod args;
+mod common;
 mod continuous_mode;
 
 fn main() -> Result<(), String> {

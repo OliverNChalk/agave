@@ -9,30 +9,23 @@ use {
     },
     clap::{value_t, ArgMatches, Error as ClapError, ErrorKind as ClapErrorKind},
     solana_adversary::{
-        adversary_feature_set::{
-            repair_packet_flood::{
-                AdversarialConfig as RepairPacketFloodConfig, FloodConfig, FloodStrategy,
-            },
-            repair_parameters::AdversarialConfig as RepairParametersConfig,
+        adversary_feature_set::gossip_packet_flood::{
+            AdversarialConfig as GossipPacketFloodConfig, FloodConfig, FloodStrategy,
         },
         verify_peer_identifier,
     },
 };
 
-impl Command for RepairPacketFloodConfig {
-    const RPC_METHOD: &'static str = "configureRepairPacketFlood";
+impl Command for GossipPacketFloodConfig {
+    const RPC_METHOD: &'static str = "configureGossipPacketFlood";
 }
 
-impl Command for RepairParametersConfig {
-    const RPC_METHOD: &'static str = "configureRepairParameters";
-}
-
-pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) -> Result<(), String> {
-    configure_repair_packet_flood(
+pub fn configure_gossip_packet_flood_enable(rpc_endpoint_url: String) -> Result<(), String> {
+    configure_gossip_packet_flood(
         &rpc_endpoint_url,
-        RepairPacketFloodConfig {
+        GossipPacketFloodConfig {
             configs: vec![FloodConfig {
-                flood_strategy: FloodStrategy::MinimalPackets,
+                flood_strategy: FloodStrategy::PingCacheOverflow,
                 packets_per_peer_per_iteration: DEFAULT_FLOOD_PACKETS_PER_PEER_PER_ITERATION,
                 iteration_delay_us: DEFAULT_FLOOD_ITERATION_DELAY_US,
                 target: None,
@@ -41,20 +34,20 @@ pub fn configure_repair_packet_flood_enable(rpc_endpoint_url: String) -> Result<
     )
 }
 
-pub fn configure_repair_packet_flood_disable(rpc_endpoint_url: String) -> Result<(), String> {
-    configure_repair_packet_flood(
+pub fn configure_gossip_packet_flood_disable(rpc_endpoint_url: String) -> Result<(), String> {
+    configure_gossip_packet_flood(
         &rpc_endpoint_url,
-        RepairPacketFloodConfig { configs: vec![] },
+        GossipPacketFloodConfig { configs: vec![] },
     )
 }
 
-pub fn configure_repair_packet_flood_args(
+pub fn configure_gossip_packet_flood_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
     let flood_config = if let Ok(path) = value_t!(sub_matches, "toml_config", String) {
         let config_data = load_configuration(&path)?;
-        let data: RepairPacketFloodConfig = toml::from_str(&config_data)
+        let data: GossipPacketFloodConfig = toml::from_str(&config_data)
             .map_err(|e| format!("Failed to parse TOML configuration from {path}: {e}"))?;
         trace!("Parsed config:\n{data:#?}");
         data
@@ -71,7 +64,6 @@ pub fn configure_repair_packet_flood_args(
             }) => None,
             Err(e) => Err(e.to_string())?,
         };
-
         let packets_per_peer_per_iteration =
             match value_t!(sub_matches, "packets_per_peer_per_iteration", u32) {
                 Ok(val) => val,
@@ -81,7 +73,6 @@ pub fn configure_repair_packet_flood_args(
                 }) => DEFAULT_FLOOD_PACKETS_PER_PEER_PER_ITERATION,
                 Err(e) => Err(e.to_string())?,
             };
-
         let iteration_delay_us = match value_t!(sub_matches, "iteration_delay_us", u64) {
             Ok(val) => val,
             Err(ClapError {
@@ -90,12 +81,10 @@ pub fn configure_repair_packet_flood_args(
             }) => DEFAULT_FLOOD_ITERATION_DELAY_US,
             Err(e) => Err(e.to_string())?,
         };
-
         let target = sub_matches.value_of("target").map(|s| s.to_string());
         if let Some(ref target) = target {
             verify_peer_identifier(target)?;
         }
-
         let configs = if let Some(flood_strategy) = flood_strategy {
             vec![FloodConfig {
                 flood_strategy,
@@ -106,49 +95,14 @@ pub fn configure_repair_packet_flood_args(
         } else {
             vec![]
         };
-        RepairPacketFloodConfig { configs }
+        GossipPacketFloodConfig { configs }
     };
-    configure_repair_packet_flood(rpc_endpoint_url, flood_config)
+    configure_gossip_packet_flood(rpc_endpoint_url, flood_config)
 }
 
-pub fn configure_repair_packet_flood(
+pub fn configure_gossip_packet_flood(
     rpc_endpoint_url: &str,
-    repair_packet_flood_config: RepairPacketFloodConfig,
+    config: GossipPacketFloodConfig,
 ) -> Result<(), String> {
-    repair_packet_flood_config.send(rpc_endpoint_url)
-}
-
-pub fn configure_repair_parameters_args(
-    rpc_endpoint_url: &str,
-    sub_matches: &ArgMatches<'_>,
-) -> Result<(), String> {
-    let serve_repair_max_requests_per_iteration = sub_matches
-        .value_of("serve_repair_max_requests_per_iteration")
-        .map(|s| s.parse::<usize>().unwrap());
-    let serve_repair_oversampled_requests_per_iteration = sub_matches
-        .value_of("serve_repair_oversampled_requests_per_iteration")
-        .map(|s| s.parse::<usize>().unwrap());
-    let serve_repair_ancestor_hashes_invalid_respones = sub_matches
-        .value_of("serve_repair_ancestor_hashes_invalid_respones")
-        .map(|s| s.parse::<bool>().unwrap());
-    let ancestor_hash_repair_sample_size = sub_matches
-        .value_of("ancestor_hash_repair_sample_size")
-        .map(|s| s.parse::<usize>().unwrap());
-
-    configure_repair_parameters(
-        rpc_endpoint_url,
-        RepairParametersConfig {
-            serve_repair_max_requests_per_iteration,
-            serve_repair_oversampled_requests_per_iteration,
-            serve_repair_ancestor_hashes_invalid_respones,
-            ancestor_hash_repair_sample_size,
-        },
-    )
-}
-
-pub fn configure_repair_parameters(
-    rpc_endpoint_url: &str,
-    repair_parameters_config: RepairParametersConfig,
-) -> Result<(), String> {
-    repair_parameters_config.send(rpc_endpoint_url)
+    config.send(rpc_endpoint_url)
 }

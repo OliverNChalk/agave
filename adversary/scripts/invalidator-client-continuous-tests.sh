@@ -54,8 +54,14 @@ commands=(
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10"
   "sleep $RUNTIME"
-  "$BIN configure-repair-packet-flood \
-    --disable"
+  "$BIN configure-repair-packet-flood"
+  "sleep $SLEEPTIME"
+  "$BIN configure-gossip-packet-flood \
+    --flood-strategy pingCacheOverflow \
+    --iteration-delay-us 1000000 \
+    --packets-per-peer-per-iteration 10000"
+  "sleep $RUNTIME"
+  "$BIN configure-gossip-packet-flood"
   "sleep $SLEEPTIME"
 )
 num_commands=${#commands[@]}

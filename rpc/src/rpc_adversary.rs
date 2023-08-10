@@ -5,11 +5,13 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, drop_turbine_votes, example, invalidate_leader_block, packet_drop_parameters,
-            repair_packet_flood, repair_parameters, replay_stage_attack, send_duplicate_blocks,
-            shred_receiver_address, AdversaryFeatureConfig,
+            self, drop_turbine_votes, example, gossip_packet_flood, invalidate_leader_block,
+            packet_drop_parameters, repair_packet_flood, repair_parameters, replay_stage_attack,
+            send_duplicate_blocks, shred_receiver_address, AdversaryFeatureConfig,
         },
-        repair::{verify_peer_identifier, RepairPacketFlood},
+        gossip::GossipPacketFlood,
+        repair::RepairPacketFlood,
+        verify_peer_identifier,
     },
     solana_metrics::metrics::public_metrics_db,
 };
@@ -84,6 +86,13 @@ pub trait Adversary {
         config: replay_stage_attack::AdversarialConfig,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "configureGossipPacketFlood")]
+    fn configure_gossip_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: gossip_packet_flood::AdversarialConfig,
+    ) -> Result<()>;
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>;
@@ -111,6 +120,8 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
     let mut drop_turbine_votes = false;
     let mut invalidate_leader_block = false;
     let mut replay_stage_attack = false;
+    let mut gossip_packet_flood = false;
+
     for adversary_feature_config in adversary_feature_configs {
         match adversary_feature_config {
             AdversaryFeatureConfig::RepairPacketFlood(config) => {
@@ -136,6 +147,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
             AdversaryFeatureConfig::ReplayStageAttack(config) => {
                 replay_stage_attack = config.selected_attack.is_some();
             }
+            AdversaryFeatureConfig::GossipPacketFlood(config) => {
+                if !config.configs.is_empty() {
+                    gossip_packet_flood = true;
+                }
+            }
             AdversaryFeatureConfig::Example(_)
             | AdversaryFeatureConfig::PacketDropParameters(_)
             | AdversaryFeatureConfig::RepairParameters(_)
@@ -150,6 +166,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         ("drop_turbine_votes", drop_turbine_votes, i64),
         ("invalidate_leader_block", invalidate_leader_block, i64),
         ("replay_stage_attack", replay_stage_attack, i64),
+        ("gossip_packet_flood", gossip_packet_flood, i64),
     );
 }
 
@@ -191,7 +208,7 @@ impl Adversary for AdversaryImpl {
             }
             repair_packet_flood::set_config(config.clone());
             if !config.configs.is_empty() {
-                *adversary_repair = Some(RepairPacketFlood::new(
+                *adversary_repair = Some(RepairPacketFlood::start(
                     meta.serve_repair_socket(),
                     meta.bank_forks(),
                     meta.cluster_info(),
@@ -280,6 +297,36 @@ impl Adversary for AdversaryImpl {
         })
     }
 
+    fn configure_gossip_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: gossip_packet_flood::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta.clone(), || {
+            for config in &config.configs {
+                if let Some(target) = &config.target {
+                    verify_peer_identifier(target)
+                        .map_err(|e| Error::invalid_params(format!("Invalid param: {e}")))?;
+                }
+            }
+            let mut adversary_repair = adversary_context::ADVERSARY_CONTEXT
+                .gossip_packet_flood
+                .write()
+                .unwrap();
+            if let Some(context) = adversary_repair.take() {
+                context.join().unwrap();
+            }
+            gossip_packet_flood::set_config(config.clone());
+            if !config.configs.is_empty() {
+                *adversary_repair = Some(GossipPacketFlood::start(
+                    meta.cluster_info(),
+                    config.configs,
+                ));
+            }
+            Ok(())
+        })
+    }
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>,
@@ -350,6 +397,11 @@ pub mod tests {
             {
                 "exampleAdversarialConfig": {
                     "exampleNum": 0,
+                },
+            },
+            {
+                "gossipPacketFloodAdversarialConfig": {
+                    "configs": [],
                 },
             },
             {

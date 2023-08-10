@@ -77,6 +77,18 @@ pub fn run_continuous_mode(
         },
     ));
 
+    adversary_scenarios.push((
+        "gossip_packet_flood",
+        AdversaryScenario {
+            start_fn: Box::new(|| {
+                adversary::gossip::configure_gossip_packet_flood_enable(rpc_endpoint_url.clone())
+            }),
+            stop_fn: Box::new(|| {
+                adversary::gossip::configure_gossip_packet_flood_disable(rpc_endpoint_url.clone())
+            }),
+        },
+    ));
+
     loop {
         for (label, adversary_scenario) in &adversary_scenarios {
             if let Err(e) = (adversary_scenario.start_fn)() {

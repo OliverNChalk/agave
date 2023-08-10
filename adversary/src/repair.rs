@@ -1,5 +1,9 @@
 use {
-    crate::adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
+    crate::{
+        adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
+        flood_worker::{create_rayon_thread_pool, init_keypair_pool, AdversaryWorkersContext},
+        PeerIdentifierSanitized,
+    },
     log::*,
     rand::{thread_rng, Rng},
     rayon::{prelude::*, ThreadPool},
@@ -15,70 +19,34 @@ use {
         shred::{Nonce, ProcessShredsStats, ReedSolomonCache, Shredder},
     },
     solana_net_protocol::repair::{RepairProtocol, RepairRequestHeader},
-    solana_pubkey::Pubkey,
-    solana_rayon_threadlimit::get_thread_count,
     solana_runtime::bank_forks::BankForks,
     solana_signer::Signer,
     solana_streamer::sendmmsg::{batch_send, SendPktsError},
     solana_system_transaction as system_transaction,
     solana_time_utils::timestamp,
     std::{
-        net::{IpAddr, UdpSocket},
+        net::UdpSocket,
         sync::{
             atomic::{AtomicBool, Ordering},
             Arc, RwLock,
         },
-        thread::{self, sleep, Builder, JoinHandle},
+        thread::{self, sleep, Builder},
         time::{Duration, Instant},
     },
 };
 
-#[derive(Debug)]
-enum PeerIdentifierSanitized {
-    Pubkey(Pubkey),
-    Ip(IpAddr),
-}
-
-impl TryFrom<&String> for PeerIdentifierSanitized {
-    type Error = String;
-    fn try_from(source: &String) -> Result<Self, Self::Error> {
-        if let Ok(pubkey) = Pubkey::try_from(&source[..]) {
-            return Ok(PeerIdentifierSanitized::Pubkey(pubkey));
-        }
-        Ok(PeerIdentifierSanitized::Ip(source.parse().map_err(
-            |e| format!("Failed to parse peer identifier {source}: {e}"),
-        )?))
-    }
-}
-
-pub fn verify_peer_identifier(identifier: &String) -> Result<(), String> {
-    PeerIdentifierSanitized::try_from(identifier)?;
-    Ok(())
-}
-
-#[derive(Debug, Default)]
-pub struct RepairPacketFlood {
-    exit: Arc<AtomicBool>,
-    thread_hdls: Vec<JoinHandle<()>>,
-}
+pub struct RepairPacketFlood;
 
 impl RepairPacketFlood {
-    pub fn new(
+    pub fn start(
         repair_socket: Arc<UdpSocket>,
         bank_forks: Arc<RwLock<BankForks>>,
         cluster_info: Arc<ClusterInfo>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         configs: Vec<FloodConfig>,
-    ) -> Self {
-        const MAX_PACKET_FLOOD_THREADS: usize = 8;
+    ) -> AdversaryWorkersContext {
         let exit = Arc::new(AtomicBool::default());
-        let thread_pool = Arc::new(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(get_thread_count().min(MAX_PACKET_FLOOD_THREADS))
-                .thread_name(|i| format!("solAdvRPFWrkr{i:02}"))
-                .build()
-                .unwrap(),
-        );
+        let thread_pool = create_rayon_thread_pool("solAdvRPFWrkr");
         let keypair_pool = Arc::new(RwLock::new(Vec::default()));
         let mut i: usize = 0;
         let thread_hdls = configs
@@ -111,16 +79,7 @@ impl RepairPacketFlood {
                     .unwrap()
             })
             .collect();
-        Self { exit, thread_hdls }
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        self.exit.store(true, Ordering::Relaxed);
-        for hdl in self.thread_hdls {
-            hdl.join()?;
-        }
-        self.exit.store(false, Ordering::Relaxed);
-        Ok(())
+        AdversaryWorkersContext::new(exit, thread_hdls)
     }
 
     fn flood_minimal_packets(
@@ -202,22 +161,15 @@ impl RepairPacketFlood {
     ) -> usize {
         const MIN_PARALLEL_ITEMS: usize = 1_000;
         const MAX_SENDMMSG_ITEMS: usize = 10_000;
-        {
-            // Populate keypair pool if necessary
-            // See REPAIR_PING_CACHE_CAPACITY to size keypair_pool
-            let mut keypair_pool = keypair_pool.write().unwrap();
-            if keypair_pool.len() < usize::try_from(config.packets_per_peer_per_iteration).unwrap()
-            {
-                *keypair_pool = thread_pool
-                    .install(|| {
-                        (0..config.packets_per_peer_per_iteration)
-                            .into_par_iter()
-                            .with_min_len(MIN_PARALLEL_ITEMS)
-                            .map(|_i| Keypair::new())
-                    })
-                    .collect();
-            }
-        }
+
+        // Populate keypair pool if necessary
+        // See REPAIR_PING_CACHE_CAPACITY to size keypair_pool
+        init_keypair_pool(
+            keypair_pool,
+            usize::try_from(config.packets_per_peer_per_iteration).unwrap(),
+            thread_pool,
+        );
+
         let slot = bank_forks.read().unwrap().working_bank().slot();
         let mut packet_count: usize = 0;
         let keypairs = keypair_pool.read().unwrap();
@@ -413,9 +365,7 @@ impl RepairPacketFlood {
                         .cloned()
                         .map(|ci| vec![ci])
                         .unwrap_or_else(|| {
-                            error!(
-                                "repair_peer_minimal_packet_flood: target={peer_id:?} not found"
-                            );
+                            error!("repair packet flood: target={peer_id:?} not found");
                             thread::sleep(Duration::from_secs(2));
                             Vec::default()
                         })

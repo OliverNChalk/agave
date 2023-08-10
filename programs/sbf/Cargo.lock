@@ -5849,6 +5849,7 @@ dependencies = [
 name = "solana-adversary"
 version = "3.1.0"
 dependencies = [
+ "bincode",
  "clap",
  "dashmap",
  "enum-iterator",

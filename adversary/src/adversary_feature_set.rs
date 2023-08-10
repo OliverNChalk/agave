@@ -208,6 +208,44 @@ pub mod packet_drop_parameters {
     }
 }
 
+/// Configuration for flooding gossip packets
+pub mod gossip_packet_flood {
+    use enum_iterator::Sequence;
+    pub const ID: &str = "gossip_packet_flood";
+    adversarial_feature_impl!(GossipPacketFlood);
+
+    #[derive(Clone, Debug, Sequence, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub enum FloodStrategy {
+        /// Send bursts of packets to peers with each packet signed using a unique keypair.
+        PingCacheOverflow,
+    }
+
+    /// Define a flood strategy which will be executed on its own thread. The thread will
+    /// continue flooding with the defined configuration until stopped.
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FloodConfig {
+        /// Flood strategy to use for this configuration.
+        pub flood_strategy: FloodStrategy,
+        /// Number of packets which will be sent to each peer during each iteration of the
+        /// flood strategy loop.
+        pub packets_per_peer_per_iteration: u32,
+        /// Time to sleep between iterations of the flood strategy loop.
+        pub iteration_delay_us: u64,
+        /// Optional target to limit the flood configuration to a specific peer.
+        pub target: Option<String>,
+    }
+
+    /// Define a list of flood configurations, each configuration will be executed on its
+    /// own thread. An empty list disables all gossip flooding.
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub configs: Vec<FloodConfig>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -230,6 +268,8 @@ pub enum AdversaryFeatureConfig {
     PacketDropParameters(packet_drop_parameters::AdversarialConfig),
     #[serde(rename = "replayStageAttack")]
     ReplayStageAttack(replay_stage_attack::AdversarialConfig),
+    #[serde(rename = "gossipPacketFloodAdversarialConfig")]
+    GossipPacketFlood(gossip_packet_flood::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig>> =
@@ -285,6 +325,12 @@ static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig
                 replay_stage_attack::ID,
                 AdversaryFeatureConfig::ReplayStageAttack(
                     replay_stage_attack::AdversarialConfig::default(),
+                ),
+            ),
+            (
+                gossip_packet_flood::ID,
+                AdversaryFeatureConfig::GossipPacketFlood(
+                    gossip_packet_flood::AdversarialConfig::default(),
                 ),
             ),
         ]

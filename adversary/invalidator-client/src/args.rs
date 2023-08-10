@@ -1,9 +1,11 @@
 use {
-    crate::adversary::repair::STDIN_TOKEN,
+    crate::common::STDIN_TOKEN,
     clap::{value_t_or_exit, App, AppSettings, Arg, SubCommand},
     solana_adversary::adversary_feature_set::{
-        all_enum_variants_as_json_strings, invalidate_leader_block::InvalidationKind,
-        repair_packet_flood::FloodStrategy,
+        all_enum_variants_as_json_strings,
+        gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
+        invalidate_leader_block::InvalidationKind,
+        repair_packet_flood::FloodStrategy as RepairFloodStrategy,
     },
     solana_clap_utils::*,
     std::time::Duration,
@@ -55,7 +57,7 @@ pub fn run_command() -> Result<(), String> {
                         .long("flood-strategy")
                         .value_name("ENUM STRING")
                         .possible_values(
-                            all_enum_variants_as_json_strings::<FloodStrategy>()
+                            all_enum_variants_as_json_strings::<RepairFloodStrategy>()
                                 .iter()
                                 .map(|s| s.as_str())
                                 .collect::<Vec<&str>>()
@@ -237,6 +239,58 @@ pub fn run_command() -> Result<(), String> {
                         .help("Percent of outgoing retransmit packets to drop"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("configure-gossip-packet-flood")
+                .about("Configure flooding gossip packet requests")
+                .arg(
+                    Arg::with_name("flood_strategy")
+                        .long("flood-strategy")
+                        .value_name("ENUM STRING")
+                        .possible_values(
+                            all_enum_variants_as_json_strings::<GossipFloodStrategy>()
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<&str>>()
+                                .as_slice(),
+                        )
+                        .help("Which strategy to use for flooding gossip packets")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("packets_per_peer_per_iteration")
+                        .long("packets-per-peer-per-iteration")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<u32>)
+                        .help("Number of packets to send to each peer each iteration")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("iteration_delay_us")
+                        .long("iteration-delay-us")
+                        .value_name("MICROSECONDS")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Delay between iterations in microseconds")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("target")
+                        .long("target")
+                        .takes_value(true)
+                        .value_name("PUBKEY")
+                        .validator(input_validators::is_pubkey)
+                        .help("Peer to target with gossip packets")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("toml_config")
+                        .long("toml")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .help(&format!(
+                            "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
+                        )),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 
@@ -290,6 +344,12 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-packet-drop-parameters", Some(sub_matches)) => {
             crate::adversary::packet_drop::configure_packet_drop_parameters_args(
+                RPC_ENDPOINT_URL,
+                sub_matches,
+            )
+        }
+        ("configure-gossip-packet-flood", Some(sub_matches)) => {
+            crate::adversary::gossip::configure_gossip_packet_flood_args(
                 RPC_ENDPOINT_URL,
                 sub_matches,
             )

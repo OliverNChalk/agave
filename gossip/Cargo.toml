@@ -36,6 +36,7 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+adversary = []
 agave-unstable-api = []
 
 [dependencies]

@@ -1,12 +1,13 @@
 use {
-    crate::{adversary_feature_set::repair_packet_flood, repair::RepairPacketFlood},
+    crate::{adversary_feature_set::repair_packet_flood, flood_worker::AdversaryWorkersContext},
     solana_validator_exit::Exit,
     std::sync::{LazyLock, RwLock},
 };
 
 #[derive(Default)]
 pub struct AdversaryContext {
-    pub repair_packet_flood: RwLock<Option<RepairPacketFlood>>,
+    pub gossip_packet_flood: RwLock<Option<AdversaryWorkersContext>>,
+    pub repair_packet_flood: RwLock<Option<AdversaryWorkersContext>>,
 }
 
 impl AdversaryContext {
@@ -25,5 +26,6 @@ impl AdversaryContext {
 }
 
 pub static ADVERSARY_CONTEXT: LazyLock<AdversaryContext> = LazyLock::new(|| AdversaryContext {
+    gossip_packet_flood: RwLock::new(None),
     repair_packet_flood: RwLock::new(None),
 });

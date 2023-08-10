@@ -12,11 +12,12 @@ struct RpcRequest {
     id: u64,
 }
 
-pub mod drop_turbine_votes;
-pub mod leader_block;
-pub mod packet_drop;
-pub mod repair;
-pub mod shred_forwarder;
+pub(super) mod drop_turbine_votes;
+pub(super) mod gossip;
+pub(super) mod leader_block;
+pub(super) mod packet_drop;
+pub(super) mod repair;
+pub(super) mod shred_forwarder;
 
 pub trait Command: Serialize {
     const RPC_METHOD: &'static str;
