@@ -17,6 +17,7 @@ pub(super) mod gossip;
 pub(super) mod leader_block;
 pub(super) mod packet_drop;
 pub(super) mod repair;
+pub(super) mod replay;
 pub(super) mod shred_forwarder;
 
 pub trait Command: Serialize {

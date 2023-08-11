@@ -63,6 +63,31 @@ commands=(
   "sleep $RUNTIME"
   "$BIN configure-gossip-packet-flood"
   "sleep $SLEEPTIME"
+  "$BIN configure-replay-stage-attack \
+    --selected-attack transferRandom"
+  "sleep $RUNTIME"
+  "$BIN configure-replay-stage-attack"
+  "sleep $SLEEPTIME"
+  "$BIN configure-replay-stage-attack \
+    --selected-attack createNonceAccounts"
+  "sleep $RUNTIME"
+  "$BIN configure-replay-stage-attack"
+  "sleep $SLEEPTIME"
+  "$BIN configure-replay-stage-attack \
+    --selected-attack allocateRandomLarge"
+  "sleep $RUNTIME"
+  "$BIN configure-replay-stage-attack"
+  "sleep $SLEEPTIME"
+  "$BIN configure-replay-stage-attack \
+    --selected-attack allocateRandomSmall"
+  "sleep $RUNTIME"
+  "$BIN configure-replay-stage-attack"
+  "sleep $SLEEPTIME"
+  "$BIN configure-replay-stage-attack \
+    --selected-attack chainTransactions"
+  "sleep $RUNTIME"
+  "$BIN configure-replay-stage-attack"
+  "sleep $SLEEPTIME"
 )
 num_commands=${#commands[@]}
 

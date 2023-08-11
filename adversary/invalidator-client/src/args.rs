@@ -6,6 +6,7 @@ use {
         gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
         invalidate_leader_block::InvalidationKind,
         repair_packet_flood::FloodStrategy as RepairFloodStrategy,
+        replay_stage_attack::Attack as ReplayStageAttack,
     },
     solana_clap_utils::*,
     std::time::Duration,
@@ -291,6 +292,27 @@ pub fn run_command() -> Result<(), String> {
                         )),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("configure-replay-stage-attack")
+                .about(
+                    "Configure packing custom blocks to replay. Requires leader slots to do \
+                     anything.",
+                )
+                .arg(
+                    Arg::with_name("selected_attack")
+                        .long("selected-attack")
+                        .takes_value(true)
+                        .value_name("ENUM STRING")
+                        .possible_values(
+                            all_enum_variants_as_json_strings::<ReplayStageAttack>()
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<&str>>()
+                                .as_slice(),
+                        )
+                        .help("Which replay attack to perform"),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 
@@ -350,6 +372,12 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-gossip-packet-flood", Some(sub_matches)) => {
             crate::adversary::gossip::configure_gossip_packet_flood_args(
+                RPC_ENDPOINT_URL,
+                sub_matches,
+            )
+        }
+        ("configure-replay-stage-attack", Some(sub_matches)) => {
+            crate::adversary::replay::configure_replay_stage_attack_args(
                 RPC_ENDPOINT_URL,
                 sub_matches,
             )

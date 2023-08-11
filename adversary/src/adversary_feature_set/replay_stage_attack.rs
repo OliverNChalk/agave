@@ -1,11 +1,11 @@
 //! Groups of attacks which are using artificially generated blocks
 //! to investigate the effect on the replay stage performance.
 
-use strum_macros::Display;
+use {enum_iterator::Sequence, strum_macros::Display};
 pub const ID: &str = "replay_stage_attack";
 adversarial_feature_impl!(ReplayStageAttack);
 
-#[derive(Clone, Debug, Display, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Display, Eq, PartialEq, Sequence, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub enum Attack {
