@@ -106,7 +106,7 @@ done
 
 find_cargo() {
   if [[ -z "$cargo" ]]; then
-    cargo="$(readlink -f "${here}/../cargo")"
+    cargo=$(readlink -f "${here}/../cargo")
 
     if [[ -z "$cargo" ]]; then
       cat >&2 <<EOM
@@ -117,6 +117,10 @@ symlink readlink as /usr/local/bin/readlink.
 EOM
       exit 3
     fi
+  else
+    # Make sure we use the specified cargo command, even when we run it from a
+    # different directory.  Such as programs/sbf.
+    cargo=$( readlink -f "$cargo" )
   fi
 
   if [[ ! -x "$cargo" ]]; then
@@ -275,6 +279,20 @@ run_all_checks() {
 # = Execution =
 
 find_cargo
+
+currentBranch=$( git branch --show-current )
+if [[ "$currentBranch" != "master-next" ]]; then
+  cat >&2 <<EOM
+Failed:
+  slow-rebase.sh is currently set to only rebase the "master-next" branch.
+  Currently checked out branch: "$currentBranch"
+
+  Switch to "master-next" with:
+
+git switch master-next
+EOM
+  exit 1
+fi
 
 echo -n "Changes left: "
 git rev-list master-next..sync/master-upstream | wc -l

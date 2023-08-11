@@ -225,8 +225,19 @@ If you need to see relative state of the branches, run:
 
 ```sh
 git log --graph --decorate --oneline \
-    master master-next sync/master-upstream sync/master-upstream \
+    sync/master-upstream sync/master-upstream \
+    master master-next HEAD \
     --not sync/master-upstream^
+```
+
+Or, if you want to see the full picture:
+
+```sh
+git log --graph --decorate --oneline \
+    --branches='sync/master/upstream/*' \
+    --branches='sync/master/local/*' \
+    sync/master-upstream upstream/master \
+    master master-next HEAD
 ```
 
 If you are trying to resolve a conflict and want to see a change in the upstream
