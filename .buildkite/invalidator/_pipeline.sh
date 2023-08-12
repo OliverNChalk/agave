@@ -63,6 +63,27 @@ EOF
   fi
 }
 
+add_step_parallel() {
+  local name=$1
+  local timeout_in_minutes=$2
+  local parallelism=$3
+  local retry=$4
+  local command=$5
+
+  cat >>pipeline <<EOF
+  - name: "$name"
+    command: "$command"
+    timeout_in_minutes: $timeout_in_minutes
+    cancel_on_build_failing: true
+    agents:
+      queue: "invalidator"
+    parallelism: $parallelism
+    retry:
+      automatic:
+        - limit: $retry
+EOF
+}
+
 add_step_in_docker() {
   local name=$1
   local timeout_in_minutes=$2
@@ -72,6 +93,19 @@ add_step_in_docker() {
   command="ci/docker-run-default-image.sh ${command}"
 
   add_step "$name" "$timeout_in_minutes" "$command" "$retry"
+}
+
+add_step_in_docker_parallel() {
+  local name=$1
+  local timeout_in_minutes=$2
+  local parallelism=$3
+  local retry=$4
+  local command=$5
+
+  command="ci/docker-run-default-image.sh ${command}"
+
+  add_step_parallel \
+    "$name" "$timeout_in_minutes" "$parallelism" "$retry" "$command"
 }
 
 wait_step() {
@@ -116,24 +150,12 @@ fi
 if affects .rs$ ; then
 
   ## local-cluster
-  add_step_in_docker local-cluster 60 \
-    ci/test-local-cluster.sh
+  add_step_in_docker_parallel local-cluster 60 5 3 \
+    ci/stable/run-local-cluster-partially.sh
 
   ## local-cluster-replay-attack
   add_step_in_docker local-cluster-replay-attack 60 \
     ci/test-local-cluster-replay-attack.sh
-
-  ## local-cluster-flakey
-  add_step_in_docker local-cluster-flakey 30 \
-    ci/test-local-cluster-flakey.sh
-
-  ## local-cluster-slow-1
-  add_step_in_docker local-cluster-slow-1 60 \
-    ci/test-local-cluster-slow-1.sh
-
-  ## local-cluster-slow-2
-  add_step_in_docker local-cluster-slow-2 60 \
-    ci/test-local-cluster-slow-2.sh
 fi
 
 cat pipeline
