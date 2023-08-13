@@ -25,6 +25,9 @@ if [[ -z $RUNTIME || -z $SLEEPTIME ]]; then
   exit 1
 fi
 
+# Reduce ancestor hash sample size for smaller cluster size
+$BIN configure-repair-parameters --ancestor-hash-repair-sample-size 2
+
 commands=(
   "$BIN configure-send-duplicate-blocks \
     --new-entry-index-from-end 0 \
