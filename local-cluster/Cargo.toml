@@ -26,6 +26,7 @@ rand = { workspace = true }
 rayon = { workspace = true }
 solana-account = { workspace = true }
 solana-accounts-db = { workspace = true }
+solana-bincode = { workspace = true }
 solana-client = { workspace = true }
 solana-client-traits = { workspace = true }
 solana-clock = { workspace = true }
@@ -44,6 +45,7 @@ solana-logger = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
 solana-net-utils = { workspace = true }
+solana-packet = { workspace = true }
 solana-poh-config = { workspace = true }
 solana-program-binaries = { workspace = true }
 solana-pubkey = { workspace = true }

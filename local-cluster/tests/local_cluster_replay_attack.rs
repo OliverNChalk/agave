@@ -3,6 +3,7 @@ use {
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
     solana_adversary::adversary_feature_set::replay_stage_attack,
+    solana_bincode::limited_deserialize,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
     solana_core::{
@@ -28,6 +29,7 @@ use {
     solana_signer::Signer,
     solana_stake_interface::stake_history::Epoch,
     solana_streamer::socket::SocketAddrSpace,
+    solana_system_interface::instruction::SystemInstruction,
     solana_transaction::{
         sanitized::{MessageHash, SanitizedTransaction},
         versioned::VersionedTransaction,
@@ -50,16 +52,47 @@ impl Drop for TestSetup {
     }
 }
 
-fn is_simple_vote_tx(tx: VersionedTransaction) -> bool {
-    SanitizedTransaction::try_create(
-        tx,
-        MessageHash::Compute,
-        None,
-        SimpleAddressLoader::Disabled,
-        &ReservedAccountKeys::empty_key_set(),
-    )
-    .map(|tx| tx.is_simple_vote_transaction())
-    .unwrap_or_default()
+trait TestVersionedTransaction {
+    fn is_simple_vote(&self) -> bool;
+    fn is_transfer(&self) -> bool;
+}
+
+impl TestVersionedTransaction for VersionedTransaction {
+    fn is_simple_vote(&self) -> bool {
+        // although this is, probably, not the most efficient way to check vote transaction
+        // it is better to stick with SanitizedTransaction implementation to avoid inconsistent implementation
+        SanitizedTransaction::try_create(
+            self.clone(),
+            MessageHash::Compute,
+            None,
+            SimpleAddressLoader::Disabled,
+            &ReservedAccountKeys::empty_key_set(),
+        )
+        .map(|tx| tx.is_simple_vote_transaction())
+        .unwrap_or_default()
+    }
+
+    // Return true if transaction contains single Transfer instruction
+    fn is_transfer(&self) -> bool {
+        let message = &self.message;
+        let account_keys = message.static_account_keys();
+
+        let program_ids: Vec<_> = message
+            .instructions()
+            .iter()
+            .map(|ix| ix.program_id(account_keys))
+            .collect();
+
+        if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
+            let data = &message.instructions()[0].data;
+            return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
+                .map(|instruction| {
+                    matches!(instruction, SystemInstruction::Transfer { lamports: _ })
+                })
+                .unwrap_or_default();
+        }
+        false
+    }
 }
 
 // This code was adapted from adversary client
@@ -115,7 +148,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     let _ = TestSetup;
 
     let num_nodes = 2;
-    let test_duration = Duration::from_secs(30);
+    let test_duration = Duration::from_secs(20);
     let num_starting_accounts = 10_000;
     let lamports_per_account = 1_000_000_000_000;
 
@@ -186,40 +219,71 @@ fn test_mainnet_beta_cluster_type_generator() {
     .unwrap();
 
     sleep(Duration::from_millis(800));
-    println!("RPC_URL = {}", get_rpc_url(&cluster));
     assert!(configure_block_generator(
         Some(replay_stage_attack::Attack::TransferRandom),
         &get_rpc_url(&cluster)
     )
     .is_ok());
 
-    // check that the leader generated some transactions
-    let num_response_check_iterations = 10;
+    // check that the leader generated transactions that call transfer system instruction
+    let num_response_check_iterations = 5;
     let check_sleep_duration = test_duration / num_response_check_iterations;
     let mut num_errors = 0;
-    let mut num_non_vote_txs = 0;
+    let mut num_transfer_txs = 0;
     for _ in 0..num_response_check_iterations {
-        for r in receiver.try_iter().collect::<Vec<_>>() {
-            if r.value.err.is_some() {
+        receiver.try_iter().for_each(|response| {
+            if response.value.err.is_some() {
                 num_errors += 1;
             }
-            if let Some(r) = r.value.block {
-                if let Some(encoded_transactions) = r.transactions {
+            if let Some(block) = response.value.block {
+                if let Some(encoded_transactions) = block.transactions {
                     for encoded_tx in encoded_transactions {
                         let tx = encoded_tx.transaction.decode();
                         if let Some(tx) = tx {
-                            if !is_simple_vote_tx(tx) {
-                                num_non_vote_txs += 1;
+                            if tx.is_transfer() {
+                                num_transfer_txs += 1;
                             }
                         }
                     }
                 }
             }
-        }
+        });
         sleep(check_sleep_duration);
     }
+    assert_eq!(num_errors, 0);
+    assert_ne!(num_transfer_txs, 0);
+    assert_eq!(
+        configure_block_generator(None, &get_rpc_url(&cluster)),
+        Ok(())
+    );
+    // Check that the cluster is making progress
+    cluster.check_for_new_roots(
+        16,
+        "test_mainnet_beta_cluster_type_generator",
+        SocketAddrSpace::Unspecified,
+    );
+
+    // clean the receiver
+    receiver.try_iter().for_each(drop);
+    // verify that there are no new transfer transactions
+    // wait for a while to have some vote transactions
+    sleep(Duration::from_secs(1));
+    receiver.try_iter().for_each(|response| {
+        if response.value.err.is_some() {
+            num_errors += 1;
+        }
+        if let Some(block) = response.value.block {
+            if let Some(encoded_transactions) = block.transactions {
+                for encoded_tx in encoded_transactions {
+                    let tx = encoded_tx.transaction.decode();
+                    if let Some(tx) = tx {
+                        assert!(tx.is_simple_vote());
+                    }
+                }
+            }
+        }
+    });
     assert!(num_errors == 0);
-    assert!(num_non_vote_txs != 0);
 
     // If we don't drop the cluster, the blocking web socket service
     // won't return, and the `block_subscribe_client` won't shut down
