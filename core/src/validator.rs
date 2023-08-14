@@ -394,6 +394,7 @@ pub struct ValidatorConfig {
     pub use_tpu_client_next: bool,
     pub retransmit_xdp: Option<XdpConfig>,
     pub repair_handler_type: RepairHandlerType,
+    pub public_invalidator: bool,
 }
 
 impl ValidatorConfig {
@@ -477,6 +478,7 @@ impl ValidatorConfig {
             use_tpu_client_next: true,
             retransmit_xdp: None,
             repair_handler_type: RepairHandlerType::default(),
+            public_invalidator: true,
         }
     }
 
@@ -1761,6 +1763,19 @@ impl Validator {
             key_notifiers.clone(),
             cancel,
         );
+
+        let cluster_type = bank_forks.read().unwrap().root_bank().cluster_type();
+        if !config.public_invalidator
+            && matches!(
+                cluster_type,
+                ClusterType::MainnetBeta | ClusterType::Testnet | ClusterType::Devnet
+            )
+        {
+            return Err(anyhow!(
+                "Use --public-invalidator to run invalidator on this cluster type: \
+                 {cluster_type:?}."
+            ));
+        }
 
         datapoint_info!(
             "validator-new",

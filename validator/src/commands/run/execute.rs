@@ -39,8 +39,8 @@ use {
         system_monitor_service::SystemMonitorService,
         validator::{
             is_snapshot_config_valid, BlockProductionMethod, BlockVerificationMethod,
-            SchedulerPacing, Validator, ValidatorConfig, ValidatorError, ValidatorStartProgress,
-            ValidatorTpuConfig,
+            InvalidatorConfig, SchedulerPacing, Validator, ValidatorConfig, ValidatorError,
+            ValidatorStartProgress, ValidatorTpuConfig,
         },
     },
     solana_gossip::{
@@ -564,7 +564,6 @@ pub fn execute(
         run_verification: !matches.is_present("skip_startup_ledger_verification"),
         debug_keys,
         warp_slot: None,
-        invalidator_config: solana_core::validator::InvalidatorConfig::default(),
         contact_debug_interval,
         contact_save_interval: DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
         send_transaction_service_config: run_args.send_transaction_service_config,
@@ -641,6 +640,8 @@ pub fn execute(
             Arc::new(AtomicBool::new(false)),
         )]
         .into(),
+        invalidator_config: InvalidatorConfig::default(),
+        public_invalidator: matches.is_present("public_invalidator"),
     };
 
     let reserved = validator_config

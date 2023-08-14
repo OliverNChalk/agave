@@ -1476,6 +1476,12 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
     .args(&pub_sub_config::args())
     .args(&json_rpc_config::args(default_args))
     .args(&rpc_bigtable_config::args())
+    .arg(
+        Arg::with_name("public_invalidator")
+            .long("public-invalidator")
+            .hidden(hidden_unless_forced())
+            .help("Run invalidator on public cluster types."),
+    )
     .banking_stage_args()
 }
 
