@@ -29,13 +29,6 @@ fi
 $BIN configure-repair-parameters --ancestor-hash-repair-sample-size 2
 
 commands=(
-  "$BIN configure-send-duplicate-blocks \
-    --new-entry-index-from-end 0 \
-    --num-duplicate-validators 1 \
-    --send-original-after-ms 0"
-  "sleep $RUNTIME"
-  "$BIN configure-send-duplicate-blocks"
-  "sleep $SLEEPTIME"
   "$BIN configure-invalidate-leader-block \
     --invalidation-kind invalidFeePayer"
   "sleep $RUNTIME"
