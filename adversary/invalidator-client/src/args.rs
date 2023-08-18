@@ -8,7 +8,8 @@ use {
         repair_packet_flood::FloodStrategy as RepairFloodStrategy,
         replay_stage_attack::Attack as ReplayStageAttack,
     },
-    solana_clap_utils::*,
+    solana_clap_utils::{input_validators::is_url_or_moniker, *},
+    solana_cli_config::ConfigInput,
     std::time::Duration,
 };
 
@@ -18,6 +19,19 @@ pub fn run_command() -> Result<(), String> {
     let matches = App::new("InvalidatorClient")
         .version("1.0")
         .about("Client for interacting with the Solana Invalidator")
+        .arg(
+            Arg::with_name("json_rpc_url")
+                .short("u")
+                .long("url")
+                .value_name("URL_OR_MONIKER")
+                .takes_value(true)
+                .global(true)
+                .validator(is_url_or_moniker)
+                .help(
+                    "URL for Solana's JSON RPC or moniker (or their first letter): [mainnet-beta, \
+                     testnet, devnet, localhost]",
+                ),
+        )
         .subcommand(
             SubCommand::with_name("continuous")
                 .about("Continuous cycling through all adversary scenarios")
@@ -316,6 +330,11 @@ pub fn run_command() -> Result<(), String> {
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 
+    let (_, rpc_endpoint_url) = ConfigInput::compute_json_rpc_url_setting(
+        matches.value_of("json_rpc_url").unwrap_or(""),
+        RPC_ENDPOINT_URL,
+    );
+
     match matches.subcommand() {
         ("continuous", Some(sub_matches)) => {
             let scenario_run_duration =
@@ -323,62 +342,62 @@ pub fn run_command() -> Result<(), String> {
             let rest_between_scenarios_duration =
                 Duration::from_secs(value_t_or_exit!(sub_matches, "sleeptime", u64));
             crate::continuous_mode::run_continuous_mode(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 scenario_run_duration,
                 rest_between_scenarios_duration,
             )
         }
         ("configure-shred-receiver-address", Some(sub_matches)) => {
             crate::adversary::shred_forwarder::configure_shred_receiver_address_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-repair-packet-flood", Some(sub_matches)) => {
             crate::adversary::repair::configure_repair_packet_flood_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-repair-parameters", Some(sub_matches)) => {
             crate::adversary::repair::configure_repair_parameters_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-send-duplicate-blocks", Some(sub_matches)) => {
             crate::adversary::leader_block::configure_send_duplicate_blocks_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-invalidate-leader-block", Some(sub_matches)) => {
             crate::adversary::leader_block::configure_invalidate_leader_block_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-drop-turbine-votes", Some(sub_matches)) => {
             crate::adversary::drop_turbine_votes::configure_drop_turbine_votes_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-packet-drop-parameters", Some(sub_matches)) => {
             crate::adversary::packet_drop::configure_packet_drop_parameters_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-gossip-packet-flood", Some(sub_matches)) => {
             crate::adversary::gossip::configure_gossip_packet_flood_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }
         ("configure-replay-stage-attack", Some(sub_matches)) => {
             crate::adversary::replay::configure_replay_stage_attack_args(
-                RPC_ENDPOINT_URL,
+                &rpc_endpoint_url,
                 sub_matches,
             )
         }

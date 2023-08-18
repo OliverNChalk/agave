@@ -32,7 +32,7 @@ pub trait Command: Serialize {
             id: 1,
         };
         let client = Client::new();
-        info!("sending rpc command: {}", Self::RPC_METHOD);
+        info!("sending rpc command: {} to {}", Self::RPC_METHOD, url);
         trace!("rpc command payload: {payload:#?}");
         let response = client
             .post(url)
