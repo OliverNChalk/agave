@@ -5,8 +5,9 @@
 #
 
 BIN=solana-invalidator-client
+SCRIPT_DIR="$(readlink -f "$(dirname "$0")")"
 
-which $BIN || {
+which $BIN > /dev/null 2>&1 || {
   echo
   echo "Unable to locate $BIN."
   echo
@@ -45,12 +46,21 @@ commands=(
   "$BIN configure-drop-turbine-votes \
     --drop false"
   "sleep $SLEEPTIME"
-  "$BIN configure-repair-packet-flood \
-    --flood-strategy minimalPackets \
-    --iteration-delay-us 1000000 \
-    --packets-per-peer-per-iteration 10"
+  "$SCRIPT_DIR/repair-tests.sh minimal_packets"
   "sleep $RUNTIME"
-  "$BIN configure-repair-packet-flood"
+  "$SCRIPT_DIR/repair-tests.sh disable"
+  "sleep $SLEEPTIME"
+  "$SCRIPT_DIR/repair-tests.sh ping_cache_overflow"
+  "sleep $RUNTIME"
+  "$SCRIPT_DIR/repair-tests.sh disable"
+  "sleep $SLEEPTIME"
+  "$SCRIPT_DIR/repair-tests.sh unavailable_slots"
+  "sleep $RUNTIME"
+  "$SCRIPT_DIR/repair-tests.sh disable"
+  "sleep $SLEEPTIME"
+  "$SCRIPT_DIR/repair-tests.sh ping_overflow_with_orphan"
+  "sleep $RUNTIME"
+  "$SCRIPT_DIR/repair-tests.sh disable"
   "sleep $SLEEPTIME"
   "$BIN configure-gossip-packet-flood \
     --flood-strategy pingCacheOverflow \
