@@ -73,6 +73,8 @@ pub mod repair_packet_flood {
         /// Prematurely create shred data for this validator's future slots from the leader
         /// schedule.
         FakeFutureLeaderSlots,
+        /// Signed repair request packets for slots which should not not be available.
+        UnavailableSlots,
     }
 
     /// Define a flood strategy which will be executed on its own thread. The thread will

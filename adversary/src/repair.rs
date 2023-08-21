@@ -325,6 +325,50 @@ impl RepairPacketFlood {
         packet_count
     }
 
+    fn flood_unavailable_slots(
+        repair_socket: &UdpSocket,
+        bank_forks: &RwLock<BankForks>,
+        cluster_info: &ClusterInfo,
+        config: &FloodConfig,
+        peers: &[ContactInfo],
+    ) -> usize {
+        const FUTURE_SLOT_OFFSET: u64 = 1_000;
+        let identity_keypair = cluster_info.keypair().clone();
+        let base_slot = bank_forks.read().unwrap().working_bank().slot() + FUTURE_SLOT_OFFSET;
+        let mut reqs_v = Vec::default();
+        peers.iter().for_each(|peer| {
+            for i in 0..config.packets_per_peer_per_iteration {
+                let header = RepairRequestHeader::new(
+                    cluster_info.id(),
+                    *peer.pubkey(),
+                    timestamp(),
+                    789 + i, /*nonce*/
+                );
+                let request_proto = RepairProtocol::HighestWindowIndex {
+                    header,
+                    slot: base_slot + u64::from(i),
+                    shred_index: 0,
+                };
+                let packet_buf =
+                    RepairProtocol::repair_proto_to_bytes(&request_proto, &identity_keypair)
+                        .unwrap();
+                reqs_v.push((packet_buf, peer.serve_repair(Protocol::UDP).unwrap()));
+            }
+        });
+        let mut packet_count = reqs_v.len();
+        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
+            packet_count -= num_failed;
+            error!(
+                "batch_send failed to send {}/{} packets first error {:?}",
+                num_failed,
+                reqs_v.len(),
+                err
+            );
+        }
+        packet_count
+    }
+
     fn run(
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
@@ -401,6 +445,13 @@ impl RepairPacketFlood {
                     bank_forks,
                     cluster_info,
                     leader_schedule_cache,
+                    &config,
+                    &peers,
+                ),
+                FloodStrategy::UnavailableSlots => Self::flood_unavailable_slots(
+                    repair_socket,
+                    bank_forks,
+                    cluster_info,
                     &config,
                     &peers,
                 ),
