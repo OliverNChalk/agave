@@ -6,8 +6,9 @@ set -e
 
 # Testing remotes functionality.
 #
-# When there is no remote configured that contains a set of branches for
-# tracking `master` branch status the hook should silently exit.
+# `upstream/master` is included in the synchronization logic, and the pre-rebase
+# hook would not able to do it's work correctly without it.  It should handle
+# absence of the `upstream/master` branch gracefully.
 
 # shellcheck source=scripts/pre-rebase-hook/test-common
 source "$here/test-common"
@@ -18,14 +19,11 @@ setupSandbox
 
 setup1 upstream 2023-06-28 "git@mock-github.com:solana/invalidator.git"
 
-git branch --quiet --remotes --delete upstream/sync/master/upstream/2023-06-28
-git branch --quiet --remotes --delete upstream/sync/master-upstream
-git branch --quiet --remotes --delete upstream/sync/master/local/2023-06-28
-git branch --quiet --remotes --delete upstream/sync/master-local
+git branch --quiet --remotes --delete upstream/master
 
-# `user1` is expected to be configured to track `upstream/master`, so a rebase
-# with no arguments should just rebase it on top of `master`.
-runGitRebase
+# As `upstream/master` was removed, we need to provide an explicit upstream for
+# the rebase operation.
+runGitRebase master
 
 assertExitCode 128
 assertStdout ''

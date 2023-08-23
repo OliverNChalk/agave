@@ -31,7 +31,7 @@ assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
 assertStderr 'ERROR:
-    Upstream remote you have selected in your local workspace configuation does
+    Upstream remote you have selected in your local workspace configuration does
     not contain the synchronization branches necessary to track "invalidator"
     repository `master` branch rebases.
 

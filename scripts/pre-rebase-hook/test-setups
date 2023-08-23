@@ -524,11 +524,11 @@ createRebaseTrackingBranchesFor() {
   local masterLocal=$4
   local master=$5
 
-  gitMockRemoteBranch "$remote" "sync/master/upstream/$date" "$masterUpstream"
-  gitMockRemoteBranch "$remote" "sync/master-upstream" "$masterUpstream"
-  gitMockRemoteBranch "$remote" "sync/master/local/$date" "$masterLocal"
-  gitMockRemoteBranch "$remote" "sync/master-local" "$masterLocal"
   gitMockRemoteBranch "$remote" "master" "$master"
+  gitMockRemoteBranch "$remote" "sync/master-upstream" "$masterUpstream"
+  gitMockRemoteBranch "$remote" "sync/master/upstream/$date" "$masterUpstream"
+  gitMockRemoteBranch "$remote" "sync/master-local" "$masterLocal"
+  gitMockRemoteBranch "$remote" "sync/master/local/$date" "$masterLocal"
 }
 
 

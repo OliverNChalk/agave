@@ -64,6 +64,16 @@ else
     exit 0 ; # Exit for detached HEAD.
 fi
 
+# A list of branches that a remote needs to contain, to be usable as a
+# synchronization reference point.
+declare -a remoteSyncBranches=(
+    master \
+    "$syncPrefix/master-upstream"
+    "$syncPrefix/master/upstream/*"
+    "$syncPrefix/master-local"
+    "$syncPrefix/master/local/*"
+  )
+
 # We need to know which remote contains the synchronization branches, but it can
 # have any name.  While we allow users to configure it as `[invalidator-repo]
 # upstream`, we also want the hook to "just work".  And so, if not configured,
@@ -78,9 +88,8 @@ findInvalidatorUpstreamRemote() {
   local missing=
   for remote in "${remotes[@]}"; do
     missing=
-    for name in \
-      master-upstream master/upstream/* master-local master/local/*; do
-      remoteBranch="$remote/$syncPrefix/$name"
+    for name in "${remoteSyncBranches[@]}"; do
+      remoteBranch="$remote/$name"
       if [[ "$( \
         git branch --list --remotes --no-column --no-color -- "$remoteBranch"
       )" = "" ]]; then
@@ -129,6 +138,12 @@ ERROR:
     the "invalidator" repository \`master\` branch rebases.  Can not make sure
     your rebase is safe.
 
+    A remote needs to contain the following branches:
+
+EOM
+      printf '    %s\n' "${remoteSyncBranches[@]}"
+      cat <<EOM
+
     You can add an upstream pointing at the invalidator repo like this:
 
     git remote add upstream git@github.com:solana/invalidator.git
@@ -147,10 +162,9 @@ ERROR:
     contain all the necessary tracking branches.  Remote needs to contain the
     following branches:
 
-    $syncPrefix/master/upstream/*
-    $syncPrefix/master-upstream
-    $syncPrefix/master/local/*
-    $syncPrefix/master-local
+EOM
+      printf '    %s\n' "${remoteSyncBranches[@]}"
+      cat <<EOM
 
     You can remove the local configuration:
 
@@ -169,7 +183,7 @@ EOM
   if [[ -n "$upstreamRemote" && "$upstreamRemote" != "$candidate" ]]; then
     cat <<EOM
 ERROR:
-    Upstream remote you have selected in your local workspace configuation does
+    Upstream remote you have selected in your local workspace configuration does
     not contain the synchronization branches necessary to track "invalidator"
     repository \`master\` branch rebases.
 

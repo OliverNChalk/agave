@@ -37,10 +37,11 @@ assertStderr 'ERROR:
     contain all the necessary tracking branches.  Remote needs to contain the
     following branches:
 
-    sync/master/upstream/*
+    master
     sync/master-upstream
-    sync/master/local/*
+    sync/master/upstream/*
     sync/master-local
+    sync/master/local/*
 
     You can remove the local configuration:
 
