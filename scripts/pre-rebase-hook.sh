@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+set -o errexit
+set -o nounset
+
+declare args
 args=( "$@" )
 
 # This hook helps deal with the `master` branch rebases, that happen when
@@ -21,12 +24,12 @@ args=( "$@" )
 #
 # Allow execution both from `.git/hook` as well as from `scripts/`.
 
-if [[ "$here" =~ /scripts$ ]]; then
-  hookScript=$here/pre-rebase-hook/run.sh
-else
-  # `git rebase` will invoke the hook from the workspace top level directory.
-  hookScript=$here/scripts/pre-rebase-hook/run.sh
-fi
+# `git rev-parse --shot-toplevel` does not work from inside of the `.git`
+# folder.
+declare gitDir
+gitDir=$( git rev-parse --git-dir )
+declare hookScript
+hookScript=$( realpath "$gitDir/../scripts/pre-rebase-hook/run.sh" )
 
 # Avoid completely blocking the rebase command if something is wrong.
 if [[ ! -e "$hookScript" ]]; then
