@@ -161,9 +161,9 @@ git rebase --interactive --no-autosquash \
 This will run an interactive rebase, making sure that every commit compiles and
 is correctly formatted, according to the currently used rustfmt.
 
-If any discrepancy is found by the `exec` command, and it is a small enough fix, such
-as invalid formatting, fix it and then apply changes to the last commit in the new
-`master-next` history:
+If any discrepancy is found by the `exec` command, and it is a small enough fix,
+such as invalid formatting, fix it and then apply changes to the last commit in
+the new `master-next` history:
 
 ```sh
 git add --update
@@ -339,9 +339,9 @@ correctly.
 ## Slow rebase
 
 "Slow rebase" operation performed by `scripts/slow-rebase.sh` is, conceptually,
-pretty simple.  It all boils down to the `run_one_rebase()` function, executed in a
-loop.  `run_one_rebase()` runs the following rebase operation, with the `master-next`
-branch checked out.
+pretty simple.  It all boils down to the `run_one_rebase()` function, executed
+in a loop.  `run_one_rebase()` runs the following rebase operation, with the
+`master-next` branch checked out.
 
 It looks at all changes that are in `sync/master-upstream` that are not in
 `master-next` yet and takes the oldest of these changes.  It then rebases
@@ -352,35 +352,35 @@ If there are any merge conflicts between commits in `master-next` and
 `solana/master`, this conflict will be presented in the smallest possible scope,
 making conflict resolution easier.
 
-`slow-rebase.sh` will compile, format and run a few more checks after this single
-rebase step, again, reducing the context of any possible compilation errors to a
-single upstream change.
+`slow-rebase.sh` will compile, format and run a few more checks after this
+single rebase step, again, reducing the context of any possible compilation
+errors to a single upstream change.
 
 And this process is repeated over and over, until all changes from
 `sync/master-upstream` are added into `master-next`.
 
 ## On tags vs branches
 
-Semantically, `sync/master/local/[date]` and `sync/master/upstream/[date]` look more
-like tags than branches.  They are not supposed to move.
+Semantically, `sync/master/local/[date]` and `sync/master/upstream/[date]` look
+more like tags than branches.  They are not supposed to move.
 
 The reason they are branches are:
 
 1. Branches retain their repository origin, while tags do not.
 
-  This might not be very important, but it is nice to see what was the source of the
-  synchronization information.
+   This might not be very important, but it is nice to see what was the source
+   of the synchronization information.
 
 2. Branches can be updated, which could be useful if someone makes a mistake.
 
-  While it is possible to update a tag position, everyone who already received the
-  tag must run an explicit update for this particular tag.
-  It matches what you want for releases in a decentralized system.
-  It would probably only be a source of frustration in our setup.
+   While it is possible to update a tag position, everyone who already received
+   the tag must run an explicit update for this particular tag.
+   It matches what you want for releases in a decentralized system.
+   It would probably only be a source of frustration in our setup.
 
-These arguments are not bullet proof and the process could be updated to use tags.
-But, for now, the process works with branches and especially while the process is
-still relatively new, the second point - an ability to fix a mistake, seems like a
-very good property.
+These arguments are not bullet proof and the process could be updated to use
+tags.  But, for now, the process works with branches and especially while the
+process is still relatively new, the second point - an ability to fix a mistake,
+seems like a very good property.
 
 At the same time, there seems to be no immediate upside in using tags.
