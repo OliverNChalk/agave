@@ -138,7 +138,7 @@ git branch --force --no-track sync/master-upstream "sync/master/upstream/$SYNC_D
 
 git fetch invalidator master
 git branch --no-track "sync/master/local/$SYNC_DATE" invalidator/master
-git branch --force --no-track "sync/master-local" invalidator/master
+git branch --force --no-track "sync/master-local" "sync/master/local/$SYNC_DATE"
 
 git switch --create master-next --no-track sync/master-local
 ```
@@ -200,7 +200,7 @@ The script will run the rebase, one upstream commit at a time, making sure that
 the codebase compiles and is correctly formatted.  If anything fails the script
 should tell you what to do next and how to restart the rebase process.
 
-Ideally, we would compiled and format every commit, rather than doing it only
+Ideally, we would compile and format every commit, rather than doing it only
 once after everything rebased on top of the next upstream commit.  This way, the
 compilation or formatting is immediately attributed to the right commit in the
 `master-next` branch.  But, is too time consuming.
@@ -253,6 +253,28 @@ commits:
 
 ```sh
 ./scripts/slow-rebase.sh --date "$SYNC_DATE" --run-tests
+```
+
+#### 1.6.1. Frozen ABI hashes
+
+If a change affects a type with an `AbiExample` instance, it may change the hash
+value for this type.  A few types in the `invalidator` repo have done this.  In
+particular, change that extracted `solana-net-protocol` caused at least one hash
+to change.
+
+You can wait for the CI to tell you if any of the hashes mismatch.
+
+Alternatively, you can check it yourself either by running
+
+```sh
+./test-abi.sh
+```
+
+to check the whole repo.  Or you can run `cargo test` with the nightly compiler,
+explicitly specifying the package, if you want to save some:
+
+```sh
+./cargo nightly test --package solana-net-protocol --lib -- test_abi_
 ```
 
 ### 1.7. Run CI for `master-next`
