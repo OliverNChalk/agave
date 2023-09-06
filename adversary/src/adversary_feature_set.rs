@@ -5,7 +5,6 @@
 
 use {
     dashmap::DashMap,
-    enum_iterator::{all, Sequence},
     serde::{Deserialize, Serialize},
     std::sync::LazyLock,
 };
@@ -54,12 +53,25 @@ pub mod example {
 
 /// Configuration for flooding repair packets
 pub mod repair_packet_flood {
-    use enum_iterator::Sequence;
+    use {
+        strum::VariantNames,
+        strum_macros::{EnumString, EnumVariantNames},
+    };
     pub const ID: &str = "repair_packet_flood";
     adversarial_feature_impl!(RepairPacketFlood);
 
-    #[derive(Clone, Debug, Sequence, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Clone,
+        Debug,
+        Eq,
+        EnumString,
+        EnumVariantNames,
+        PartialEq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
     #[serde(rename_all = "camelCase")]
+    #[strum(serialize_all = "camelCase")]
     pub enum FloodStrategy {
         /// Single byte payload (invalid) packets
         MinimalPackets,
@@ -75,6 +87,11 @@ pub mod repair_packet_flood {
         FakeFutureLeaderSlots,
         /// Signed repair request packets for slots which should not not be available.
         UnavailableSlots,
+    }
+    impl FloodStrategy {
+        pub const fn cli_names() -> &'static [&'static str] {
+            Self::VARIANTS
+        }
     }
 
     /// Define a flood strategy which will be executed on its own thread. The thread will
@@ -175,17 +192,35 @@ pub mod drop_turbine_votes {
 /// cost. This attack can be used with regular banking stage, or the generated
 /// replay attack blocks.
 pub mod invalidate_leader_block {
-    use enum_iterator::Sequence;
+    use {
+        strum::VariantNames,
+        strum_macros::{EnumString, EnumVariantNames},
+    };
     pub const ID: &str = "invalidate_leader_block";
     adversarial_feature_impl!(InvalidateLeaderBlock);
 
-    #[derive(Clone, Debug, Eq, PartialEq, Sequence, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Clone,
+        Debug,
+        Eq,
+        EnumString,
+        EnumVariantNames,
+        PartialEq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
     #[serde(rename_all = "camelCase")]
+    #[strum(serialize_all = "camelCase")]
     pub enum InvalidationKind {
         /// Invalidates the block by recording a transaction with an invalid fee payer.
         InvalidFeePayer,
         /// Invalidates the block by recording a transaction with an invalid signature.
         InvalidSignature,
+    }
+    impl InvalidationKind {
+        pub const fn cli_names() -> &'static [&'static str] {
+            Self::VARIANTS
+        }
     }
 
     #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -212,15 +247,34 @@ pub mod packet_drop_parameters {
 
 /// Configuration for flooding gossip packets
 pub mod gossip_packet_flood {
-    use enum_iterator::Sequence;
+    use {
+        strum::VariantNames,
+        strum_macros::{EnumString, EnumVariantNames},
+    };
     pub const ID: &str = "gossip_packet_flood";
     adversarial_feature_impl!(GossipPacketFlood);
 
-    #[derive(Clone, Debug, Sequence, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Clone,
+        Debug,
+        Eq,
+        EnumString,
+        EnumVariantNames,
+        PartialEq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
     #[serde(rename_all = "camelCase")]
+    #[strum(serialize_all = "camelCase")]
     pub enum FloodStrategy {
         /// Send bursts of packets to peers with each packet signed using a unique keypair.
         PingCacheOverflow,
+    }
+
+    impl FloodStrategy {
+        pub const fn cli_names() -> &'static [&'static str] {
+            Self::VARIANTS
+        }
     }
 
     /// Define a flood strategy which will be executed on its own thread. The thread will
@@ -368,13 +422,4 @@ fn set_adversary_feature_config(feature_id: &str, config: AdversaryFeatureConfig
             panic!("Adversarial feature {feature_id} not found in feature config map")
         })
         .value_mut() = config;
-}
-
-pub fn all_enum_variants_as_json_strings<T: Sequence + Serialize>() -> Vec<String> {
-    all::<T>()
-        .map(|enum_value| {
-            let json_value = serde_json::to_value(enum_value).unwrap();
-            json_value.as_str().unwrap().to_owned()
-        })
-        .collect::<Vec<String>>()
 }

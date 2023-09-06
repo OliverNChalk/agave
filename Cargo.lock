@@ -9032,6 +9032,7 @@ name = "solana-invalidator-client"
 version = "3.1.0"
 dependencies = [
  "clap 2.33.3",
+ "const_format",
  "futures 0.3.31",
  "log",
  "reqwest 0.12.24",

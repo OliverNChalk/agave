@@ -17,6 +17,7 @@ use {
         },
         verify_peer_identifier,
     },
+    std::str::FromStr,
 };
 
 impl Command for RepairPacketFloodConfig {
@@ -61,7 +62,7 @@ pub fn configure_repair_packet_flood_args(
     } else {
         let flood_strategy = match value_t!(sub_matches, "flood_strategy", String) {
             Ok(val) => {
-                let flood_strategy: FloodStrategy = serde_json::from_str(&format!(r#""{val}""#))
+                let flood_strategy = FloodStrategy::from_str(&val)
                     .map_err(|e| format!("Error converting to enum from string: {e}"))?;
                 Some(flood_strategy)
             }

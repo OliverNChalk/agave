@@ -1,8 +1,8 @@
 use {
     crate::common::STDIN_TOKEN,
     clap::{value_t_or_exit, App, AppSettings, Arg, SubCommand},
+    const_format::formatcp,
     solana_adversary::adversary_feature_set::{
-        all_enum_variants_as_json_strings,
         gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
         invalidate_leader_block::InvalidationKind,
         repair_packet_flood::FloodStrategy as RepairFloodStrategy,
@@ -15,9 +15,11 @@ use {
 
 const RPC_ENDPOINT_URL: &str = "http://localhost:8899";
 
-pub fn run_command() -> Result<(), String> {
-    let matches = App::new("InvalidatorClient")
-        .version("1.0")
+fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
+    // to fix error inside formatcp macro
+    #![allow(clippy::arithmetic_side_effects)]
+    App::new("InvalidatorClient")
+        .version(version)
         .about("Client for interacting with the Solana Invalidator")
         .arg(
             Arg::with_name("json_rpc_url")
@@ -71,13 +73,7 @@ pub fn run_command() -> Result<(), String> {
                     Arg::with_name("flood_strategy")
                         .long("flood-strategy")
                         .value_name("ENUM STRING")
-                        .possible_values(
-                            all_enum_variants_as_json_strings::<RepairFloodStrategy>()
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<&str>>()
-                                .as_slice(),
-                        )
+                        .possible_values(RepairFloodStrategy::cli_names())
                         .help("Which strategy to use for flooding repair packets")
                         .conflicts_with("toml_config"),
                 )
@@ -114,7 +110,7 @@ pub fn run_command() -> Result<(), String> {
                         .long("toml")
                         .takes_value(true)
                         .value_name("FILE")
-                        .help(&format!(
+                        .help(formatcp!(
                             "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
                         ))
                         .conflicts_with("flood_strategy"),
@@ -209,13 +205,7 @@ pub fn run_command() -> Result<(), String> {
                         .long("invalidation-kind")
                         .takes_value(true)
                         .value_name("ENUM STRING")
-                        .possible_values(
-                            all_enum_variants_as_json_strings::<InvalidationKind>()
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<&str>>()
-                                .as_slice(),
-                        )
+                        .possible_values(InvalidationKind::cli_names())
                         .help("Manner in which to invalidate the leader block"),
                 ),
         )
@@ -261,13 +251,7 @@ pub fn run_command() -> Result<(), String> {
                     Arg::with_name("flood_strategy")
                         .long("flood-strategy")
                         .value_name("ENUM STRING")
-                        .possible_values(
-                            all_enum_variants_as_json_strings::<GossipFloodStrategy>()
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<&str>>()
-                                .as_slice(),
-                        )
+                        .possible_values(GossipFloodStrategy::cli_names())
                         .help("Which strategy to use for flooding gossip packets")
                         .conflicts_with("toml_config"),
                 )
@@ -301,7 +285,7 @@ pub fn run_command() -> Result<(), String> {
                         .long("toml")
                         .takes_value(true)
                         .value_name("FILE")
-                        .help(&format!(
+                        .help(formatcp!(
                             "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
                         )),
                 ),
@@ -317,18 +301,15 @@ pub fn run_command() -> Result<(), String> {
                         .long("selected-attack")
                         .takes_value(true)
                         .value_name("ENUM STRING")
-                        .possible_values(
-                            all_enum_variants_as_json_strings::<ReplayStageAttack>()
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<&str>>()
-                                .as_slice(),
-                        )
+                        .possible_values(ReplayStageAttack::cli_names())
                         .help("Which replay attack to perform"),
                 ),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .get_matches();
+}
+
+pub fn run_command() -> Result<(), String> {
+    let matches = build_args("1.0.0").get_matches();
 
     let (_, rpc_endpoint_url) = ConfigInput::compute_json_rpc_url_setting(
         matches.value_of("json_rpc_url").unwrap_or(""),
@@ -402,5 +383,63 @@ pub fn run_command() -> Result<(), String> {
             )
         }
         _ => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*, crate::adversary::replay::parse_replay_stage_attack_args,
+        solana_adversary::adversary_feature_set::replay_stage_attack::Attack,
+    };
+
+    // Converts CLI arguments of the form
+    //
+    // ```
+    // solana-invalidator-client -u RPC_ENDPOINT_URL configure-replay-stage-attack \
+    //     --selected-attack [attack_name_and_extra_args]
+    // ```
+    //
+    // into an [`Attack`] value and verifies that it matches the `expected_attack`.
+    #[track_caller]
+    fn check_configure_replay_stage_attack_arg_parsing(
+        attack_name_and_extra_args: &[&str],
+        expected_attack: Attack,
+    ) {
+        let args = [
+            "solana-invalidator-client",
+            "-u",
+            RPC_ENDPOINT_URL,
+            "configure-replay-stage-attack",
+            "--selected-attack",
+        ]
+        .iter()
+        .chain(attack_name_and_extra_args.iter())
+        .copied()
+        .collect::<Vec<_>>();
+
+        let matches = build_args("1.0.0").get_matches_from(args);
+
+        let (sub_command_name, sub_matches) = matches.subcommand();
+        assert_eq!(sub_command_name, "configure-replay-stage-attack");
+
+        let sub_matches =
+            sub_matches.expect("A subcommand name was provided and it was checked above");
+
+        let actual_attack = parse_replay_stage_attack_args(sub_matches);
+        assert_eq!(actual_attack, Ok(Some(expected_attack)));
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_transfer_random() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["transferRandom"],
+            Attack::TransferRandom,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_write_program() {
+        check_configure_replay_stage_attack_arg_parsing(&["writeProgram"], Attack::WriteProgram);
     }
 }

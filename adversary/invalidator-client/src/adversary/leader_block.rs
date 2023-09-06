@@ -8,7 +8,7 @@ use {
         },
         send_duplicate_blocks::AdversarialConfig as SendDuplicateBlocksConfig,
     },
-    std::{net::SocketAddr, sync::Arc},
+    std::{net::SocketAddr, str::FromStr, sync::Arc},
 };
 
 impl Command for SendDuplicateBlocksConfig {
@@ -113,11 +113,11 @@ pub fn configure_invalidate_leader_block_args(
     sub_matches: &clap::ArgMatches<'_>,
 ) -> Result<(), String> {
     let invalidation_kind = match sub_matches.value_of("invalidation_kind") {
-        Some(invalidation_kind) => Some(
-            serde_json::from_str(&format!(r#""{invalidation_kind}""#)).map_err(|_| {
-                format!("Error converting to enum from string: {invalidation_kind}",)
-            })?,
-        ),
+        Some(invalidation_kind) => {
+            Some(InvalidationKind::from_str(invalidation_kind).map_err(|_| {
+                format!("Error converting to enum from string: {invalidation_kind}")
+            })?)
+        }
         None => None,
     };
 

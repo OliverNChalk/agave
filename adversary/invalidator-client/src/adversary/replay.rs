@@ -4,6 +4,7 @@ use {
     solana_adversary::adversary_feature_set::replay_stage_attack::{
         AdversarialConfig as ReplayStageAttackConfig, Attack,
     },
+    std::str::FromStr,
 };
 
 impl Command for ReplayStageAttackConfig {
@@ -28,17 +29,24 @@ pub fn configure_replay_stage_attack_disable(rpc_endpoint_url: String) -> Result
     )
 }
 
+pub fn parse_replay_stage_attack_args(
+    sub_matches: &ArgMatches<'_>,
+) -> Result<Option<Attack>, String> {
+    let Some(selected_attack) = sub_matches.value_of("selected_attack") else {
+        return Ok(None);
+    };
+    let selected_attack = Some(
+        Attack::from_str(selected_attack)
+            .map_err(|_| format!("Error converting to enum from string: {selected_attack}"))?,
+    );
+    Ok(selected_attack)
+}
+
 pub fn configure_replay_stage_attack_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
-    let selected_attack = match sub_matches.value_of("selected_attack") {
-        Some(selected_attack) => Some(
-            serde_json::from_str(&format!(r#""{selected_attack}""#))
-                .map_err(|_| format!("Error converting to enum from string: {selected_attack}"))?,
-        ),
-        None => None,
-    };
+    let selected_attack = parse_replay_stage_attack_args(sub_matches)?;
 
     configure_replay_stage_attack(
         rpc_endpoint_url,
