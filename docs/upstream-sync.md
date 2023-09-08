@@ -67,7 +67,7 @@ git remote set-url --push upstream do-not-push-from-invalidator-to-solana
 Commands below assume `invalidator` and `upstream` remotes, setup as specified
 above.
 
-```
+```text
 $ git remote -v
 invalidator     git@github.com:solana-labs/invalidator.git (fetch)
 invalidator     git@github.com:solana-labs/invalidator.git (push)
@@ -236,8 +236,9 @@ Or, if you want to see the full picture:
 git log --graph --decorate --oneline \
     --branches='sync/master/upstream/*' \
     --branches='sync/master/local/*' \
-    sync/master-upstream upstream/master \
-    master master-next HEAD
+    sync/master-upstream sync/master-local \
+    upstream/master \
+    master-next HEAD
 ```
 
 If you are trying to resolve a conflict and want to see a change in the upstream
@@ -283,7 +284,7 @@ Create a PR with the `master-next` content in the `invalidator` repo and wait
 for a successful CI result.
 
 ```sh
-git push invalidator master-next
+git push origin --force master-next:master
 ```
 
 ### 1.8. Publish updated `master` and `sync/*` branches
@@ -297,16 +298,17 @@ git push --force invalidator sync/master-local
 ```
 
 Now for the `master` branch, `master-next` was used for the CI run from the
-`invalidator` repo:
+`origin` repo:
 
 ```sh
 git push --force invalidator master-next:master
-git push --force invalidator :master-next
+git push --force origin :master-next
 ```
 
 `master-next` is not needed any more:
 
 ```sh
+git switch pr-branch
 git branch --delete master-next
 ```
 
@@ -406,3 +408,102 @@ process is still relatively new, the second point - an ability to fix a mistake,
 seems like a very good property.
 
 At the same time, there seems to be no immediate upside in using tags.
+
+## Release branches
+
+Release branches use the same approach as the master branch.  For example, for
+`v1.16` the following branches are used:
+
+ * `sync/v1.16/upstream/[date]`<br/>
+   State of `v1.16` in the upstream.
+
+ * `sync/v1.16/local/[date]`<br/>
+   State of `v1.16` before the synchronization on the
+   specified date.
+
+ * `sync/v1.16-upstream`<br/>
+   Latest `sync/v1.16/upstream/[date]`.
+
+ * `sync/v1.16-local`<br/>
+   Latest `sync/v1.16/local/[date]` branch.
+
+ * `v1.16`<br/>
+   All changes in `sync/v1.16-upstream`, plus all changes from
+   `sync/v1.16-local`, plus all changes in `invalidator/v1.16` that were created
+   since the last synchronization.
+
+Synchronization process for `v1.16` is almost identical to the `master`
+synchronization process, with `s/master/v1.16`.  Look above for a more detailed
+explanation.  Here is just a list of commands you can copy/paste:
+
+```sh
+export SYNC_DATE=$(TZ=UTC date "+%Y-%m-%d")
+
+git fetch upstream v1.16
+git branch --no-track "sync/v1.16/upstream/$SYNC_DATE" \
+    "$( TZ=UTC \
+        git log --max-count=1 \
+            --until="$SYNC_DATE 00:00:00+00:00" \
+            --format=format:%H \
+            upstream/v1.16 \
+    )"
+
+git branch --force --no-track sync/v1.16-upstream "sync/v1.16/upstream/$SYNC_DATE"
+
+git fetch invalidator v1.16
+git branch --no-track "sync/v1.16/local/$SYNC_DATE" invalidator/v1.16
+git branch --force --no-track "sync/v1.16-local" "sync/v1.16/local/$SYNC_DATE"
+
+git switch --create v1.16-next --no-track sync/v1.16-local
+```
+
+State of all branches that are involved in the `v1.16` sync process:
+
+```sh
+git log --oneline --decorate --graph \
+    --branches='sync/v1.16/upstream/*' \
+    --branches='sync/v1.16/local/*' \
+    sync/v1.16-upstream sync/v1.16-local \
+    upstream/v1.16 \
+    v1.16-next HEAD
+```
+
+Slow rebase local changes:
+
+```sh
+./scripts/slow-rebase.sh --branch v1.16 --date "$SYNC_DATE"
+```
+
+In case you created any "DO NOT SUBMIT: Fixup" commits:
+
+```sh
+git rebase --interactive \
+    --exec "./cargo check --tests \
+        && ./cargo nightly fmt \
+        && cd programs/sbf \
+        && ../../cargo check --tests \
+        && ../../cargo nightly fmt" \
+    "$( git merge-base sync/v1.16-upstream HEAD )"
+```
+
+Run the CI:
+
+```sh
+git push origin --force v1.16-next
+```
+
+Publish the updates:
+
+```sh
+git push invalidator "sync/v1.16/upstream/$SYNC_DATE"
+git push invalidator "sync/v1.16/local/$SYNC_DATE"
+
+git push --force invalidator sync/v1.16-upstream
+git push --force invalidator sync/v1.16-local
+
+git push --force invalidator v1.16-next:v1.16
+git push --force origin :v1.16-next
+
+git switch pr-branch
+git branch --delete --force v1.16-next
+```

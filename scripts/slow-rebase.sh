@@ -16,21 +16,29 @@ customCargo=
 date=
 preCheck=
 runTests=
+branch=
 
 usage() {
   cat <<EOM
 Usage:
-  $0 --date <ISO-sync-date>
+  $0
+     [--branch <branch>]
+     --date <ISO-sync-date>
      [--pre-check]
      [--run-tests]
      [--cargo <path>]
 
-Runs a step-by-step rebase of the \`invalidator/master\` on top of the latest
-changes pulled from \`solana/master\`.
+Runs a step-by-step rebase of the \`invalidator/<branch>\` on top of the latest
+changes pulled from \`solana/<branch>\`.
+
+You should be on a branch called \`<branch>-next\` when you invoke this script.
 
 Arguments:
+  --branch <branch>  Branch name that should be rebased.
+      Optional.  Default: master
+
   --date  Specifies date of the synchronization.  Script will take changes from
-      \`solana-master\` up to, but not including this date.
+      \`solana/<branch>\` up to, but not including this date.
       Required.
 
   --pre-check  Runs compilation, formatting and other checks before any rebase
@@ -65,9 +73,10 @@ while [[ $# -gt 0 ]]; do
   shift
 
   case $name in
-    -h|-\?|--help)
-      usage
-      exit
+    --branch)
+      [[ $# -eq 0 ]] && die '"--branch" requires a branch name argument'
+      branch=$1
+      shift
       ;;
     --date)
       [[ $# -eq 0 ]] && die '"--date" requires an ISO date argument'
@@ -87,6 +96,10 @@ while [[ $# -gt 0 ]]; do
       cargo=$1
       customCargo=y
       shift
+      ;;
+    -h|-\?|--help)
+      usage
+      exit
       ;;
     *)
       printf 'ERROR: Unexpected argument: "%s"\n\n' "$1" >&2
@@ -144,8 +157,10 @@ print_restart_command() {
 
 run_one_rebase() {
   local nextBase
-  nextBase=$( git rev-list master-next..sync/master-upstream | tail -n 1 ) \
-    || die "'git rev-list master-next..sync/master-upstream' failed"
+  nextBase=$(
+      git rev-list "${branch}-next..sync/${branch}-upstream" | tail -n 1
+    ) \
+      || die "'git rev-list $branch-next..sync/$branch-upstream' failed"
 
   if [[ -z "$nextBase" ]]; then
     echo "=== Rebase is done ==="
@@ -153,8 +168,8 @@ run_one_rebase() {
   fi
 
   local mergeBase
-  mergeBase=$( git merge-base master-next sync/master-upstream ) \
-    || die "'git merge-base master-next sync/master-upstream' failed"
+  mergeBase=$( git merge-base "${branch}-next" "sync/${branch}-upstream" ) \
+    || die "'git merge-base $branch-next sync/$branch-upstream' failed"
 
   if ! git rebase --onto "$nextBase" "$mergeBase"; then
     cat >&2 <<'EOM'
@@ -186,17 +201,17 @@ run_cargo_check() {
     else
       echo "Failed: cd \"$where\" && $cargo check --tests"
     fi
-    cat >&2 <<'EOM'
+    cat >&2 <<EOM
   Do:
     1. Fix compilation errors.
     2. Add changes into a commit that will be dissoled later:
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \"$(
-        git show --oneline --no-patch "$( \
-            git merge-base sync/master-upstream HEAD \
-        )" \
-    )\""
+git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
+        git show --oneline --no-patch "\$( \\
+            git merge-base "sync/${branch}-upstream" HEAD \\
+        )" \\
+    )\\""
 
     3. Restart the rebase by running:
 
@@ -223,17 +238,17 @@ run_fmt() {
     else
       echo "Failed: Wrong code formatting or Cargo.lock was updated in $where"
     fi
-    cat >&2 <<'EOM'
+    cat >&2 <<EOM
   Do:
     1. If formatting is fine, add changes into a commit that will be dissoled
        later:
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \"$(
-        git show --oneline --no-patch "$( \
-            git merge-base sync/master-upstream HEAD \
-        )" \
-    )\""
+git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
+        git show --oneline --no-patch "\$( \\
+            git merge-base "sync/${branch}-upstream" HEAD \\
+        )" \\
+    )\\""
 
     2. Restart the rebase by running:
 
@@ -246,17 +261,17 @@ EOM
 run_tests() {
   if ! cargo test; then
     echo "Failed: $cargo test"
-    cat >&2 <<'EOM'
+    cat >&2 <<EOM
   Do:
     1. Fix tests.
     2. Update the last commit with
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \"$(
-        git show --oneline --no-patch "$( \
-            git merge-base sync/master-upstream HEAD \
-        )" \
-    )\""
+git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
+        git show --oneline --no-patch "\$( \\
+            git merge-base "sync/${branch}-upstream" HEAD \\
+        )" \\
+    )\\""
 
     3. Restart the rebase by running:
 
@@ -281,21 +296,21 @@ run_all_checks() {
 find_cargo
 
 currentBranch=$( git branch --show-current )
-if [[ "$currentBranch" != "master-next" ]]; then
+if [[ "$currentBranch" != "${branch}-next" ]]; then
   cat >&2 <<EOM
 Failed:
-  slow-rebase.sh is currently set to only rebase the "master-next" branch.
+  slow-rebase.sh is expects "${branch}-next" to be the current branch.
   Currently checked out branch: "$currentBranch"
 
-  Switch to "master-next" with:
+  Switch to "${branch}-next" with:
 
-git switch master-next
+git switch ${branch}-next
 EOM
   exit 1
 fi
 
 echo -n "Changes left: "
-git rev-list master-next..sync/master-upstream | wc -l
+git rev-list "${branch}-next..sync/${branch}-upstream" | wc -l
 
 [[ -n "$preCheck" ]] && run_all_checks
 
