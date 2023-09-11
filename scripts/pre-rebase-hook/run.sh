@@ -231,7 +231,7 @@ findLocalBaseline() {
     done \
       | sort -n \
       | head -n 1 \
-      | cut -d " " -f 2-
+      | awk '{print $2}'
   )
 
   localBaseline=$baseline
