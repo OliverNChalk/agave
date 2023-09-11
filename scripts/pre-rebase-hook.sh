@@ -24,12 +24,10 @@ args=( "$@" )
 #
 # Allow execution both from `.git/hook` as well as from `scripts/`.
 
-# `git rev-parse --shot-toplevel` does not work from inside of the `.git`
-# folder.
-declare gitDir
-gitDir=$( git rev-parse --git-dir )
+declare topLevel
+topLevel=$( git rev-parse --show-toplevel )
 declare hookScript
-hookScript=$( realpath "$gitDir/../scripts/pre-rebase-hook/run.sh" )
+hookScript=$( realpath "$topLevel/scripts/pre-rebase-hook/run.sh" )
 
 # Avoid completely blocking the rebase command if something is wrong.
 if [[ ! -e "$hookScript" ]]; then
