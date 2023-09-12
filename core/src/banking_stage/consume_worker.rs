@@ -121,6 +121,7 @@ impl<Tx: TransactionWithMeta> ConsumeWorker<Tx> {
 
         let output = self.consumer.process_and_record_aged_transactions(
             bank,
+            work.use_failed_transaction_hotpath,
             &work.transactions,
             &work.max_ages,
         );
@@ -930,6 +931,7 @@ mod tests {
             ids: vec![id],
             transactions,
             max_ages: vec![max_age],
+            use_failed_transaction_hotpath: false,
         };
         consume_sender.send(work).unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -985,6 +987,7 @@ mod tests {
             ids: vec![id],
             transactions,
             max_ages: vec![max_age],
+            use_failed_transaction_hotpath: false,
         };
         consume_sender.send(work).unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -1040,6 +1043,7 @@ mod tests {
                 ids: vec![id1, id2],
                 transactions: txs,
                 max_ages: vec![max_age, max_age],
+                use_failed_transaction_hotpath: false,
             })
             .unwrap();
 
@@ -1113,6 +1117,7 @@ mod tests {
                 ids: vec![id1],
                 transactions: txs1,
                 max_ages: vec![max_age],
+                use_failed_transaction_hotpath: false,
             })
             .unwrap();
 
@@ -1122,6 +1127,7 @@ mod tests {
                 ids: vec![id2],
                 transactions: txs2,
                 max_ages: vec![max_age],
+                use_failed_transaction_hotpath: false,
             })
             .unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -1265,6 +1271,7 @@ mod tests {
                         alt_invalidation_slot: bank.slot() + 1,
                     },
                 ],
+                use_failed_transaction_hotpath: false,
             })
             .unwrap();
 

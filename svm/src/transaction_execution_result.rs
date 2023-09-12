@@ -4,7 +4,7 @@ use {
     solana_program_runtime::loaded_programs::ProgramCacheEntry,
     solana_pubkey::Pubkey,
     solana_transaction_context::TransactionReturnData,
-    solana_transaction_error::TransactionResult,
+    solana_transaction_error::{TransactionError, TransactionResult},
     std::{collections::HashMap, sync::Arc},
 };
 
@@ -40,6 +40,17 @@ pub struct TransactionExecutionDetails {
 }
 
 impl TransactionExecutionDetails {
+    pub fn new_for_failed_transaction_hotpath(error: TransactionError) -> Self {
+        Self {
+            status: Err(error),
+            log_messages: None,
+            inner_instructions: None,
+            return_data: None,
+            executed_units: 0,
+            accounts_data_len_delta: 0,
+        }
+    }
+
     pub fn was_successful(&self) -> bool {
         self.status.is_ok()
     }

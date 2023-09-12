@@ -1,5 +1,6 @@
 use {
     super::{
+        adversary::failed_transaction_hotpath,
         committer::{CommitTransactionDetails, Committer},
         leader_slot_timing_metrics::LeaderExecuteAndCommitTimings,
         qos_service::QosService,
@@ -140,9 +141,21 @@ impl Consumer {
     pub fn process_and_record_aged_transactions(
         &self,
         bank: &Bank,
+        use_failed_transaction_hotpath: bool,
         txs: &[impl TransactionWithMeta],
         max_ages: &[MaxAge],
     ) -> ProcessTransactionBatchOutput {
+        if use_failed_transaction_hotpath {
+            return failed_transaction_hotpath::process_and_record_aged_transactions(
+                &self.qos_service,
+                &self.transaction_recorder,
+                &self.committer,
+                bank,
+                txs,
+                max_ages,
+            );
+        }
+
         // Need to filter out transactions since they were sanitized earlier.
         // This means that the transaction may cross and epoch boundary (not allowed),
         //  or account lookup tables may have been closed.

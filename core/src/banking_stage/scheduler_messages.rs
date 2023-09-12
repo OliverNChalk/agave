@@ -42,6 +42,18 @@ pub struct ConsumeWork<Tx> {
     pub ids: Vec<TransactionId>,
     pub transactions: Vec<Tx>,
     pub max_ages: Vec<MaxAge>,
+
+    /// This transaction is known to fail.  It should not be executed, instead it should be directly
+    /// recorded as failed.  If the transaction does not fail, setting this flag would cause
+    /// divergence.
+    ///
+    /// This functionality is used by the adversarial transaction generators, for transactions that
+    /// are known to stress the execution system.  By skipping their execution, the adversarial
+    /// leader can avoid running them for itself.
+    ///
+    /// TODO It would be even more flexible to have an ability to provide an execution result
+    /// directly, rather than just saying that it must fail.
+    pub use_failed_transaction_hotpath: bool,
 }
 
 /// Message: [Worker -> Scheduler]

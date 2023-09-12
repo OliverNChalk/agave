@@ -196,6 +196,7 @@ impl<Tx> SchedulingCommon<Tx> {
             ids,
             transactions,
             max_ages,
+            use_failed_transaction_hotpath: false,
         };
         self.consume_work_senders[thread_index]
             .send(work)
@@ -228,9 +229,17 @@ impl<Tx: TransactionWithMeta> SchedulingCommon<Tx> {
                         ids,
                         transactions,
                         max_ages: _,
+                        use_failed_transaction_hotpath,
                     },
                 retryable_indexes,
             }) => {
+                assert!(
+                    !use_failed_transaction_hotpath,
+                    "Transactions that are designated for the failed transaction hot path should \
+                     not be retried.  When retried they end up in the normal processing flow, \
+                     avoiding the hot path in the first place.",
+                );
+
                 let num_transactions = ids.len();
                 let num_retryable = retryable_indexes.len();
 

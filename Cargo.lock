@@ -8252,6 +8252,7 @@ dependencies = [
  "solana-sanitize",
  "solana-sbf-block-generator-stress-test",
  "solana-sdk-ids",
+ "solana-seed-derivable",
  "solana-send-transaction-service",
  "solana-sha256-hasher",
  "solana-short-vec",

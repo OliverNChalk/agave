@@ -46,7 +46,8 @@ pub struct BalanceCollector {
 
 impl BalanceCollector {
     // we always provide one vec for every transaction, even if the vecs are empty
-    pub(crate) fn new_with_transaction_count(transaction_count: usize) -> Self {
+    // [invalidator] changed visibility to public to support failed transaction hotpath.
+    pub fn new_with_transaction_count(transaction_count: usize) -> Self {
         Self {
             native_pre: Vec::with_capacity(transaction_count),
             native_post: Vec::with_capacity(transaction_count),

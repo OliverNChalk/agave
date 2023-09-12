@@ -137,6 +137,7 @@ solana-packet = { workspace = true }
 solana-perf = { workspace = true }
 solana-poh = { workspace = true }
 solana-poh-config = { workspace = true }
+solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-quic-client = { workspace = true }
 solana-quic-definitions = { workspace = true }
@@ -149,6 +150,7 @@ solana-runtime-transaction = { workspace = true }
 solana-sanitize = { workspace = true }
 solana-sbf-block-generator-stress-test = { path = "../programs/block-generator-stress-test", features = ["no-entrypoint"] }
 solana-sdk-ids = { workspace = true }
+solana-seed-derivable = { workspace = true }
 solana-send-transaction-service = { workspace = true }
 solana-sha256-hasher = { workspace = true }
 solana-short-vec = { workspace = true }
@@ -221,7 +223,9 @@ solana-program-binaries = { workspace = true }
 solana-program-runtime = { workspace = true, features = ["metrics"] }
 solana-rpc = { workspace = true, features = ["dev-context-only-utils"] }
 solana-stake-program = { workspace = true }
+solana-system-interface = { workspace = true }
 solana-system-program = { workspace = true }
+solana-transaction = { workspace = true }
 solana-unified-scheduler-pool = { workspace = true, features = [
     "dev-context-only-utils",
 ] }

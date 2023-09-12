@@ -69,8 +69,9 @@ pub(crate) enum TransactionLoadResult {
 #[derive(PartialEq, Eq, Debug, Clone)]
 #[cfg_attr(feature = "svm-internal", field_qualifiers(nonce(pub)))]
 pub struct CheckedTransactionDetails {
-    pub(crate) nonce: Option<NonceInfo>,
-    pub(crate) compute_budget_and_limits: Result<SVMTransactionExecutionAndFeeBudgetLimits>,
+    // These are 'pub(crate)' on Agave, but made 'pub' here for 'failed-transaction_hotpath'.
+    pub nonce: Option<NonceInfo>,
+    pub compute_budget_and_limits: Result<SVMTransactionExecutionAndFeeBudgetLimits>,
 }
 
 #[cfg(feature = "dev-context-only-utils")]
@@ -143,6 +144,27 @@ pub struct LoadedTransaction {
     pub rollback_accounts: RollbackAccounts,
     pub(crate) compute_budget: SVMTransactionExecutionBudget,
     pub loaded_accounts_data_size: u32,
+}
+
+impl LoadedTransaction {
+    pub fn new_for_failed_transaction_hotpath(
+        fee_payer: Pubkey,
+        fee_payer_account: AccountSharedData,
+        fee_details: FeeDetails,
+        compute_budget: SVMTransactionExecutionBudget,
+        loaded_accounts_data_size: u32,
+    ) -> Self {
+        Self {
+            accounts: vec![(fee_payer, fee_payer_account.clone())],
+            program_indices: vec![],
+            fee_details,
+            rollback_accounts: RollbackAccounts::FeePayerOnly {
+                fee_payer: (fee_payer, fee_payer_account),
+            },
+            compute_budget,
+            loaded_accounts_data_size,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]

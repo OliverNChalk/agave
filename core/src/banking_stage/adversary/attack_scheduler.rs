@@ -142,6 +142,7 @@ impl AttackScheduler {
                     max_ages: (0..tx_count)
                         .map(|_| scheduler_messages::MaxAge::MAX)
                         .collect(),
+                    use_failed_transaction_hotpath: false,
                 };
 
                 consume_work_senders[worker_index]
