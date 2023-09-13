@@ -284,7 +284,7 @@ Create a PR with the `master-next` content in the `invalidator` repo and wait
 for a successful CI result.
 
 ```sh
-git push origin --force master-next:master
+git push origin --force master-next
 ```
 
 ### 1.8. Publish updated `master` and `sync/*` branches
