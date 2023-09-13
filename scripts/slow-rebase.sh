@@ -16,7 +16,7 @@ customCargo=
 date=
 preCheck=
 runTests=
-branch=
+branch=master
 
 usage() {
   cat <<EOM
