@@ -207,10 +207,10 @@ run_cargo_check() {
     2. Add changes into a commit that will be dissoled later:
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
-        git show --oneline --no-patch "\$( \\
-            git merge-base "sync/${branch}-upstream" HEAD \\
-        )" \\
+git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
+        git show --oneline --no-patch "$( \
+            git merge-base "sync/${branch}-upstream" HEAD \
+        )" \
     )\\""
 
     3. Restart the rebase by running:
@@ -244,10 +244,10 @@ run_fmt() {
        later:
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
-        git show --oneline --no-patch "\$( \\
-            git merge-base "sync/${branch}-upstream" HEAD \\
-        )" \\
+git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
+        git show --oneline --no-patch "$( \
+            git merge-base "sync/${branch}-upstream" HEAD \
+        )" \
     )\\""
 
     2. Restart the rebase by running:
@@ -267,10 +267,10 @@ run_tests() {
     2. Update the last commit with
 
 git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"\$(
-        git show --oneline --no-patch "\$( \\
-            git merge-base "sync/${branch}-upstream" HEAD \\
-        )" \\
+git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
+        git show --oneline --no-patch "$( \
+            git merge-base "sync/${branch}-upstream" HEAD \
+        )" \
     )\\""
 
     3. Restart the rebase by running:
