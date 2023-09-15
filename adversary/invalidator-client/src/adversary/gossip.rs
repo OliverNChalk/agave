@@ -14,6 +14,7 @@ use {
         },
         verify_peer_identifier,
     },
+    solana_keypair::Keypair,
     std::str::FromStr,
 };
 
@@ -21,7 +22,10 @@ impl Command for GossipPacketFloodConfig {
     const RPC_METHOD: &'static str = "configureGossipPacketFlood";
 }
 
-pub fn configure_gossip_packet_flood_enable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_gossip_packet_flood_enable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_gossip_packet_flood(
         &rpc_endpoint_url,
         GossipPacketFloodConfig {
@@ -32,19 +36,25 @@ pub fn configure_gossip_packet_flood_enable(rpc_endpoint_url: String) -> Result<
                 target: None,
             }],
         },
+        rpc_adversary_keypair,
     )
 }
 
-pub fn configure_gossip_packet_flood_disable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_gossip_packet_flood_disable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_gossip_packet_flood(
         &rpc_endpoint_url,
         GossipPacketFloodConfig { configs: vec![] },
+        rpc_adversary_keypair,
     )
 }
 
 pub fn configure_gossip_packet_flood_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let flood_config = if let Ok(path) = value_t!(sub_matches, "toml_config", String) {
         let config_data = load_configuration(&path)?;
@@ -98,12 +108,13 @@ pub fn configure_gossip_packet_flood_args(
         };
         GossipPacketFloodConfig { configs }
     };
-    configure_gossip_packet_flood(rpc_endpoint_url, flood_config)
+    configure_gossip_packet_flood(rpc_endpoint_url, flood_config, rpc_adversary_keypair)
 }
 
 pub fn configure_gossip_packet_flood(
     rpc_endpoint_url: &str,
     config: GossipPacketFloodConfig,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
-    config.send(rpc_endpoint_url)
+    config.send_with_auth(rpc_endpoint_url, rpc_adversary_keypair)
 }

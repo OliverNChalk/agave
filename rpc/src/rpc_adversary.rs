@@ -2,6 +2,8 @@ use {
     crate::rpc::JsonRpcRequestProcessor,
     jsonrpc_core::{Error, Result},
     jsonrpc_derive::rpc,
+    lru::LruCache,
+    rand::{thread_rng, Rng},
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
@@ -9,12 +11,98 @@ use {
             packet_drop_parameters, repair_packet_flood, repair_parameters, replay_stage_attack,
             send_duplicate_blocks, shred_receiver_address, AdversaryFeatureConfig,
         },
+        auth::{AuthHeader, JsonRpcAuthToken},
         gossip::GossipPacketFlood,
         repair::RepairPacketFlood,
         verify_peer_identifier,
     },
     solana_metrics::metrics::public_metrics_db,
+    solana_pubkey::Pubkey,
+    std::{
+        collections::HashSet,
+        time::{Duration, Instant},
+    },
 };
+
+pub struct JsonRpcSecurityTokenState {
+    pub timestamp: Instant,
+    pub nonce_history: HashSet<u32>,
+}
+
+pub const JSON_RPC_SECURITY_NONCE_CAPACITY: usize = 1_000;
+pub const JSON_RPC_SECURITY_TOKEN_VALIDITY_DURATION: Duration = Duration::from_secs(10 * 60);
+pub const JSON_RPC_SECURITY_ACTIVE_TOKEN_CAPACITY: usize = 100;
+pub const JSON_RPC_SECURITY_PENDING_TOKEN_CAPACITY: usize = 100;
+
+pub struct JsonRpcSecurityContext {
+    // my id
+    id: Option<Pubkey>,
+    // active tokens, will expire after X time
+    active_tokens: LruCache<JsonRpcAuthToken, JsonRpcSecurityTokenState>,
+    // tokens pending first use
+    pending_tokens: LruCache<JsonRpcAuthToken, ()>,
+}
+
+impl JsonRpcSecurityContext {
+    pub fn new(id: Option<Pubkey>) -> Self {
+        JsonRpcSecurityContext {
+            id,
+            active_tokens: LruCache::new(JSON_RPC_SECURITY_ACTIVE_TOKEN_CAPACITY),
+            pending_tokens: LruCache::new(JSON_RPC_SECURITY_PENDING_TOKEN_CAPACITY),
+        }
+    }
+
+    fn check_token(&mut self, auth_header: &AuthHeader) -> Result<()> {
+        if self.pending_tokens.pop(&auth_header.token()).is_some() {
+            // issued token was used, populate token state
+            let token_state = JsonRpcSecurityTokenState {
+                timestamp: Instant::now(),
+                nonce_history: HashSet::from([auth_header.nonce()]),
+            };
+            self.active_tokens.put(auth_header.token(), token_state);
+        } else if let Some(state) = self.active_tokens.get_mut(&auth_header.token()) {
+            let age = Instant::now().saturating_duration_since(state.timestamp);
+            if age > JSON_RPC_SECURITY_TOKEN_VALIDITY_DURATION {
+                self.active_tokens.pop(&auth_header.token());
+                return Err(Error::invalid_params("token expired"));
+            }
+            if state.nonce_history.contains(&auth_header.nonce()) {
+                return Err(Error::invalid_params("nonce invalid"));
+            }
+            state.nonce_history.insert(auth_header.nonce());
+            if state.nonce_history.len() > JSON_RPC_SECURITY_NONCE_CAPACITY {
+                // limit nonce history by forcing token expiry
+                self.active_tokens.pop(&auth_header.token());
+            }
+        } else {
+            return Err(Error::invalid_params("token invalid"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_request(
+        &mut self,
+        call: &str,
+        auth_header: &AuthHeader,
+        payload_bytes: &[u8],
+    ) -> Result<()> {
+        let Some(id) = self.id else {
+            return Ok(());
+        };
+        auth_header
+            .verify_signature_serialized_payload(&id, call, payload_bytes)
+            .map_err(Error::invalid_params)?;
+        self.check_token(auth_header)
+    }
+
+    pub fn id(&self) -> Option<Pubkey> {
+        self.id
+    }
+}
+
+pub(crate) fn adversary_unauthenticated_call(call: &str) -> bool {
+    matches!(call, "getAdversarialStatus" | "fetchAuthToken")
+}
 
 #[rpc]
 pub trait Adversary {
@@ -22,6 +110,9 @@ pub trait Adversary {
 
     #[rpc(meta, name = "getAdversarialStatus")]
     fn get_status(&self, meta: Self::Metadata) -> Result<Vec<AdversaryFeatureConfig>>;
+
+    #[rpc(meta, name = "fetchAuthToken")]
+    fn fetch_auth_token(&self, meta: Self::Metadata) -> Result<JsonRpcAuthToken>;
 
     #[rpc(meta, name = "configureExample")]
     fn configure_example(
@@ -187,6 +278,19 @@ impl Adversary for AdversaryImpl {
         Ok(())
     }
 
+    fn fetch_auth_token(&self, meta: Self::Metadata) -> Result<JsonRpcAuthToken> {
+        let mut rng = thread_rng();
+        let mut token = JsonRpcAuthToken::default();
+        rng.fill(&mut token);
+        meta.adversary_meta()
+            .security
+            .lock()
+            .unwrap()
+            .pending_tokens
+            .put(token, ());
+        Ok(token)
+    }
+
     fn configure_repair_packet_flood(
         &self,
         meta: Self::Metadata,
@@ -342,7 +446,14 @@ impl Adversary for AdversaryImpl {
 pub mod tests {
     use {
         super::*,
-        crate::rpc::tests::{create_test_request, parse_success_result},
+        crate::{
+            rpc::{
+                tests::{create_test_request, parse_failure_response, parse_success_result},
+                JsonRpcRequestProcessor,
+            },
+            rpc_service::AuthenticationMiddleware,
+        },
+        http::HeaderMap,
         jsonrpc_core::{MetaIoHandler, Response, Value},
         serial_test::serial,
         solana_adversary::{
@@ -351,27 +462,47 @@ pub mod tests {
                 repair_packet_flood::{FloodConfig, FloodStrategy},
                 replay_stage_attack,
             },
+            auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
         },
+        solana_keypair::Keypair,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::bank::Bank,
         solana_send_transaction_service::{
             tpu_info::NullTpuInfo, transaction_client::ConnectionCacheClient,
         },
+        solana_signer::Signer,
         solana_streamer::socket::SocketAddrSpace,
         std::{net::SocketAddr, sync::Arc},
     };
 
-    fn setup_test_meta() -> JsonRpcRequestProcessor {
+    fn setup_test_meta() -> (JsonRpcRequestProcessor, Keypair) {
         let genesis = create_genesis_config(100);
         let bank = Bank::new_for_tests(&genesis.genesis_config);
-        JsonRpcRequestProcessor::new_from_bank::<ConnectionCacheClient<NullTpuInfo>>(
+        let processor = JsonRpcRequestProcessor::new_from_bank::<ConnectionCacheClient<NullTpuInfo>>(
             bank,
             SocketAddrSpace::Unspecified,
-        )
+        );
+        let keypair = Keypair::new();
+        processor.adversary_meta().security.lock().unwrap().id = Some(keypair.pubkey());
+        (processor, keypair)
+    }
+
+    fn setup_test_io() -> MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware> {
+        let middleware = AuthenticationMiddleware::new(
+            AdversaryImpl
+                .to_delegate()
+                .into_iter()
+                .map(|(name, _)| name)
+                .filter(|name| !adversary_unauthenticated_call(&name[..]))
+                .collect(),
+        );
+        let mut io = MetaIoHandler::with_middleware(middleware);
+        io.extend_with(AdversaryImpl.to_delegate());
+        io
     }
 
     fn handle_request_sync(
-        io: &MetaIoHandler<JsonRpcRequestProcessor>,
+        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
         meta: JsonRpcRequestProcessor,
         request: serde_json::Value,
     ) -> Response {
@@ -381,12 +512,40 @@ pub mod tests {
         serde_json::from_str(&response).expect("failed to deserialize response")
     }
 
+    fn fetch_auth_token(
+        meta: JsonRpcRequestProcessor,
+        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
+    ) -> JsonRpcAuthToken {
+        let request = create_test_request("fetchAuthToken", None);
+        let result: Value = parse_success_result(handle_request_sync(io, meta, request));
+        let token: JsonRpcAuthToken = serde_json::from_value(result).unwrap();
+        token
+    }
+
+    fn send_signed_request_sync<T: serde::Serialize>(
+        meta: JsonRpcRequestProcessor,
+        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
+        keypair: &Keypair,
+        call: &str,
+        token: &JsonRpcAuthToken,
+        payload: &T,
+    ) -> Response {
+        let auth_header = AuthHeader::new_signed(token, keypair, call, payload).unwrap();
+        let header_value = auth_header.to_header_value().unwrap();
+        let mut meta = meta.clone();
+        let mut headers = HeaderMap::default();
+        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, header_value);
+        meta.adversary_meta_mut().set_headers(Some(headers));
+        let params = json!([payload]);
+        let request = create_test_request(call, Some(params));
+        handle_request_sync(io, meta, request)
+    }
+
     #[test]
     #[serial]
     fn test_adversary_get_status() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, _) = setup_test_meta();
+        let io = setup_test_io();
 
         let expected_result = json!(
             [{
@@ -454,16 +613,83 @@ pub mod tests {
 
     #[test]
     #[serial]
-    fn test_adversary_configure_example() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+    fn test_adversary_fetch_auth_token() {
+        let (mut meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
-        let config = example::AdversarialConfig { example_num: 313 };
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        let payload = repair_packet_flood::AdversarialConfig {
+            configs: vec![FloodConfig {
+                flood_strategy: FloodStrategy::MinimalPackets,
+                packets_per_peer_per_iteration: 1,
+                iteration_delay_us: 1_000_000,
+                target: Some("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string()),
+            }],
+        };
+        let mut auth_header =
+            AuthHeader::new_signed(&token, &keypair, "configureRepairPacketFlood", &payload)
+                .unwrap();
+        let header_value = auth_header.to_header_value().unwrap();
+        let mut headers = HeaderMap::default();
+        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, header_value);
+        meta.adversary_meta_mut().set_headers(Some(headers));
+
+        //let params = json!([auth_header, payload]);
+        let params = json!([payload]);
+        let request = create_test_request("configureRepairPacketFlood", Some(params));
+        parse_success_result::<Value>(handle_request_sync(&io, meta.clone(), request));
+
+        auth_header
+            .sign_request(&keypair, "configureRepairPacketFlood", &payload)
+            .unwrap();
+        let header_value = auth_header.to_header_value().unwrap();
+        let mut headers = HeaderMap::default();
+        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, header_value);
+        meta.adversary_meta_mut().set_headers(Some(headers));
+
+        let params = json!([payload]);
+        let request = create_test_request("configureRepairPacketFlood", Some(params));
+        let (_err, msg) = parse_failure_response(handle_request_sync(&io, meta.clone(), request));
+        assert_eq!(msg, "Invalid params: nonce invalid");
+
+        // Reset the config
+        let config = repair_packet_flood::AdversarialConfig::default();
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureRepairPacketFlood",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+        {
+            let adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.read().unwrap();
+            assert!(adversary_repair.is_none());
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_example() {
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
+
+        let token = fetch_auth_token(meta.clone(), &io);
 
         // Update the config for example, ensuring that request succeeds
-        let request = create_test_request("configureExample", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta.clone(), request));
+        let config = example::AdversarialConfig { example_num: 313 };
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureExample",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
@@ -472,8 +698,15 @@ pub mod tests {
         // Reset the config back to the default, to make sure other tests are not affected by the
         // state change.
         let default_config = example::AdversarialConfig::default();
-        let request = create_test_request("configureExample", Some(json!([default_config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureExample",
+            &token,
+            &default_config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
 
         assert_eq!(default_config, example::get_config());
@@ -482,10 +715,12 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_repair_packet_flood() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config for example, ensuring that request succeeds
         let config = repair_packet_flood::AdversarialConfig {
             configs: vec![FloodConfig {
                 flood_strategy: FloodStrategy::MinimalPackets,
@@ -494,14 +729,17 @@ pub mod tests {
                 target: Some("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string()),
             }],
         };
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureRepairPacketFlood",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
 
-        {
-            // Update the config for example, ensuring that request succeeds
-            let meta = meta.clone();
-            let request = create_test_request("configureRepairPacketFlood", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
         {
             let adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.read().unwrap();
             assert!(adversary_repair.is_some());
@@ -512,8 +750,15 @@ pub mod tests {
 
         // Reset the config
         let config = repair_packet_flood::AdversarialConfig::default();
-        let request = create_test_request("configureRepairPacketFlood", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureRepairPacketFlood",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
         {
             let adversary_repair = ADVERSARY_CONTEXT.repair_packet_flood.read().unwrap();
@@ -582,30 +827,40 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_shred_receiver_address() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config, ensuring that request succeeds
         let config = shred_receiver_address::AdversarialConfig {
             shred_receiver_address: Some("127.0.0.1:8080".parse().unwrap()),
         };
-
-        {
-            // Update the config, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configureShredReceiverAddress", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureShredReceiverAddress",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
         assert_eq!(config, shred_receiver_address::get_config());
 
         // Reset the config
         let config = shred_receiver_address::AdversarialConfig::default();
-        let request = create_test_request("configureShredReceiverAddress", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureShredReceiverAddress",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
@@ -615,27 +870,33 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_send_duplicate_blocks() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config for send_duplicate_packets, ensuring that request succeeds
         let config = send_duplicate_blocks::AdversarialConfig {
             num_duplicate_validators: 2,
             new_entry_index_from_end: 1,
             send_original_after_ms: 500,
             send_destinations: vec![],
         };
-        {
-            // Update the config for send_duplicate_packets, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureSendDuplicateBlocks",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
         // Confirm that the config update is reflected internally
         assert_eq!(config, send_duplicate_blocks::get_config());
 
+        // Update the config for send_duplicate_packets, ensuring that request succeeds
         let config = send_duplicate_blocks::AdversarialConfig {
             num_duplicate_validators: 3,
             new_entry_index_from_end: 2,
@@ -648,48 +909,58 @@ pub mod tests {
                 Arc::new(vec![SocketAddr::from(([0x2023, 0, 0, 0, 0, 0, 0, 1], 987))]),
             ],
         };
-        {
-            // Update the config for send_duplicate_packets, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureSendDuplicateBlocks",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
         // Confirm that the config update is reflected internally
         assert_eq!(config, send_duplicate_blocks::get_config());
 
         // Reset the config
         let config = send_duplicate_blocks::AdversarialConfig::default();
-        let request = create_test_request("configureSendDuplicateBlocks", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureSendDuplicateBlocks",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
     }
 
     #[test]
     #[serial]
     fn test_adversary_configure_drop_turbine_votes() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
+
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config, ensuring that request succeeds
         let mut config = drop_turbine_votes::AdversarialConfig::default();
         assert!(!config.drop_turbine_votes);
         config.drop_turbine_votes = true;
-        {
-            // Update the config, ensuring that request succeeds
-            let meta = meta.clone();
-            let request = create_test_request("turbineVotes", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp =
+            send_signed_request_sync(meta.clone(), &io, &keypair, "turbineVotes", &token, &config);
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
         assert_eq!(config, drop_turbine_votes::get_config());
 
         // Reset the config
         let config = drop_turbine_votes::AdversarialConfig::default();
-        let request = create_test_request("turbineVotes", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(meta, &io, &keypair, "turbineVotes", &token, &config);
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
@@ -699,100 +970,138 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_invalidate_leader_block() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config for invalidate_leader_block, ensuring that request succeeds
         let config = invalidate_leader_block::AdversarialConfig {
             invalidation_kind: Some(invalidate_leader_block::InvalidationKind::InvalidFeePayer),
         };
-        {
-            // Update the config for invalidate_leader_block, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureInvalidateLeaderBlock",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
         // Confirm that the config update is reflected internally
         assert_eq!(config, invalidate_leader_block::get_config());
 
+        // Update the config for invalidate_leader_block, ensuring that request succeeds
         let config = invalidate_leader_block::AdversarialConfig {
             invalidation_kind: Some(invalidate_leader_block::InvalidationKind::InvalidSignature),
         };
-        {
-            // Update the config for invalidate_leader_block, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureInvalidateLeaderBlock",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
         // Confirm that the config update is reflected internally
         assert_eq!(config, invalidate_leader_block::get_config());
 
         // Reset the config
         let config = invalidate_leader_block::AdversarialConfig::default();
-        let request = create_test_request("configureInvalidateLeaderBlock", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureInvalidateLeaderBlock",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
     }
 
     #[test]
     #[serial]
     fn test_adversary_configure_packet_drop_parameters() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config for network_parameters, ensuring that request succeeds
         let config = packet_drop_parameters::AdversarialConfig {
             broadcast_packet_drop_percent: Some(10),
             retransmit_packet_drop_percent: None,
         };
-
-        {
-            // Update the config for network_parameters, ensuring that request succeeds
-            let meta = meta.clone();
-            let request =
-                create_test_request("configurePacketDropParameters", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configurePacketDropParameters",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
 
         // Confirm that the config update is reflected internally
         assert_eq!(config, packet_drop_parameters::get_config());
 
         // Reset the config
         let config = packet_drop_parameters::AdversarialConfig::default();
-        let request = create_test_request("configurePacketDropParameters", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configurePacketDropParameters",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
     }
 
     #[test]
     #[serial]
     fn test_adversary_configure_replay_stage_attack() {
-        let meta = setup_test_meta();
-        let mut io = MetaIoHandler::default();
-        io.extend_with(AdversaryImpl.to_delegate());
+        let (meta, keypair) = setup_test_meta();
+        let io = setup_test_io();
 
+        let token = fetch_auth_token(meta.clone(), &io);
+
+        // Update the config for invalidate_leader_block, ensuring that request succeeds
         let config = replay_stage_attack::AdversarialConfig {
             selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
         };
-        {
-            // Update the config for invalidate_leader_block, ensuring that request succeeds
-            let meta = meta.clone();
-            let request = create_test_request("configureReplayStageAttack", Some(json!([config])));
-            let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
-            assert_eq!(result, json!(null));
-        }
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
         // Confirm that the config update is reflected internally
         assert_eq!(config, replay_stage_attack::get_config());
 
         // Reset the config
         let config = replay_stage_attack::AdversarialConfig::default();
-        let request = create_test_request("configureReplayStageAttack", Some(json!([config])));
-        let result: Value = parse_success_result(handle_request_sync(&io, meta, request));
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
     }
 }

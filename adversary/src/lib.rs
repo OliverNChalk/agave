@@ -1,12 +1,76 @@
 #![allow(clippy::arithmetic_side_effects)]
 
+use {
+    crate::auth::{JsonRpcAuthToken, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
+    log::*,
+    reqwest::{
+        blocking::Client,
+        header::{HeaderMap, HeaderValue},
+    },
+    serde::{Deserialize, Serialize},
+    serde_json::Value,
+    solana_pubkey::Pubkey,
+};
+
 pub mod adversary_context;
 pub mod adversary_feature_set;
+pub mod auth;
 pub mod flood_worker;
 pub mod gossip;
 pub mod repair;
 
-use solana_pubkey::Pubkey;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RpcRequest {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: Value,
+    pub id: u64,
+}
+
+pub fn send_request(
+    url: &str,
+    method: &str,
+    params: Value,
+    header_auth: Option<HeaderValue>,
+) -> Result<Value, String> {
+    let payload = RpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: method.to_string(),
+        params,
+        id: 1,
+    };
+
+    let mut headers = HeaderMap::default();
+    if let Some(header_auth) = header_auth {
+        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, header_auth);
+    }
+
+    let client = Client::new();
+    info!("sending rpc command: {method} to {url}");
+    trace!("rpc command payload: {payload:#?}");
+    let response = client
+        .post(url)
+        .headers(headers)
+        .json(&payload)
+        .send()
+        .map_err(|e| format!("RPC Send Error: {e:?}"))?;
+    trace!("rpc command response: {response:#?}");
+    let response = response
+        .json::<Value>()
+        .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
+    trace!("rpc command json: {response:#?}");
+    Ok(response)
+}
+
+pub fn fetch_auth_token(url: &str) -> Result<JsonRpcAuthToken, String> {
+    let response = send_request(url, "fetchAuthToken", Value::Null, None)?;
+    let Some(result) = response.get("result") else {
+        return Err("failed to parse response".to_string());
+    };
+    let token: JsonRpcAuthToken =
+        serde_json::from_value(result.clone()).map_err(|e| format!("{e}"))?;
+    Ok(token)
+}
 
 #[derive(Debug)]
 enum PeerIdentifierSanitized {

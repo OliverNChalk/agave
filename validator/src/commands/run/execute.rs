@@ -117,6 +117,20 @@ pub fn execute(
 
     let identity_keypair = Arc::new(run_args.identity_keypair);
 
+    let rpc_adversary_id = if matches.is_present("no_rpc_adversary_auth") {
+        None
+    } else {
+        let rpc_adversary_id = pubkey_of(matches, "rpc_adversary_identity").unwrap_or_else(|| {
+            clap::Error::with_description(
+                "Either the --no-rpc-adversary-auth or --rpc-adversary-identity <KEYPAIR> \
+                 argument is required",
+                clap::ErrorKind::ArgumentNotFound,
+            )
+            .exit();
+        });
+        Some(rpc_adversary_id)
+    };
+
     let logfile = run_args.logfile;
     let logfile = if logfile == "-" {
         None
@@ -697,6 +711,8 @@ pub fn execute(
         matches,
     );
 
+    validator_config.invalidator_config.rpc_adversary_id = rpc_adversary_id;
+
     let public_rpc_addr = matches
         .value_of("public_rpc_addr")
         .map(|addr| {
@@ -918,6 +934,12 @@ pub fn execute(
             .snapshot_config
             .incremental_snapshot_archives_dir,
     );
+
+    if rpc_adversary_id.is_none() {
+        warn!("rpc adversary authentication is disabled");
+    } else {
+        info!("rpc adversary id: {rpc_adversary_id:?}");
+    }
 
     let should_check_duplicate_instance = true;
     if !cluster_entrypoints.is_empty() {

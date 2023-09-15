@@ -26,6 +26,7 @@ rand = { workspace = true }
 rayon = { workspace = true }
 solana-account = { workspace = true }
 solana-accounts-db = { workspace = true }
+solana-adversary = { workspace = true }
 solana-bincode = { workspace = true }
 solana-client = { workspace = true }
 solana-client-traits = { workspace = true }

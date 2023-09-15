@@ -1,16 +1,11 @@
 use {
     log::*,
-    reqwest::blocking::Client,
-    serde::{Deserialize, Serialize},
+    reqwest::header::HeaderValue,
+    serde::Serialize,
+    solana_adversary::{auth::AuthHeader, fetch_auth_token, send_request},
+    solana_keypair::Keypair,
+    solana_signer::Signer,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RpcRequest {
-    jsonrpc: String,
-    method: String,
-    params: serde_json::Value,
-    id: u64,
-}
 
 pub(super) mod drop_turbine_votes;
 pub(super) mod gossip;
@@ -20,29 +15,30 @@ pub(super) mod repair;
 pub(super) mod replay;
 pub(super) mod shred_forwarder;
 
-pub trait Command: Serialize {
+pub trait Command: Serialize + Sized {
     const RPC_METHOD: &'static str;
 
-    fn send(&self, url: &str) -> Result<(), String> {
+    fn send_with_auth(
+        &self,
+        url: &str,
+        rpc_adversary_keypair: &Option<Keypair>,
+    ) -> Result<(), String> {
+        let auth_header = rpc_adversary_keypair
+            .as_ref()
+            .map(|keypair| {
+                trace!("Authenticating with pubkey={}", keypair.pubkey());
+                let token = fetch_auth_token(url)?;
+                trace!("Fetched authentication token={token:?}");
+                let auth_header = AuthHeader::new_signed(&token, keypair, Self::RPC_METHOD, self)?;
+                let auth_header = serde_json::to_value(auth_header)
+                    .map_err(|e| e.to_string())?
+                    .to_string();
+                HeaderValue::from_str(&auth_header).map_err(|e| e.to_string())
+            })
+            .transpose()?;
+
         let params = serde_json::json!([self]);
-        let payload = RpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: Self::RPC_METHOD.to_string(),
-            params,
-            id: 1,
-        };
-        let client = Client::new();
-        info!("sending rpc command: {} to {}", Self::RPC_METHOD, url);
-        trace!("rpc command payload: {payload:#?}");
-        let response = client
-            .post(url)
-            .json(&payload)
-            .send()
-            .map_err(|e| format!("RPC Send Error: {e:?}"))?;
-        let response = response
-            .json::<serde_json::Value>()
-            .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
-        trace!("rpc command response: {response:#?}");
+        send_request(url, Self::RPC_METHOD, params, auth_header)?;
         Ok(())
     }
 }

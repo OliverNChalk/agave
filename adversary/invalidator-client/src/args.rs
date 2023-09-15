@@ -8,7 +8,11 @@ use {
         repair_packet_flood::FloodStrategy as RepairFloodStrategy,
         replay_stage_attack::Attack as ReplayStageAttack,
     },
-    solana_clap_utils::{input_validators::is_url_or_moniker, *},
+    solana_clap_utils::{
+        input_parsers::keypair_of,
+        input_validators::{is_keypair_or_ask_keyword, is_url_or_moniker},
+        *,
+    },
     solana_cli_config::ConfigInput,
     std::time::Duration,
 };
@@ -33,6 +37,14 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                     "URL for Solana's JSON RPC or moniker (or their first letter): [mainnet-beta, \
                      testnet, devnet, localhost]",
                 ),
+        )
+        .arg(
+            Arg::with_name("rpc_adversary_keypair")
+                .long("rpc-adversary-keypair")
+                .value_name("KEYPAIR")
+                .takes_value(true)
+                .validator(is_keypair_or_ask_keyword)
+                .help("Validator rpc adversary keypair"),
         )
         .subcommand(
             SubCommand::with_name("continuous")
@@ -316,6 +328,8 @@ pub fn run_command() -> Result<(), String> {
         RPC_ENDPOINT_URL,
     );
 
+    let rpc_adversary_keypair = keypair_of(&matches, "rpc_adversary_keypair");
+
     match matches.subcommand() {
         ("continuous", Some(sub_matches)) => {
             let scenario_run_duration =
@@ -326,60 +340,70 @@ pub fn run_command() -> Result<(), String> {
                 &rpc_endpoint_url,
                 scenario_run_duration,
                 rest_between_scenarios_duration,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-shred-receiver-address", Some(sub_matches)) => {
             crate::adversary::shred_forwarder::configure_shred_receiver_address_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-repair-packet-flood", Some(sub_matches)) => {
             crate::adversary::repair::configure_repair_packet_flood_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-repair-parameters", Some(sub_matches)) => {
             crate::adversary::repair::configure_repair_parameters_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-send-duplicate-blocks", Some(sub_matches)) => {
             crate::adversary::leader_block::configure_send_duplicate_blocks_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-invalidate-leader-block", Some(sub_matches)) => {
             crate::adversary::leader_block::configure_invalidate_leader_block_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-drop-turbine-votes", Some(sub_matches)) => {
             crate::adversary::drop_turbine_votes::configure_drop_turbine_votes_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-packet-drop-parameters", Some(sub_matches)) => {
             crate::adversary::packet_drop::configure_packet_drop_parameters_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-gossip-packet-flood", Some(sub_matches)) => {
             crate::adversary::gossip::configure_gossip_packet_flood_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         ("configure-replay-stage-attack", Some(sub_matches)) => {
             crate::adversary::replay::configure_replay_stage_attack_args(
                 &rpc_endpoint_url,
                 sub_matches,
+                &rpc_adversary_keypair,
             )
         }
         _ => unreachable!(),

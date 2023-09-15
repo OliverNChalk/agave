@@ -4,6 +4,7 @@ use {
     solana_adversary::adversary_feature_set::replay_stage_attack::{
         AdversarialConfig as ReplayStageAttackConfig, Attack,
     },
+    solana_keypair::Keypair,
     std::str::FromStr,
 };
 
@@ -11,21 +12,29 @@ impl Command for ReplayStageAttackConfig {
     const RPC_METHOD: &'static str = "configureReplayStageAttack";
 }
 
-pub fn configure_replay_stage_attack_enable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_replay_stage_attack_enable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_replay_stage_attack(
         &rpc_endpoint_url,
         ReplayStageAttackConfig {
             selected_attack: Some(Attack::TransferRandom),
         },
+        rpc_adversary_keypair,
     )
 }
 
-pub fn configure_replay_stage_attack_disable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_replay_stage_attack_disable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_replay_stage_attack(
         &rpc_endpoint_url,
         ReplayStageAttackConfig {
             selected_attack: None,
         },
+        rpc_adversary_keypair,
     )
 }
 
@@ -45,18 +54,21 @@ pub fn parse_replay_stage_attack_args(
 pub fn configure_replay_stage_attack_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let selected_attack = parse_replay_stage_attack_args(sub_matches)?;
 
     configure_replay_stage_attack(
         rpc_endpoint_url,
         ReplayStageAttackConfig { selected_attack },
+        rpc_adversary_keypair,
     )
 }
 
 pub fn configure_replay_stage_attack(
     rpc_endpoint_url: &str,
     replay_stage_attack_config: ReplayStageAttackConfig,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
-    replay_stage_attack_config.send(rpc_endpoint_url)
+    replay_stage_attack_config.send_with_auth(rpc_endpoint_url, rpc_adversary_keypair)
 }

@@ -1482,6 +1482,20 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .hidden(hidden_unless_forced())
             .help("Run invalidator on public cluster types."),
     )
+    .arg(
+        Arg::with_name("rpc_adversary_identity")
+            .long("rpc-adversary-identity")
+            .value_name("PUBKEY")
+            .takes_value(true)
+            .validator(is_pubkey)
+            .help("Validator rpc adversary pubkey"),
+    )
+    .arg(
+        Arg::with_name("no_rpc_adversary_auth")
+            .long("no-rpc-adversary-auth")
+            .takes_value(false)
+            .help("Disable rpc adversary authenticaton"),
+    )
     .banking_stage_args()
 }
 

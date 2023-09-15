@@ -15,73 +15,116 @@ which $BIN > /dev/null 2>&1 || {
 export RUST_LOG=${RUST_LOG:-solana=info,solana_runtime::message_processor=debug} # if RUST_LOG is unset, default to info
 export RUST_BACKTRACE=1
 
-TESTCASE=$1
-
-usage() {
-    echo "Usage: $0 [minimal_packets | signed_packets | ping_cache_overflow"
-    echo "  | orphan | fake_future_leader_slots | disable]"
+help_msg () {
+  cat <<EOM
+$0 --test [minimal_packets | signed_packets | ping_cache_overflow |
+  orphan | fake_future_leader_slots | disable]
+  [--rpc-adversary-keypair <keypair path>]
+EOM
 }
 
-if [[ -z $TESTCASE ]]; then
-    usage
+help () {
+  local error=$1
+
+  if [[ -n "$error" ]]; then
+    echo "Error: $error"
+    echo
+  fi
+
+  help_msg
+
+  if [[ -n "$error" ]]; then
     exit 1
+  else
+    exit 0
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --test)
+      if [ -n "$TESTCASE" ]; then
+        help "Error: --test $TESTCASE already defined"
+      fi
+      TESTCASE="$2"
+      shift 2
+      ;;
+    --rpc-adversary-keypair)
+      KEYPAIR="$2"
+      shift 2
+      ;;
+    --help)
+      help
+      ;;
+    *)
+      help "Unknown argument $1"
+      ;;
+  esac
+done
+
+if [ -z "$TESTCASE" ]; then
+  help "Error: --test argument is required"
+fi
+
+if [ -n "$KEYPAIR" ]; then
+  COMMON_ARGS="--rpc-adversary-keypair $KEYPAIR"
 fi
 
 case $TESTCASE in
 minimal_packets)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy minimalPackets \
     --iteration-delay-us 100000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 signed_packets)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy signedPackets \
     --iteration-delay-us 100000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 ping_cache_overflow)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy pingCacheOverflow \
     --iteration-delay-us 10000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 orphan)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy orphan \
     --iteration-delay-us 100000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 fake_future_leader_slots)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy fakeFutureLeaderSlots \
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 1000
   ;;
 
 unavailable_slots)
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy unavailableSlots \
     --iteration-delay-us 100000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 ping_overflow_with_drop)
-  $BIN configure-packet-drop-parameters \
+  $BIN "$COMMON_ARGS" configure-packet-drop-parameters \
     --broadcast-packet-drop-percent 20 \
     --retransmit-packet-drop-percent 20
-  $BIN configure-repair-packet-flood \
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood \
     --flood-strategy pingCacheOverflow \
     --iteration-delay-us 10000 \
     --packets-per-peer-per-iteration 10000
   ;;
 
 ping_overflow_with_orphan)
-  $BIN configure-repair-packet-flood --toml - <<EOF
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood --toml - <<EOF
 [[configs]]
 floodStrategy = "pingCacheOverflow"
 packetsPerPeerPerIteration = 10000
@@ -94,14 +137,11 @@ EOF
   ;;
 
 disable)
-  $BIN configure-repair-packet-flood
-  $BIN configure-packet-drop-parameters
+  $BIN "$COMMON_ARGS" configure-repair-packet-flood
+  $BIN "$COMMON_ARGS" configure-packet-drop-parameters
   ;;
 
 *)
-  echo "Invalid test case."
-  echo
-  usage
-  exit 1
+  help "Invalid test case."
   ;;
 esac

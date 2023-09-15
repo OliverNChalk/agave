@@ -5,11 +5,13 @@ use {
     crate::{
         filter::filter_allows, max_slots::MaxSlots,
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
-        parsed_token_accounts::*, rpc_cache::LargestAccountsCache, rpc_health::*,
+        parsed_token_accounts::*, rpc_adversary::JsonRpcSecurityContext,
+        rpc_cache::LargestAccountsCache, rpc_health::*,
     },
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
+    http::header::{HeaderMap, HeaderValue},
     jsonrpc_core::{
         futures::future::{self, FutureExt, OptionFuture},
         types::error,
@@ -113,7 +115,7 @@ use {
         str::FromStr,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
-            Arc, RwLock,
+            Arc, Mutex, RwLock,
         },
         time::Duration,
     },
@@ -235,6 +237,34 @@ impl Default for RpcBigtableConfig {
     }
 }
 
+/// Holds [`Metadata`] specific to the adversary part of the JSON RPC API.
+/// That would be any information that parts of the JSON-RPC library need hold to or store while
+/// processing a request.  For example, [`ServerBuilder::with_meta_extractor()`] will set the
+/// `headers`.  And the `Middleware` processing the request will then look for an authentication
+/// header for protected methods.
+///
+/// [`Metadata`]: https://docs.rs/jsonrpc-core/latest/jsonrpc_core/trait.Metadata.html
+/// [`ServerBuilder::with_meta_extractor()`]:
+///     https://docs.rs/jsonrpc-http-server/18.0.0/jsonrpc_http_server/struct.ServerBuilder.html#method.with_meta_extractor
+#[derive(Clone)]
+pub struct JsonRpcAdversaryMeta {
+    pub security: Arc<Mutex<JsonRpcSecurityContext>>,
+    pub headers: Option<HeaderMap<HeaderValue>>,
+}
+
+impl JsonRpcAdversaryMeta {
+    pub fn new(id: Option<Pubkey>) -> Self {
+        Self {
+            security: Arc::new(Mutex::new(JsonRpcSecurityContext::new(id))),
+            headers: None,
+        }
+    }
+
+    pub fn set_headers(&mut self, headers: Option<HeaderMap<HeaderValue>>) {
+        self.headers = headers;
+    }
+}
+
 #[derive(Clone)]
 pub struct JsonRpcRequestProcessor {
     bank_forks: Arc<RwLock<BankForks>>,
@@ -257,6 +287,7 @@ pub struct JsonRpcRequestProcessor {
     prioritization_fee_cache: Arc<PrioritizationFeeCache>,
     runtime: Arc<Runtime>,
     serve_repair_socket: Arc<UdpSocket>,
+    adversary_meta: JsonRpcAdversaryMeta,
 }
 impl Metadata for JsonRpcRequestProcessor {}
 
@@ -421,6 +452,7 @@ impl JsonRpcRequestProcessor {
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         runtime: Arc<Runtime>,
         serve_repair_socket: Arc<UdpSocket>,
+        rpc_adversary_id: Option<Pubkey>,
     ) -> (Self, Receiver<TransactionInfo>) {
         let (transaction_sender, transaction_receiver) = unbounded();
         (
@@ -444,6 +476,7 @@ impl JsonRpcRequestProcessor {
                 prioritization_fee_cache,
                 runtime,
                 serve_repair_socket,
+                adversary_meta: JsonRpcAdversaryMeta::new(rpc_adversary_id),
             },
             transaction_receiver,
         )
@@ -530,6 +563,7 @@ impl JsonRpcRequestProcessor {
             prioritization_fee_cache: Arc::new(PrioritizationFeeCache::default()),
             runtime,
             serve_repair_socket: Arc::new(bind_to_unspecified().unwrap()),
+            adversary_meta: JsonRpcAdversaryMeta::new(None),
         }
     }
 
@@ -547,6 +581,14 @@ impl JsonRpcRequestProcessor {
 
     pub fn serve_repair_socket(&self) -> Arc<UdpSocket> {
         self.serve_repair_socket.clone()
+    }
+
+    pub fn adversary_meta(&self) -> &JsonRpcAdversaryMeta {
+        &self.adversary_meta
+    }
+
+    pub fn adversary_meta_mut(&mut self) -> &mut JsonRpcAdversaryMeta {
+        &mut self.adversary_meta
     }
 
     pub async fn get_account_info(
@@ -4570,6 +4612,7 @@ pub mod tests {
             v0::{self, MessageAddressTableLookup},
             Message, MessageHeader, SimpleAddressLoader, VersionedMessage,
         },
+        solana_net_utils::bind_to_unspecified,
         solana_nonce::{self as nonce, state::DurableNonce},
         solana_program_option::COption,
         solana_program_runtime::{
@@ -4667,7 +4710,7 @@ pub mod tests {
     }
 
     #[track_caller]
-    fn parse_failure_response(response: Response) -> (i64, String) {
+    pub(crate) fn parse_failure_response(response: Response) -> (i64, String) {
         if let Response::Single(output) = response {
             match output {
                 Output::Success(success) => {
@@ -4862,6 +4905,7 @@ pub mod tests {
                 Arc::new(PrioritizationFeeCache::default()),
                 service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
                 Arc::new(bind_to_unspecified().unwrap()),
+                None,
             )
             .0;
 
@@ -6917,6 +6961,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             runtime.clone(),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
         );
 
         let client = Client::create_client(Some(runtime.handle().clone()), my_tpu_address, None, 1);
@@ -7245,6 +7290,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             runtime,
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
         );
 
         SendTransactionService::new_with_client(
@@ -8998,6 +9044,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
         );
 
         let mut io = MetaIoHandler::default();

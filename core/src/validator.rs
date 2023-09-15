@@ -316,6 +316,7 @@ pub struct BlockGeneratorConfig {
 #[derive(Clone, Debug, Default)]
 pub struct InvalidatorConfig {
     pub block_generator_config: Option<BlockGeneratorConfig>,
+    pub rpc_adversary_id: Option<Pubkey>,
 }
 
 pub struct ValidatorConfig {
@@ -1278,6 +1279,7 @@ impl Validator {
                 prioritization_fee_cache: prioritization_fee_cache.clone(),
                 client_option,
                 serve_repair_socket: serve_repair_socket.clone(),
+                rpc_adversary_id: config.invalidator_config.rpc_adversary_id,
             };
             let json_rpc_service =
                 JsonRpcService::new_with_config(rpc_svc_config).map_err(ValidatorError::Other)?;

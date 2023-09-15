@@ -11,12 +11,22 @@ use {
     },
     agave_snapshots::SnapshotInterval,
     crossbeam_channel::unbounded,
-    jsonrpc_core::{futures::prelude::*, MetaIoHandler},
+    futures_util::future::Either,
+    jsonrpc_core::{
+        futures::prelude::*,
+        types::{
+            error::{Error as JsonRpcError, ErrorCode},
+            request::{Call, MethodCall},
+            response::{Output, Response},
+        },
+        Id, MetaIoHandler, Middleware, Params, Version,
+    },
     jsonrpc_http_server::{
         hyper, AccessControlAllowOrigin, CloseHandle, DomainsValidation, RequestMiddleware,
         RequestMiddlewareAction, ServerBuilder,
     },
     regex::Regex,
+    solana_adversary::auth::{AuthHeader, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
     solana_cli_output::display::build_balance_message,
     solana_client::{
         client_option::ClientOption,
@@ -33,6 +43,7 @@ use {
     solana_metrics::inc_new_counter_info,
     solana_perf::thread::renice_this_thread,
     solana_poh::poh_recorder::PohRecorder,
+    solana_pubkey::Pubkey,
     solana_quic_definitions::NotifyKeyUpdate,
     solana_runtime::{
         bank::Bank, bank_forks::BankForks, commitment::BlockCommitmentCache,
@@ -121,6 +132,138 @@ pub struct JsonRpcService {
     close_handle: Option<CloseHandle>,
 
     client_updater: Arc<dyn NotifyKeyUpdate + Send + Sync>,
+}
+
+pub(crate) struct AuthenticationMiddleware {
+    authenticated_calls: Vec<String>,
+}
+
+impl AuthenticationMiddleware {
+    pub(crate) fn new(authenticated_calls: Vec<String>) -> Self {
+        Self {
+            authenticated_calls,
+        }
+    }
+
+    fn handle_admin_rpc_call<F, X>(
+        &self,
+        next: F,
+        call: Call,
+        meta: JsonRpcRequestProcessor,
+        jsonrpc: Option<Version>,
+        method: String,
+        id: Id,
+        params: Params,
+    ) -> Either<Pin<Box<dyn Future<Output = Option<Output>> + Send>>, X>
+    where
+        F: Fn(Call, JsonRpcRequestProcessor) -> X + Send + Sync,
+        X: Future<Output = Option<Output>> + Send + 'static,
+    {
+        type CallFuture =
+            <AuthenticationMiddleware as Middleware<JsonRpcRequestProcessor>>::CallFuture;
+
+        let auth_enabled = meta
+            .adversary_meta()
+            .security
+            .lock()
+            .unwrap()
+            .id()
+            .is_some();
+        if auth_enabled && self.authenticated_calls.contains(&method) {
+            const INVALID_PARAMS_STR: &str =
+                "Invalid parameters: Parameters must be passed as an array with a single value.";
+            let unauthorized_error = |message| -> Either<CallFuture, X> {
+                let error = JsonRpcError {
+                    code: ErrorCode::InvalidRequest,
+                    message,
+                    data: None,
+                };
+                Either::Left(Box::pin(async move {
+                    Some(Output::from(Err(error), id, jsonrpc))
+                }))
+            };
+
+            let header_val = meta
+                .adversary_meta()
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH));
+            let Some(header_val) = header_val else {
+                return unauthorized_error(format!(
+                    "Protected RPC method requres an authentication header: {method}"
+                ));
+            };
+            let header_val = match header_val.to_str() {
+                Ok(header_val) => header_val,
+                Err(e) => {
+                    return unauthorized_error(format!("Invalid authentication header: {e:?}"))
+                }
+            };
+            let auth_header = match serde_json::from_str::<AuthHeader>(header_val) {
+                Ok(auth_header) => auth_header,
+                Err(e) => {
+                    return unauthorized_error(format!(
+                        "Failed to parse authentication header. Error: {e:?}"
+                    ))
+                }
+            };
+            let config = match &params {
+                Params::None | Params::Map(_) => {
+                    return unauthorized_error(INVALID_PARAMS_STR.to_string())
+                }
+                Params::Array(arr) if arr.len() != 1 => {
+                    return unauthorized_error(INVALID_PARAMS_STR.to_string())
+                }
+                Params::Array(arr) => arr[0].to_string(),
+            };
+            if let Err(e) = meta
+                .adversary_meta()
+                .security
+                .lock()
+                .unwrap()
+                .check_request(&method, &auth_header, config.as_bytes())
+            {
+                info!("adversary rpc authentication check failed: {method}, {e:?}");
+                return unauthorized_error(e.to_string());
+            }
+        }
+
+        Either::Right(next(call, meta))
+    }
+}
+
+impl Middleware<JsonRpcRequestProcessor> for AuthenticationMiddleware {
+    type Future = Pin<Box<dyn Future<Output = Option<Response>> + Send + 'static>>;
+    type CallFuture = Pin<Box<dyn Future<Output = Option<Output>> + Send + 'static>>;
+
+    fn on_call<F, X>(
+        &self,
+        call: Call,
+        meta: JsonRpcRequestProcessor,
+        next: F,
+    ) -> Either<Self::CallFuture, X>
+    where
+        F: Fn(Call, JsonRpcRequestProcessor) -> X + Send + Sync,
+        X: Future<Output = Option<Output>> + Send + 'static,
+    {
+        match &call {
+            Call::MethodCall(MethodCall {
+                jsonrpc,
+                method,
+                id,
+                params,
+            }) => self.handle_admin_rpc_call(
+                next,
+                call.clone(),
+                meta,
+                *jsonrpc,
+                method.clone(),
+                id.clone(),
+                params.clone(),
+            ),
+            _ => Either::Right(next(call, meta)),
+        }
+    }
 }
 
 struct RpcRequestMiddleware {
@@ -490,6 +633,7 @@ pub struct JsonRpcServiceConfig<'a> {
     pub prioritization_fee_cache: Arc<PrioritizationFeeCache>,
     pub client_option: ClientOption<'a>,
     pub serve_repair_socket: Arc<UdpSocket>,
+    pub rpc_adversary_id: Option<Pubkey>,
 }
 
 impl JsonRpcService {
@@ -542,6 +686,7 @@ impl JsonRpcService {
                     config.prioritization_fee_cache,
                     runtime,
                     config.serve_repair_socket,
+                    config.rpc_adversary_id,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -592,6 +737,7 @@ impl JsonRpcService {
                     config.prioritization_fee_cache,
                     runtime,
                     config.serve_repair_socket,
+                    config.rpc_adversary_id,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -621,6 +767,7 @@ impl JsonRpcService {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         serve_repair_socket: Arc<UdpSocket>,
+        rpc_adversary_id: Option<Pubkey>,
     ) -> Result<Self, String> {
         let runtime = service_runtime(
             config.rpc_threads,
@@ -669,6 +816,7 @@ impl JsonRpcService {
             prioritization_fee_cache,
             runtime,
             serve_repair_socket,
+            rpc_adversary_id,
         )?;
         Ok(json_rpc_service)
     }
@@ -703,6 +851,7 @@ impl JsonRpcService {
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         runtime: Arc<TokioRuntime>,
         serve_repair_socket: Arc<UdpSocket>,
+        rpc_adversary_id: Option<Pubkey>,
     ) -> Result<Self, String> {
         info!("rpc bound to {rpc_addr:?}");
         info!("rpc configuration: {config:?}");
@@ -795,8 +944,8 @@ impl JsonRpcService {
             prioritization_fee_cache,
             Arc::clone(&runtime),
             serve_repair_socket,
+            rpc_adversary_id,
         );
-
         let _send_transaction_service = Arc::new(SendTransactionService::new_with_client(
             &bank_forks,
             receiver,
@@ -816,7 +965,16 @@ impl JsonRpcService {
             .spawn(move || {
                 renice_this_thread(rpc_niceness_adj).unwrap();
 
-                let mut io = MetaIoHandler::default();
+                let middleware = AuthenticationMiddleware::new(
+                    AdversaryImpl
+                        .to_delegate()
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .filter(|name| !adversary_unauthenticated_call(&name[..]))
+                        .collect(),
+                );
+
+                let mut io = MetaIoHandler::with_middleware(middleware);
 
                 io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
                 use crate::rpc_adversary::*;
@@ -838,11 +996,15 @@ impl JsonRpcService {
                     io,
                     move |req: &hyper::Request<hyper::Body>| {
                         let xbigtable = req.headers().get("x-bigtable");
-                        if xbigtable.is_some_and(|v| v == "disabled") {
+                        let mut processor = if xbigtable.is_some_and(|v| v == "disabled") {
                             request_processor.clone_without_bigtable()
                         } else {
                             request_processor.clone()
-                        }
+                        };
+                        processor
+                            .adversary_meta_mut()
+                            .set_headers(Some(req.headers().clone()));
+                        processor
                     },
                 )
                 .event_loop_executor(runtime.handle().clone())
@@ -1014,6 +1176,7 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
         )
         .expect("assume successful JsonRpcService start");
         let thread = rpc_service.thread_hdl.thread();
@@ -1190,7 +1353,7 @@ mod tests {
         assert!(!rrm.is_file_get_path(".."));
         assert!(!rrm.is_file_get_path("../"));
         assert!(!rrm.is_file_get_path("..//"));
-        assert!(!rrm.is_file_get_path("🎣"));
+        assert!(!rrm.is_file_get_path("�"));
 
         assert!(!rrm_with_snapshot_config.is_file_get_path(
             "//snapshot-100-AvFf9oS8A8U78HdjT9YG2sTTThLHJZmhaMn2g8vkWYnr.tar.zst"

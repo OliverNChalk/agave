@@ -8,6 +8,7 @@ use {
         },
         send_duplicate_blocks::AdversarialConfig as SendDuplicateBlocksConfig,
     },
+    solana_keypair::Keypair,
     std::{net::SocketAddr, str::FromStr, sync::Arc},
 };
 
@@ -19,7 +20,10 @@ impl Command for InvalidateLeaderBlockConfig {
     const RPC_METHOD: &'static str = "configureInvalidateLeaderBlock";
 }
 
-pub fn configure_send_duplicate_blocks_enable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_send_duplicate_blocks_enable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_send_duplicate_blocks(
         &rpc_endpoint_url,
         SendDuplicateBlocksConfig {
@@ -28,16 +32,25 @@ pub fn configure_send_duplicate_blocks_enable(rpc_endpoint_url: String) -> Resul
             send_original_after_ms: 0,
             send_destinations: Vec::new(),
         },
+        rpc_adversary_keypair,
     )
 }
 
-pub fn configure_send_duplicate_blocks_disable(rpc_endpoint_url: String) -> Result<(), String> {
-    configure_send_duplicate_blocks(&rpc_endpoint_url, SendDuplicateBlocksConfig::default())
+pub fn configure_send_duplicate_blocks_disable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
+    configure_send_duplicate_blocks(
+        &rpc_endpoint_url,
+        SendDuplicateBlocksConfig::default(),
+        rpc_adversary_keypair,
+    )
 }
 
 pub fn configure_send_duplicate_blocks_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let num_duplicate_validators = sub_matches
         .value_of("num_duplicate_validators")
@@ -80,37 +93,48 @@ pub fn configure_send_duplicate_blocks_args(
             send_original_after_ms,
             send_destinations,
         },
+        rpc_adversary_keypair,
     )
 }
 
 pub fn configure_send_duplicate_blocks(
     rpc_endpoint_url: &str,
     send_duplicate_blocks_config: SendDuplicateBlocksConfig,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
-    send_duplicate_blocks_config.send(rpc_endpoint_url)
+    send_duplicate_blocks_config.send_with_auth(rpc_endpoint_url, rpc_adversary_keypair)
 }
 
-pub fn configure_invalidate_leader_block_enable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_invalidate_leader_block_enable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_invalidate_leader_block(
         &rpc_endpoint_url,
         InvalidateLeaderBlockConfig {
             invalidation_kind: Some(InvalidationKind::InvalidFeePayer),
         },
+        rpc_adversary_keypair,
     )
 }
 
-pub fn configure_invalidate_leader_block_disable(rpc_endpoint_url: String) -> Result<(), String> {
+pub fn configure_invalidate_leader_block_disable(
+    rpc_endpoint_url: String,
+    rpc_adversary_keypair: &Option<Keypair>,
+) -> Result<(), String> {
     configure_invalidate_leader_block(
         &rpc_endpoint_url,
         InvalidateLeaderBlockConfig {
             invalidation_kind: None,
         },
+        rpc_adversary_keypair,
     )
 }
 
 pub fn configure_invalidate_leader_block_args(
     rpc_endpoint_url: &str,
     sub_matches: &clap::ArgMatches<'_>,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let invalidation_kind = match sub_matches.value_of("invalidation_kind") {
         Some(invalidation_kind) => {
@@ -124,12 +148,14 @@ pub fn configure_invalidate_leader_block_args(
     configure_invalidate_leader_block(
         rpc_endpoint_url,
         InvalidateLeaderBlockConfig { invalidation_kind },
+        rpc_adversary_keypair,
     )
 }
 
 pub fn configure_invalidate_leader_block(
     rpc_endpoint_url: &str,
     invalidate_leader_block_config: InvalidateLeaderBlockConfig,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
-    invalidate_leader_block_config.send(rpc_endpoint_url)
+    invalidate_leader_block_config.send_with_auth(rpc_endpoint_url, rpc_adversary_keypair)
 }

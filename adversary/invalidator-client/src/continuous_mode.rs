@@ -1,6 +1,7 @@
 use {
     crate::adversary,
     log::*,
+    solana_keypair::Keypair,
     std::{thread, time::Duration},
 };
 
@@ -13,6 +14,7 @@ pub fn run_continuous_mode(
     rpc_endpoint_url: &str,
     scenario_run_duration: Duration,
     rest_between_scenarios_duration: Duration,
+    rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let rpc_endpoint_url = rpc_endpoint_url.to_owned();
     let mut adversary_scenarios: Vec<(&str, AdversaryScenario)> = Vec::new();
@@ -23,11 +25,13 @@ pub fn run_continuous_mode(
             start_fn: Box::new(|| {
                 adversary::leader_block::configure_send_duplicate_blocks_enable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
             stop_fn: Box::new(|| {
                 adversary::leader_block::configure_send_duplicate_blocks_disable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
         },
@@ -39,11 +43,13 @@ pub fn run_continuous_mode(
             start_fn: Box::new(|| {
                 adversary::leader_block::configure_invalidate_leader_block_enable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
             stop_fn: Box::new(|| {
                 adversary::leader_block::configure_invalidate_leader_block_disable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
         },
@@ -55,11 +61,13 @@ pub fn run_continuous_mode(
             start_fn: Box::new(|| {
                 adversary::drop_turbine_votes::configure_drop_turbine_votes_enable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
             stop_fn: Box::new(|| {
                 adversary::drop_turbine_votes::configure_drop_turbine_votes_disable(
                     rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
                 )
             }),
         },
@@ -69,10 +77,16 @@ pub fn run_continuous_mode(
         "repair_packet_flood",
         AdversaryScenario {
             start_fn: Box::new(|| {
-                adversary::repair::configure_repair_packet_flood_enable(rpc_endpoint_url.clone())
+                adversary::repair::configure_repair_packet_flood_enable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
             stop_fn: Box::new(|| {
-                adversary::repair::configure_repair_packet_flood_disable(rpc_endpoint_url.clone())
+                adversary::repair::configure_repair_packet_flood_disable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
         },
     ));
@@ -81,10 +95,16 @@ pub fn run_continuous_mode(
         "gossip_packet_flood",
         AdversaryScenario {
             start_fn: Box::new(|| {
-                adversary::gossip::configure_gossip_packet_flood_enable(rpc_endpoint_url.clone())
+                adversary::gossip::configure_gossip_packet_flood_enable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
             stop_fn: Box::new(|| {
-                adversary::gossip::configure_gossip_packet_flood_disable(rpc_endpoint_url.clone())
+                adversary::gossip::configure_gossip_packet_flood_disable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
         },
     ));
@@ -93,10 +113,16 @@ pub fn run_continuous_mode(
         "replay_attack",
         AdversaryScenario {
             start_fn: Box::new(|| {
-                adversary::replay::configure_replay_stage_attack_enable(rpc_endpoint_url.clone())
+                adversary::replay::configure_replay_stage_attack_enable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
             stop_fn: Box::new(|| {
-                adversary::replay::configure_replay_stage_attack_disable(rpc_endpoint_url.clone())
+                adversary::replay::configure_replay_stage_attack_disable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
             }),
         },
     ));

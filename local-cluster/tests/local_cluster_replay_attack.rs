@@ -176,6 +176,7 @@ fn test_mainnet_beta_cluster_type_generator() {
                     AccountsFile::with_payers(&starting_keypairs),
                 )),
             }),
+            rpc_adversary_id: None,
         },
         ..ValidatorConfig::default_for_test()
     };
@@ -396,6 +397,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
 
     // Create a validator config with a generator account config.
     let mut validator_config = ValidatorConfig::default_for_test();
+    validator_config.invalidator_config.rpc_adversary_id = None;
     validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
         accounts: BlockGeneratorAccountsOption::Accounts(accounts_file),
     });
