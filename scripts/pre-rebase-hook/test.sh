@@ -2,7 +2,8 @@
 
 here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
-set -e
+set -o errexit
+set -o nounset
 
 # Runs all the tests for the `pre-rebase` hook scripts.
 
@@ -39,6 +40,9 @@ runGroup "test-01*.sh"
 
 # 2. Changes:
 runGroup "test-02*.sh"
+
+# 3. Configuration:
+runGroup "test-03*.sh"
 
 if [ -n "$failed" ]; then
   exit 1

@@ -171,7 +171,11 @@ run_one_rebase() {
   mergeBase=$( git merge-base "${branch}-next" "sync/${branch}-upstream" ) \
     || die "'git merge-base $branch-next sync/$branch-upstream' failed"
 
-  if ! git rebase --onto "$nextBase" "$mergeBase"; then
+  # `PRE_REBASE_HOOK_NO_CHECK` will disable the pre-rebase hook, as in this
+  # particular case we actually do want to rebase commits that are part of the
+  # upstream `master` branch.
+  if ! PRE_REBASE_HOOK_NO_CHECK=yes \
+    git rebase --onto "$nextBase" "$mergeBase"; then
     cat >&2 <<'EOM'
 Failed to rebase.
   Do:

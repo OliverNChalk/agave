@@ -50,7 +50,7 @@ fi
 setupSandbox() {
   sandboxRoot=$(mktemp --tmpdir --directory pre-rebase-hook-test.XXXXXXXXXX)
 
-  if [[ -n "$PRE_REBASE_HOOK_TEST_KEEP_SANDBOX" ]]; then
+  if [[ -n "${PRE_REBASE_HOOK_TEST_KEEP_SANDBOX:-}" ]]; then
     echo "Sandbox root: $sandboxRoot"
   fi
 
@@ -100,7 +100,7 @@ setupSandbox() {
 
 # Automatically called by an EXIT trap after `setupSandbox` is invoked.
 cleanupSandbox() {
-  if [[ -n "$PRE_REBASE_HOOK_TEST_KEEP_SANDBOX" ]]; then
+  if [[ -n "${PRE_REBASE_HOOK_TEST_KEEP_SANDBOX:-}" ]]; then
     return
   fi
 
@@ -117,7 +117,31 @@ cleanupSandbox() {
 # and `$sandboxRoot/capture_stderr`, and `$last_exit`, respectively.  For
 # further assessment via `assertStdout/assertStderr/assertExitCode`.
 runGitRebase() {
-  local args=( "$@" )
+  local -a args=( "$@" )
+
+  # Our CI is running a very old version of git that does not have a `merge` backend.  And so it
+  # does not support some of the flags.  At the same time, I want to be able to re-apply commits
+  # that where applied previously.  After we upgrade our CI, we can remove this block.
+  #
+  # === Remove after CI upgraded post git 2.25 { ===
+  local gitVersion
+  gitVersion=$(git --version)
+  gitVersion=${gitVersion#git version }
+
+  # Check if current version is at or before 2.25, by checking if it sorts before 2.25.
+  #
+  if printf '%s\n2.25\n' "$gitVersion" | sort -C -V; then
+    # As 2.25 uses `apply` backend for merging, it is as if `--reapply-cherry-picks` is already in
+    # effect.  So we can just remove it.
+    local -a newArgs
+    for arg in "${args[@]}"; do
+      if [[ "$arg" != "--reapply-cherry-picks" ]]; then
+        newArgs+=("$arg")
+      fi
+    done
+    args=("${newArgs[@]}")
+  fi
+  # === Remove after CI upgraded post git 2.25 } ===
 
   local prevOps
   prevOps=$(set +o)
@@ -144,7 +168,7 @@ runGitRebase() {
 # and `$sandboxRoot/capture_stderr`, and `$last_exit`, respectively.  For
 # further assessment via `assertStdout/assertStderr/assertExitCode`.
 runGitLog() {
-  local args=( "$@" )
+  local -a args=( "$@" )
 
   local prevOps
   prevOps=$(set +o)
@@ -326,7 +350,7 @@ assertSuccesfulRebase() {
 # This function sets `GIT_COMMITTER_DATE` and `GIT_AUTHOR_DATE` if they are
 # unset, or advances them by 1 minute on each call.
 gitSetOrAdvanceTime () {
-  local now=$gitSetOrAdvanceTime_now
+  local now=${gitSetOrAdvanceTime_now:-}
 
   if [[ -z "$now" ]]; then
     now=$(date --date "2023-06-29 16:00 -0700" "+%s")

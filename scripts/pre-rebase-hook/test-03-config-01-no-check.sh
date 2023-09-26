@@ -5,11 +5,10 @@ here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 set -o errexit
 set -o nounset
 
-# Test rebase functionality.
+# Test configuration functionality.
 #
-# A rebase of a user branch when the `master` branch was just rebased is the
-# main target case of the pre-rebase hook.  The hook should catch invalid
-# rabases and show a helpful message.
+# When PRE_REBASE_HOOK_NO_CHECK is set, the hook should silently exit, allowing
+# any rebase to go though.
 
 # shellcheck source=scripts/pre-rebase-hook/test-common
 source "$here/test-common"
@@ -21,9 +20,16 @@ setupSandbox
 setup2 upstream 2023-05-17 2023-06-28 \
   "git@mock-github.com:solana/invalidator.git"
 
-# `user1` is expected to be configured to track `upstream/master`, so a rebase
-# with no arguments should just rebase it on top of `master`.
-runGitRebase
+# Run a rebase that includes changes that are already part of `upstream/master`.
+# Normally the hook should block this update, but a non-empty
+# `PRE_REBASE_HOOK_NO_CHECK` should stop the hook from doing any checks.
+#
+# `--reapply-cherry-picks` makes git include all commits, even those that seems
+# to have been already applied based on the commit message content.
+
+# First check that without `PRE_REBASE_HOOK_NO_CHECK` the rebase is prohibited.
+runGitRebase --reapply-cherry-picks \
+  --onto upstream/sync/master-upstream "HEAD^{/^I1':}"
 
 assertExitCode 128
 assertStdout ''
@@ -35,7 +41,6 @@ assertStderr 'ERROR:
 
 a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
 05750cf24759027fbbce5e55751499815c67e1fc I2'\'': Inserted into c.txt
-15f08b6278e9c9baa4080211009534067f608945 I1'\'': Add c.txt
 
   Since the last time you rebased your changes on top of the
   "upstream/master" branch, it has been rebased, to include changes from
@@ -52,28 +57,24 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   `--no-verify` argument.)
 fatal: The pre-rebase hook refused to rebase.'
 
-# A command that the hook printed should work with no issues.
-runGitRebase --onto=upstream/master upstream/sync/master/local/2023-06-28
+# Now we want to see a successful rebase, when `PRE_REBASE_HOOK_NO_CHECK` is set
+# and the hook is not blocking the command itself.
+PRE_REBASE_HOOK_NO_CHECK=yes \
+  runGitRebase --reapply-cherry-picks \
+  --onto upstream/sync/master-upstream "HEAD^{/^I1':}"
 
 assertExitCode 0
-assertSuccesfulRebase 'First, rewinding head to replay your work on top of it...
+assertSuccesfulRebase "First, rewinding head to replay your work on top of it...
+Applying: I2': Inserted into c.txt
+Using index info to reconstruct a base tree...
+M    c.txt
+Falling back to patching base and 3-way merge...
+Auto-merging c.txt
+Applying: I3: Removed from c.txt
 Applying: U1: Extended a.txt
-Applying: U2: Extended b.txt' \
-  'Rebasing (1/2)
-Rebasing (2/2)
+Applying: U2: Extended b.txt" \
+  'Rebasing (1/4)
+Rebasing (2/4)
+Rebasing (3/4)
+Rebasing (4/4)
 Successfully rebased and updated refs/heads/user1.'
-
-# Make sure produced history matches the expectations.
-runGitLog --oneline
-assertExitCode 0
-assertStdout "a320039 U2: Extended b.txt
-ad226a3 U1: Extended a.txt
-0422c2a I4': Added d.txt
-ddd463c I3': Removed from c.txt
-fdd9293 S3: Modified c.txt
-8857f05 I2'': Inserted into c.txt
-9ab8cd7 I1'': Add c.txt
-7165395 S2: Add b.txt
-504298d S1: Add a.txt
-ff64ae0 S0: Add readme.txt"
-assertStderr ''

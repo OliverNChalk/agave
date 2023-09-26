@@ -48,7 +48,14 @@ upstreamRemote=$(git config --get --default '' invalidator-repo.upstream)
 # `master` branch needs to rebased across the upstream rebase.  And provide a
 # helpful message when user is not specifying the right rebase base commit.
 
-set -e
+set -o errexit
+set -o nounset
+
+# `PRE_REBASE_HOOK_NO_CHECK` is set by `slow-rebase.sh`, as that script is
+# expected to rebase changes that are already part of the `master` branch.
+if [[ -n "${PRE_REBASE_HOOK_NO_CHECK:-}" ]]; then
+  exit 0
+fi
 
 # Set by `findLocalBaseline`. Holds `[upstream]/master` or
 # `[upstream]/sync/master/local/[date]` - a branch that contains the most

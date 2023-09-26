@@ -2,7 +2,8 @@
 
 here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
-set -e
+set -o errexit
+set -o nounset
 
 # Testing remotes functionality.
 #
