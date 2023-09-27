@@ -352,8 +352,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
     let _ = TestSetup;
 
-    const ENTRY_SIZE: usize = 64;
-    const NUM_ACCOUNTS_PER_TRANSACTION: usize = 1;
+    let attack_config = replay_stage_attack::WriteProgramConfig::default();
     // For the sake of this test, check with smaller than
     // `solana_system_interface::MAX_PERMITTED_DATA_LENGTH` accounts to avoid too large
     // archive problem due to ledger genesis archive size limit (see
@@ -362,10 +361,10 @@ fn test_mainnet_beta_cluster_type_program_generator() {
 
     let num_nodes = 2;
     let test_duration = Duration::from_secs(30);
-    // Each transaction takes NUM_ACCOUNTS_PER_TRANSACTION accounts
-    let num_max_size_accounts = ENTRY_SIZE * NUM_ACCOUNTS_PER_TRANSACTION;
+    let num_max_size_accounts =
+        attack_config.transaction_batch_size * attack_config.num_accounts_per_tx;
     // To avoid AccountInUse, each transaction has it's own payer
-    let num_payers_accounts = ENTRY_SIZE;
+    let num_payers_accounts = attack_config.transaction_batch_size;
     let num_program_accounts = 1;
     let lamports_per_account = 1_000_000_000_000;
 
@@ -458,7 +457,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     sleep(Duration::from_millis(800));
     assert_eq!(
         configure_block_generator(
-            Some(replay_stage_attack::Attack::WriteProgram),
+            Some(replay_stage_attack::Attack::WriteProgram(attack_config)),
             &get_rpc_url(&cluster)
         ),
         Ok(())

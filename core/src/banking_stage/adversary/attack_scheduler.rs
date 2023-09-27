@@ -111,9 +111,9 @@ impl AttackScheduler {
                 continue;
             };
 
-            let num_tx_batches = active_generator.get_num_tx_batches();
+            let num_generator_exec = active_generator.get_num_generator_exec_batch_size();
             // Batch transactions to amortize decision cost.
-            for _ in 0..num_tx_batches {
+            for _ in 0..num_generator_exec {
                 let (transactions, worker_index) = active_generator.generate_transactions(bank);
 
                 let transactions = transactions

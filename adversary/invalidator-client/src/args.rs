@@ -413,8 +413,11 @@ pub fn run_command() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use {
-        super::*, crate::adversary::replay::parse_replay_stage_attack_args,
-        solana_adversary::adversary_feature_set::replay_stage_attack::Attack,
+        super::*,
+        crate::adversary::replay::parse_replay_stage_attack_args,
+        solana_adversary::adversary_feature_set::replay_stage_attack::{
+            Attack, WriteProgramConfig,
+        },
     };
 
     // Converts CLI arguments of the form
@@ -464,6 +467,9 @@ mod tests {
 
     #[test]
     fn test_cli_parse_replay_stage_attack_write_program() {
-        check_configure_replay_stage_attack_arg_parsing(&["writeProgram"], Attack::WriteProgram);
+        check_configure_replay_stage_attack_arg_parsing(
+            &["writeProgram"],
+            Attack::WriteProgram(WriteProgramConfig::default()),
+        );
     }
 }

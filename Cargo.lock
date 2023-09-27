@@ -7168,6 +7168,8 @@ dependencies = [
  "solana-logger",
  "solana-net-protocol",
  "solana-net-utils",
+ "solana-packet",
+ "solana-program-runtime",
  "solana-pubkey",
  "solana-rayon-threadlimit",
  "solana-runtime",

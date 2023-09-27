@@ -396,6 +396,9 @@ impl Adversary for AdversaryImpl {
         config: replay_stage_attack::AdversarialConfig,
     ) -> Result<()> {
         self.perform_configuration(meta, || {
+            config
+                .validate()
+                .map_err(|message| Error::invalid_params(message.to_string()))?;
             replay_stage_attack::set_config(config);
             Ok(())
         })
@@ -454,7 +457,7 @@ pub mod tests {
             rpc_service::AuthenticationMiddleware,
         },
         http::HeaderMap,
-        jsonrpc_core::{MetaIoHandler, Response, Value},
+        jsonrpc_core::{types::error::ErrorCode, MetaIoHandler, Response, Value},
         serial_test::serial,
         solana_adversary::{
             adversary_context::ADVERSARY_CONTEXT,
@@ -1068,13 +1071,14 @@ pub mod tests {
 
     #[test]
     #[serial]
-    fn test_adversary_configure_replay_stage_attack() {
+    fn test_adversary_configure_replay_stage_attack_transfer() {
+        // To amortize setup cost, will run several tests with one setup
         let (meta, keypair) = setup_test_meta();
         let io = setup_test_io();
 
         let token = fetch_auth_token(meta.clone(), &io);
 
-        // Update the config for invalidate_leader_block, ensuring that request succeeds
+        // Set valid TransferRandom attack
         let config = replay_stage_attack::AdversarialConfig {
             selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
         };
@@ -1094,7 +1098,7 @@ pub mod tests {
         // Reset the config
         let config = replay_stage_attack::AdversarialConfig::default();
         let rsp = send_signed_request_sync(
-            meta,
+            meta.clone(),
             &io,
             &keypair,
             "configureReplayStageAttack",
@@ -1103,5 +1107,37 @@ pub mod tests {
         );
         let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
+
+        // Set WriteProgram attack with invalid parameters
+        let config = replay_stage_attack::AdversarialConfig {
+            selected_attack: Some(replay_stage_attack::Attack::WriteProgram(
+                replay_stage_attack::WriteProgramConfig {
+                    transaction_batch_size: 0,
+                    num_accounts_per_tx: 8,
+                    transaction_cu_budget: 10000,
+                },
+            )),
+        };
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            String::from("transaction_batch_size (0) must be in range [1, 64]"),
+        );
+        {
+            let rsp = send_signed_request_sync(
+                meta.clone(),
+                &io,
+                &keypair,
+                "configureReplayStageAttack",
+                &token,
+                &config,
+            );
+            let result = parse_failure_response(rsp);
+            assert_eq!(expected, result);
+        }
+        // Confirm that the invalid config didn't change the state.
+        assert_eq!(
+            replay_stage_attack::AdversarialConfig::default(),
+            replay_stage_attack::get_config()
+        );
     }
 }
