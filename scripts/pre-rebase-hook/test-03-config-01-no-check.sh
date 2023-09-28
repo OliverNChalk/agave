@@ -44,13 +44,12 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
 
   Since the last time you rebased your changes on top of the
   "upstream/master" branch, it has been rebased, to include changes from
-  the upstream "solana" repo.  This could be the reason for this rebase to
-  contain unnecessary changes.
+  the upstream "solana" repo.
 
   You probably want to rebase your work on top of the new
-  "upstream/master", before you continue any work, like this:
+  "upstream/master" before you continue any work, like this:
 
-  # Rebase, excluding changes already in the "master" branch.
+  # Rebase, excluding changes already in the "upstream/sync/master/local/2023-06-28" branch.
   git rebase --onto="upstream/master" "upstream/sync/master/local/2023-06-28"
 
   (If you really know what you are doing, you can skip with check with a

@@ -13,6 +13,11 @@
 syncPrefix=$(git config --get --default sync invalidator-repo.sync-prefix)
 upstreamRemote=$(git config --get --default '' invalidator-repo.upstream)
 
+blockMessageMaxLogLength=$( \
+  git config --get --default 4 --type int \
+  invalidator-repo.block-message-max-log-length \
+)
+
 
 # ----
 #
@@ -256,6 +261,8 @@ findLocalBaseline() {
 # TODO Check the parent command arguments, for better suggestions in the cases
 # above.
 preventInvalidRebase() {
+  local rebaseList
+  local rebaseListButMasterLocal
   rebaseList=$( git rev-list --pretty=oneline "$branch" ^"$base" )
   rebaseListButMasterLocal=$( \
       git rev-list --pretty=oneline "$branch" ^"$base" ^"$localBaseline" \
@@ -280,52 +287,63 @@ preventInvalidRebase() {
   # additional effort.  Let's see if anyone will complain that the suggestion is
   # not good enough?
 
-  if [[ "$localBaseline" = "$upstreamRemote/master" ]]; then
-    cat <<EOM
+  cat <<EOM
 ERROR:
   You are trying to rebase the following changes that are already part of the
   "$upstreamRemote/master" branch:
 
 EOM
-    git log --pretty=oneline \
-      "$( git merge-base "$localBaseline" "$branch" )" ^"$base"
+  # It does not make sense to show too many log entries.  The message is already
+  # long.  And if pager is activated just for the log part, it only makes the UX
+  # even more confusing.
+  git --no-pager log --max-count="$blockMessageMaxLogLength" --pretty=oneline \
+    "$( git merge-base "$localBaseline" "$branch" )" ^"$base"
 
+  local totalAlreadyInUpstream
+  totalAlreadyInUpstream=$( \
+      git rev-list --pretty=oneline \
+        "$( git merge-base "$localBaseline" "$branch" )" ^"$base" \
+      | wc -l \
+    )
+  if [[ "$totalAlreadyInUpstream" -gt "$blockMessageMaxLogLength" ]]; then
+    cat <<EOM
+  ... and $(( totalAlreadyInUpstream - blockMessageMaxLogLength )) more commit(s) ...
+EOM
+  fi
+
+  if [[ "$localBaseline" = "$upstreamRemote/master" ]]; then
+    # If the latest baseline is `[upstream]/master`, it probably means the user
+    # is doing something more complex than just `git rebase` after `git fetch`.
+    # We can not really be particularly helpful, as we do not know what is the
+    # intent of this operation.  Suggesting an explicit baseline is the best we
+    # can do.
     cat <<EOM
 
   Consider using using an explicit baseline in your \`git rebase\` invocation:
-
-  git rebase "$upstreamRemote/master" "$branch"
-
-  (If you really know what you are doing, you can skip with check with a
-  \`--no-verify\` argument.)
 EOM
   else
-    cat <<EOM
-ERROR:
-  You are trying to rebase the following changes that are already part of the
-  "$upstreamRemote/master" branch:
-
-EOM
-    git log --pretty=oneline \
-      "$( git merge-base "$localBaseline" "$branch" )" ^"$base"
-
+    # If the latest baseline is something older than `[upstream]/master`, then
+    # it is likely that `master` was rebased and the user just needs to provide
+    # an explicit baseline.
     cat <<EOM
 
   Since the last time you rebased your changes on top of the
   "$upstreamRemote/master" branch, it has been rebased, to include changes from
-  the upstream "solana" repo.  This could be the reason for this rebase to
-  contain unnecessary changes.
+  the upstream "solana" repo.
 
   You probably want to rebase your work on top of the new
-  "$upstreamRemote/master", before you continue any work, like this:
+  "$upstreamRemote/master" before you continue any work, like this:
+EOM
+  fi
 
-  # Rebase, excluding changes already in the "master" branch.
+  cat <<EOM
+
+  # Rebase, excluding changes already in the "$localBaseline" branch.
   git rebase --onto="$upstreamRemote/master" "$localBaseline"
 
   (If you really know what you are doing, you can skip with check with a
   \`--no-verify\` argument.)
 EOM
-  fi
 
   exit 1
 }
