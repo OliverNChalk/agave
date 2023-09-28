@@ -19,24 +19,23 @@ sandboxRoot=
 gitRoot=
 
 if [[ -z "$here" ]]; then
-  cat <<EOM
-\`test-common\` expects \$here to be set.  A number of functions rely on it to
-be set correctly to the \`test-common\` location.  Set it before sourcing the
+  cat <<'EOM'
+`test-common` expects $here to be set.  A number of functions rely on it to
+be set correctly to the `test-common` location.  Set it before sourcing the
 script.
 EOM
   exit 1
 fi
 
-if [[ ! "$here" =~ /* ]]; then
-  cat <<EOM
-\`test-common\` expects \$here to be an absolute path, starting with '/'.
+if [[ ! "$here" = /* ]]; then
+  cat <<'EOM'
+`test-common` expects $here to be an absolute path, starting with '/'.
 This is requried, as the current directory may change.
 Set it like this:
 
-here=\$(realpath "\$(dirname "\${BASH_SOURCE[0]}")")
-
-Got: $here
+here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 EOM
+  echo "Got: $here"
   exit 1
 fi
 
@@ -54,6 +53,8 @@ setupSandbox() {
     echo "Sandbox root: $sandboxRoot"
   fi
 
+  # While `gitRoot` is currently unused, it seems like a useful value to keep.
+  # shellcheck disable=SC2034
   gitRoot=$sandboxRoot/git
   cd "$sandboxRoot"
 
@@ -145,21 +146,17 @@ runGitRebase() {
 
   local prevOps
   prevOps=$(set +o)
-  local prevTerm=$TERM
-
   # Make it possible to capture the return code without failing.
   set +o errexit
 
-  # Make sure git rebase does not use fancy terminal control characters.  It
-  # will still output full lines of whitespaces :(
-  export TERM=dumb
-
-  git rebase "${args[@]}" \
+  # `dumb` TERM makes git rebase avoid fancy terminal control characters.  It will still output full
+  # lines of whitespaces :(
+  TERM=dumb \
+    git rebase "${args[@]}" \
     >"$sandboxRoot/capture_stdout" 2>"$sandboxRoot/capture_stderr"
   last_exit=$?
 
   eval "$prevOps"
-  TERM=$prevTerm
 }
 
 # Runs `git log`, forwarding all the arguments,
@@ -172,20 +169,16 @@ runGitLog() {
 
   local prevOps
   prevOps=$(set +o)
-  local prevTerm=$TERM
-
   # Make it possible to capture the return code without failing.
   set +o errexit
 
-  # Reduce fancy formatting, simplifying the stdout/stderr assertions.
-  export TERM=dumb
-
-  git log "${args[@]}" \
+  # `dumb` TERM reduces fancy formatting, simplifying the stdout/stderr assertions.
+  TERM=dumb \
+    git log "${args[@]}" \
     >"$sandboxRoot/capture_stdout" 2>"$sandboxRoot/capture_stderr"
   last_exit=$?
 
   eval "$prevOps"
-  TERM=$prevTerm
 }
 
 # Check `$last_exit` to be the specified error code.
@@ -355,7 +348,7 @@ gitSetOrAdvanceTime () {
   if [[ -z "$now" ]]; then
     now=$(date --date "2023-06-29 16:00 -0700" "+%s")
   else
-    now=$(($now + 60))
+    now=$((now + 60))
   fi
   gitSetOrAdvanceTime_now=$now
 
@@ -384,12 +377,13 @@ gitMockRemoteBranch() {
   local prevOps
   prevOps=$(set +o)
   set +o errexit
+
   local commit
-  commit=$(git rev-parse --verify --end-of-options "$at"^{commit} 2>/dev/null)
-  if [[ $? -ne 0 ]]; then
+  if ! commit=$( git rev-parse --verify --end-of-options "${at}^{commit}" 2>/dev/null ); then
     echo "Failed to parse as a commit reference: $at"
     exit 1
   fi
+
   eval "$prevOps"
 
   local branchFile=".git/refs/remotes/$remote/$branch"

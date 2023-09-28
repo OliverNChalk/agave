@@ -191,6 +191,8 @@ EOF
   gitMockRemoteBranch "$upstream" "master" @
 }
 
+# ShellCheck erroneously suggest this function accesses it's arguments.  Maybe because of $#.
+# shellcheck disable=SC2120
 setup1Local() {
   if [[ $# -ne 0 ]]; then
     echo "ERROR: setup1Local takes no arguments"
@@ -479,6 +481,8 @@ This line is added by I2, removed by I3, and moved by S3.\
   gitMockRemoteBranch "$upstream" "master" @
 }
 
+# ShellCheck erroneously suggest this function accesses it's arguments.  Maybe because of $#.
+# shellcheck disable=SC2120
 setup2Local() {
   if [[ $# -ne 0 ]]; then
     echo "ERROR: setup2Local takes no arguments"
