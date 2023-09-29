@@ -31,7 +31,6 @@ setup2 upstream 2023-05-17 2023-06-28 \
 runGitRebase --reapply-cherry-picks \
   --onto upstream/sync/master-upstream "HEAD^{/^I1':}"
 
-assertExitCode 128
 assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
@@ -55,6 +54,7 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   (If you really know what you are doing, you can skip with check with a
   `--no-verify` argument.)
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128
 
 # Now we want to see a successful rebase, when `PRE_REBASE_HOOK_NO_CHECK` is set
 # and the hook is not blocking the command itself.
@@ -62,7 +62,6 @@ PRE_REBASE_HOOK_NO_CHECK=yes \
   runGitRebase --reapply-cherry-picks \
   --onto upstream/sync/master-upstream "HEAD^{/^I1':}"
 
-assertExitCode 0
 assertSuccesfulRebase "First, rewinding head to replay your work on top of it...
 Applying: I2': Inserted into c.txt
 Using index info to reconstruct a base tree...
@@ -77,3 +76,4 @@ Rebasing (2/4)
 Rebasing (3/4)
 Rebasing (4/4)
 Successfully rebased and updated refs/heads/user1.'
+assertExitCode 0

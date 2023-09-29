@@ -31,10 +31,10 @@ git config --local invalidator-repo.upstream upstream1
 # with no arguments should just rebase it on top of `master`.
 runGitRebase
 
-assertExitCode 0
 assertSuccesfulRebase 'First, rewinding head to replay your work on top of it...
 Applying: U1: Extended a.txt
 Applying: U2: Extended b.txt' \
   'Rebasing (1/2)
 Rebasing (2/2)
 Successfully rebased and updated refs/heads/user1.'
+assertExitCode 0

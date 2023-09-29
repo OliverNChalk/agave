@@ -28,7 +28,6 @@ setup2 upstream 2023-05-17 2023-06-28 \
 GIT_EDITOR=true \
   runGitRebase --interactive
 
-assertExitCode 128
 assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
@@ -53,21 +52,21 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   (If you really know what you are doing, you can skip with check with a
   `--no-verify` argument.)
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128
 
 # A command that the hook printed should work with no issues.
 GIT_EDITOR=true \
   runGitRebase --interactive \
   --onto=upstream/master upstream/sync/master/local/2023-06-28
 
-assertExitCode 0
 assertStdout ''
 assertStderr 'Rebasing (1/2)
 Rebasing (2/2)
 Successfully rebased and updated refs/heads/user1.'
+assertExitCode 0
 
 # Make sure produced history matches the expectations.
 runGitLog --oneline
-assertExitCode 0
 assertStdout "a320039 U2: Extended b.txt
 ad226a3 U1: Extended a.txt
 0422c2a I4': Added d.txt
@@ -79,3 +78,4 @@ fdd9293 S3: Modified c.txt
 504298d S1: Add a.txt
 ff64ae0 S0: Add readme.txt"
 assertStderr ''
+assertExitCode 0

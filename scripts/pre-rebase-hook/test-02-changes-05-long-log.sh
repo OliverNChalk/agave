@@ -22,7 +22,6 @@ setup2 upstream 2023-05-17 2023-06-28 \
 # to have the maximum size.
 runGitRebase --onto upstream/master "remotes/upstream/master^{/^S0:}"
 
-assertExitCode 128
 assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
@@ -49,3 +48,4 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   (If you really know what you are doing, you can skip with check with a
   `--no-verify` argument.)
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128

@@ -28,7 +28,6 @@ createRebaseTrackingBranchesFor upstream2 2023-05-17 \
 # with no arguments should just rebase it on top of `master`.
 runGitRebase
 
-assertExitCode 128
 assertStdout ''
 assertStderr 'ERROR:
     Could not determine a unique upstream remote for the "invalidator" repo.
@@ -41,3 +40,4 @@ assertStderr 'ERROR:
 
     git config --local invalidator-repo.upstream "upstream2"
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128

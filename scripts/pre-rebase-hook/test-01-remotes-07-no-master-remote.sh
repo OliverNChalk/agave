@@ -26,7 +26,6 @@ git branch --quiet --remotes --delete upstream/master
 # the rebase operation.
 runGitRebase master
 
-assertExitCode 128
 assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
@@ -52,3 +51,4 @@ assertStderr 'ERROR:
 
     rm .git/hook/pre-rebase
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128

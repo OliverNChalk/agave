@@ -31,7 +31,6 @@ git branch --quiet --remotes --delete upstream/sync/master-upstream
 # with no arguments should just rebase it on top of `master`.
 runGitRebase
 
-assertExitCode 128
 assertStdout ''
 assertStderr 'ERROR:
     You have an upstream remote configured as "upstream", but it does not
@@ -52,3 +51,4 @@ assertStderr 'ERROR:
 
     rm .git/hook/pre-rebase
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128

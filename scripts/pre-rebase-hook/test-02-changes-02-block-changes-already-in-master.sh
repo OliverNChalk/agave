@@ -26,7 +26,6 @@ setup1 upstream 2023-06-28 "git@mock-github.com:solana/invalidator.git"
 # the base is selected manually.  But it is still most likely invalid.
 runGitRebase --onto upstream/master "remotes/upstream/master^{/^I1':}"
 
-assertExitCode 128
 assertStdout ''
 # We do want single quotes here.
 # shellcheck disable=SC2016
@@ -45,3 +44,4 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   (If you really know what you are doing, you can skip with check with a
   `--no-verify` argument.)
 fatal: The pre-rebase hook refused to rebase.'
+assertExitCode 128
