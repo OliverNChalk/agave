@@ -134,11 +134,11 @@ git branch --no-track "sync/master/upstream/$SYNC_DATE" \
             upstream/master \
     )"
 
-git branch --force --no-track sync/master-upstream "sync/master/upstream/$SYNC_DATE"
+git branch --no-track sync/master-upstream "sync/master/upstream/$SYNC_DATE"
 
 git fetch invalidator master
 git branch --no-track "sync/master/local/$SYNC_DATE" invalidator/master
-git branch --force --no-track "sync/master-local" "sync/master/local/$SYNC_DATE"
+git branch --no-track "sync/master-local" "sync/master/local/$SYNC_DATE"
 
 git switch --create master-next --no-track sync/master-local
 ```
@@ -212,6 +212,13 @@ a complete rebase is done, I do another run like this:
 git rebase --interactive \
     --exec "./cargo check --tests \
         && ./cargo nightly fmt \
+        && ./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
+            --deny=warnings \
+            --deny=clippy::default_trait_access \
+            --deny=clippy::arithmetic_side_effects \
+            --deny=clippy::manual_let_else \
+            --deny=clippy::used_underscore_binding \
+            --allow=clippy::redundant_clone \
         && cd programs/sbf \
         && ../../cargo check --tests \
         && ../../cargo nightly fmt" \
@@ -234,8 +241,9 @@ Or, if you want to see the full picture:
 
 ```sh
 git log --graph --decorate --oneline \
-    --branches='sync/master/upstream/*' \
-    --branches='sync/master/local/*' \
+    --branches='invalidator/sync/master/upstream/*' \
+    --branches='invalidator/sync/master/local/*' \
+    invalidator/sync/master-upstream invalidator/sync/master-local \
     sync/master-upstream sync/master-local \
     upstream/master \
     master-next HEAD
@@ -305,11 +313,15 @@ git push --force invalidator master-next:master
 git push --force origin :master-next
 ```
 
-`master-next` is not needed any more:
+Local versions of the sync branches are not needed any more:
 
 ```sh
 git switch pr-branch
-git branch --delete master-next
+git branch --delete --force master-next
+git branch --delete --force "sync/master/upstream/$SYNC_DATE"
+git branch --delete --force sync/master-upstream
+git branch --delete --force "sync/master/local/$SYNC_DATE"
+git branch --delete --force sync/master-local
 ```
 
 ### 1.9. Unlock `master`
@@ -337,7 +349,7 @@ Run the following to find the right branch, if you do not want to use `git log`:
 git switch your-pr
 
 for base in $(
-    git branch --list --no-column 'sync/master/local/*' | sed -e 's@^\s*@@'
+    git branch --list --no-column 'invalidator/sync/master/local/*' | sed -e 's@^\s*@@'
 ); do
     echo "$( git log --oneline $base..HEAD | wc -l ) $base";
 done \
@@ -353,7 +365,7 @@ branch.
 When you know your baseline, rebase your changes with
 
 ```
-git rebase --onto master sync/master/local/yyyy-mm-dd
+git rebase --onto master invalidator/sync/master/local/yyyy-mm-dd
 ```
 
 Alternatively, you can run `scripts/pre-rebase-hook` to see the `git rebase`
@@ -448,11 +460,11 @@ git branch --no-track "sync/v1.16/upstream/$SYNC_DATE" \
             upstream/v1.16 \
     )"
 
-git branch --force --no-track sync/v1.16-upstream "sync/v1.16/upstream/$SYNC_DATE"
+git branch --no-track sync/v1.16-upstream "sync/v1.16/upstream/$SYNC_DATE"
 
 git fetch invalidator v1.16
 git branch --no-track "sync/v1.16/local/$SYNC_DATE" invalidator/v1.16
-git branch --force --no-track "sync/v1.16-local" "sync/v1.16/local/$SYNC_DATE"
+git branch --no-track "sync/v1.16-local" "sync/v1.16/local/$SYNC_DATE"
 
 git switch --create v1.16-next --no-track sync/v1.16-local
 ```
@@ -461,8 +473,9 @@ State of all branches that are involved in the `v1.16` sync process:
 
 ```sh
 git log --oneline --decorate --graph \
-    --branches='sync/v1.16/upstream/*' \
-    --branches='sync/v1.16/local/*' \
+    --branches='invalidator/sync/v1.16/upstream/*' \
+    --branches='invalidator/sync/v1.16/local/*' \
+    invalidator/sync/v1.16-upstream invalidator/sync/v1.16-local \
     sync/v1.16-upstream sync/v1.16-local \
     upstream/v1.16 \
     v1.16-next HEAD
@@ -506,4 +519,8 @@ git push --force origin :v1.16-next
 
 git switch pr-branch
 git branch --delete --force v1.16-next
+git branch --delete --force "sync/v1.16/upstream/$SYNC_DATE"
+git branch --delete --force sync/v1.16-upstream
+git branch --delete --force "sync/v1.16/local/$SYNC_DATE"
+git branch --delete --force sync/v1.16-local
 ```
