@@ -99,19 +99,15 @@ impl ActiveGenerator {
             ..
         } = self;
         let accounts = accounts.clone();
+
+        use Attack::*;
         current_attack.as_ref().map(|attack| match attack {
-            Attack::TransferRandom => (generator_transfer_random(accounts, *num_workers), 100),
-            Attack::CreateNonceAccounts => {
-                (generator_create_nonce_accounts(accounts, *num_workers), 10)
-            }
-            Attack::AllocateRandomLarge => {
-                (generator_allocate_random_large(accounts, *num_workers), 1)
-            }
-            Attack::AllocateRandomSmall => {
-                (generator_allocate_random_small(accounts, *num_workers), 10)
-            }
-            Attack::ChainTransactions => (generator_chain_transactions(accounts, *num_workers), 10),
-            Attack::WriteProgram(write_program_config) => (
+            TransferRandom => (generator_transfer_random(accounts, *num_workers), 100),
+            CreateNonceAccounts => (generator_create_nonce_accounts(accounts, *num_workers), 10),
+            AllocateRandomLarge => (generator_allocate_random_large(accounts, *num_workers), 1),
+            AllocateRandomSmall => (generator_allocate_random_small(accounts, *num_workers), 10),
+            ChainTransactions => (generator_chain_transactions(accounts, *num_workers), 10),
+            WriteProgram(write_program_config) => (
                 generator_write_program(accounts, *num_workers, write_program_config.clone()),
                 1,
             ),
