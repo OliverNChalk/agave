@@ -50,7 +50,13 @@ fi
   git diff "$target" --check --oneline
 )
 
-_ ci/check-channel-version.sh
+# DO NOT UPSTREAM:  This check uses tags and branches from the
+# solana-labs/solana.git reposotory.  Which is incorrect, when run in the
+# invalidator repo.
+# Also, we do not expect to build any releases from the invalidator repository.
+# So there is no risk even if the invalidator repo tags or release branches do
+# not match.
+# _ ci/check-channel-version.sh
 _ ci/nits.sh
 
 scripts/increment-cargo-version.sh check
