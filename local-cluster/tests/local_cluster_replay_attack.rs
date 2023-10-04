@@ -5,7 +5,7 @@ use {
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack,
-        block_generator_config::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
+        block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
     },
     solana_bincode::limited_deserialize,
     solana_cluster_type::ClusterType,
@@ -171,7 +171,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     let mut validator_config = ValidatorConfig {
         invalidator_config: InvalidatorConfig {
             block_generator_config: Some(BlockGeneratorConfig {
-                accounts: BlockGeneratorAccountsOption::Accounts(Arc::new(
+                accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
                     AccountsFile::with_payers(&starting_keypairs),
                 )),
             }),
@@ -397,7 +397,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     let mut validator_config = ValidatorConfig::default_for_test();
     validator_config.invalidator_config.rpc_adversary_id = None;
     validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
-        accounts: BlockGeneratorAccountsOption::Accounts(accounts_file),
+        accounts: BlockGeneratorAccountsSource::Genesis(accounts_file),
     });
 
     // Setup starting accounts

@@ -467,7 +467,7 @@ pub mod tests {
                 replay_stage_attack,
             },
             auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
-            block_generator_config::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
+            block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         },
         solana_keypair::Keypair,
         solana_ledger::genesis_utils::create_genesis_config,
@@ -1106,7 +1106,7 @@ pub mod tests {
         let max_accounts: Arc<Vec<Keypair>> =
             Arc::new(iter::repeat_with(Keypair::new).take(32).collect());
         *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig {
-            accounts: BlockGeneratorAccountsOption::Accounts(Arc::new(
+            accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
                 AccountsFile::with_payers_and_max_size(&program_id, &payers, &max_accounts),
             )),
         });

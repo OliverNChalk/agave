@@ -2,8 +2,9 @@ use {
     clap::{App, Arg, ArgMatches},
     indoc::indoc,
     solana_adversary::block_generator_config::{
-        BlockGeneratorAccountsOption, BlockGeneratorConfig,
+        BlockGeneratorAccountsSource, BlockGeneratorConfig,
     },
+    std::path::PathBuf,
 };
 
 fn generate_blocks_with_accounts_arg<'a, 'b>() -> Arg<'a, 'b> {
@@ -40,7 +41,7 @@ pub fn initialize_validator_config(
 ) {
     let accounts = matches
         .value_of("generate_blocks_with_accounts")
-        .map(|path| BlockGeneratorAccountsOption::AccountsPath(path.to_string()));
+        .map(|path| BlockGeneratorAccountsSource::AccountsPath(PathBuf::from(path)));
 
     if let Some(accounts) = accounts {
         *block_generator_config = Some(BlockGeneratorConfig { accounts });
