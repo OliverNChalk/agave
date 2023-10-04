@@ -1,6 +1,6 @@
 use {
     super::Command,
-    clap::ArgMatches,
+    clap::{value_t, ArgMatches},
     solana_adversary::adversary_feature_set::replay_stage_attack::{
         AdversarialConfig as ReplayStageAttackConfig, Attack,
     },
@@ -44,11 +44,19 @@ pub fn parse_replay_stage_attack_args(
     let Some(selected_attack) = sub_matches.value_of("selected_attack") else {
         return Ok(None);
     };
-    let selected_attack = Some(
-        Attack::from_str(selected_attack)
-            .map_err(|_| format!("Error converting to enum from string: {selected_attack}"))?,
-    );
-    Ok(selected_attack)
+    let mut selected_attack = Attack::from_str(selected_attack)
+        .map_err(|_| format!("Error converting to enum from string: {selected_attack}"))?;
+    if let Attack::WriteProgram(config) = &mut selected_attack {
+        config.use_failed_transaction_hotpath =
+            sub_matches.is_present("use_failed_transaction_hotpath");
+        config.transaction_batch_size =
+            value_t!(sub_matches, "transaction_batch_size", usize).map_err(|e| e.to_string())?;
+        config.num_accounts_per_tx =
+            value_t!(sub_matches, "num_accounts_per_tx", usize).map_err(|e| e.to_string())?;
+        config.transaction_cu_budget =
+            value_t!(sub_matches, "transaction_cu_budget", u32).map_err(|e| e.to_string())?;
+    }
+    Ok(Some(selected_attack))
 }
 
 pub fn configure_replay_stage_attack_args(

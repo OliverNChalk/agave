@@ -128,6 +128,18 @@ impl ActiveGenerator {
     pub fn is_active(&self) -> bool {
         self.current.is_some()
     }
+
+    /// Attacks involving expensive computations might be configured with
+    /// option to bypass execution. For that, they must be configured to fail
+    pub fn use_failed_transaction_hotpath(&self) -> bool {
+        if let Some(replay_stage_attack::Attack::WriteProgram(write_attack_config)) =
+            &self.current_attack
+        {
+            write_attack_config.use_failed_transaction_hotpath
+        } else {
+            false
+        }
+    }
 }
 
 /// Generates transfers between a set of accounts.
@@ -448,6 +460,7 @@ mod tests {
             transaction_batch_size: 32,
             num_accounts_per_tx: 8,
             transaction_cu_budget: 5000,
+            use_failed_transaction_hotpath: false,
         };
         let mut generate = generator_write_program(accounts, num_workers, config.clone());
 

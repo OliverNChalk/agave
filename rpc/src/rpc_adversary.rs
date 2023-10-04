@@ -1115,6 +1115,7 @@ pub mod tests {
                     transaction_batch_size: 0,
                     num_accounts_per_tx: 8,
                     transaction_cu_budget: 10000,
+                    use_failed_transaction_hotpath: false,
                 },
             )),
         };

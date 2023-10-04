@@ -315,6 +315,44 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         .value_name("ENUM STRING")
                         .possible_values(ReplayStageAttack::cli_names())
                         .help("Which replay attack to perform"),
+                )
+                .arg(
+                    Arg::with_name("transaction_batch_size")
+                        .long("transaction-batch-size")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<usize>)
+                        .default_value("1")
+                        .help("Number of transactions in a batch (entry) for replay execution."),
+                )
+                .arg(
+                    Arg::with_name("num_accounts_per_tx")
+                        .long("num-accounts-per-tx")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<usize>)
+                        .default_value("1")
+                        .help("Number of accounts a transaction access."),
+                )
+                .arg(
+                    Arg::with_name("transaction_cu_budget")
+                        .long("transaction-cu-budget")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<u32>)
+                        .default_value("1000")
+                        .help(
+                            "CU budget for a transaction. Setting this to lower than required \
+                             value might be used to make transaction to be invalid.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("use_failed_transaction_hotpath")
+                        .long("use-failed-transaction-hotpath")
+                        .takes_value(false)
+                        .help(
+                            "Enable hotpath to skip the execution on the invalidator node. This \
+                             requires invalid transactions which can be achieved by using too \
+                             small CU budget.",
+                        ),
                 ),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -466,10 +504,32 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_replay_stage_attack_write_program() {
+    fn test_cli_parse_replay_stage_attack_write_program_default_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &["writeProgram"],
             Attack::WriteProgram(WriteProgramConfig::default()),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_write_program_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "writeProgram",
+                "--use-failed-transaction-hotpath",
+                "--transaction-batch-size",
+                "32",
+                "--num-accounts-per-tx",
+                "8",
+                "--transaction-cu-budget",
+                "100",
+            ],
+            Attack::WriteProgram(WriteProgramConfig {
+                transaction_batch_size: 32,
+                num_accounts_per_tx: 8,
+                transaction_cu_budget: 100,
+                use_failed_transaction_hotpath: true,
+            }),
         );
     }
 }

@@ -112,6 +112,8 @@ impl AttackScheduler {
             };
 
             let num_generator_exec = active_generator.get_num_generator_exec_batch_size();
+            let use_failed_transaction_hotpath = active_generator.use_failed_transaction_hotpath();
+
             // Batch transactions to amortize decision cost.
             for _ in 0..num_generator_exec {
                 let (transactions, worker_index) = active_generator.generate_transactions(bank);
@@ -142,7 +144,7 @@ impl AttackScheduler {
                     max_ages: (0..tx_count)
                         .map(|_| scheduler_messages::MaxAge::MAX)
                         .collect(),
-                    use_failed_transaction_hotpath: false,
+                    use_failed_transaction_hotpath,
                 };
 
                 consume_work_senders[worker_index]

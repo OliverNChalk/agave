@@ -16,6 +16,10 @@ pub struct WriteProgramConfig {
     pub transaction_batch_size: usize,
     pub num_accounts_per_tx: usize,
     pub transaction_cu_budget: u32,
+    /// Attacks involving expensive computations might be configured with
+    /// option to bypass execution. For that, they must be configured to fail.
+    /// This might be achieved by requesting less `transaction_cu_budget` than required
+    pub use_failed_transaction_hotpath: bool,
 }
 
 // Default values are such that generated block can be replayed in ~400ms.
@@ -27,6 +31,7 @@ impl Default for WriteProgramConfig {
             transaction_batch_size: 1,
             num_accounts_per_tx: 1,
             transaction_cu_budget: 1_000,
+            use_failed_transaction_hotpath: false,
         }
     }
 }
