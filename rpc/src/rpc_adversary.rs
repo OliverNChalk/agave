@@ -395,9 +395,9 @@ impl Adversary for AdversaryImpl {
         meta: Self::Metadata,
         config: replay_stage_attack::AdversarialConfig,
     ) -> Result<()> {
-        self.perform_configuration(meta, || {
+        self.perform_configuration(meta.clone(), || {
             config
-                .validate()
+                .validate(meta.block_generator_config())
                 .map_err(|message| Error::invalid_params(message.to_string()))?;
             replay_stage_attack::set_config(config);
             Ok(())
@@ -460,12 +460,14 @@ pub mod tests {
         jsonrpc_core::{types::error::ErrorCode, MetaIoHandler, Response, Value},
         serial_test::serial,
         solana_adversary::{
+            accounts_file::AccountsFile,
             adversary_context::ADVERSARY_CONTEXT,
             adversary_feature_set::{
                 repair_packet_flood::{FloodConfig, FloodStrategy},
                 replay_stage_attack,
             },
             auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
+            block_generator_config::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
         },
         solana_keypair::Keypair,
         solana_ledger::genesis_utils::create_genesis_config,
@@ -475,7 +477,7 @@ pub mod tests {
         },
         solana_signer::Signer,
         solana_streamer::socket::SocketAddrSpace,
-        std::{net::SocketAddr, sync::Arc},
+        std::{iter, net::SocketAddr, sync::Arc},
     };
 
     fn setup_test_meta() -> (JsonRpcRequestProcessor, Keypair) {
@@ -1073,10 +1075,41 @@ pub mod tests {
     #[serial]
     fn test_adversary_configure_replay_stage_attack_transfer() {
         // To amortize setup cost, will run several tests with one setup
-        let (meta, keypair) = setup_test_meta();
+        let (mut meta, keypair) = setup_test_meta();
         let io = setup_test_io();
 
         let token = fetch_auth_token(meta.clone(), &io);
+
+        // Set invalid attack: no accounts have been specified
+        let config = replay_stage_attack::AdversarialConfig {
+            selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
+        };
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            String::from("Cannot launch attack: accounts configuration file was not setup up"),
+        );
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result = parse_failure_response(rsp);
+        assert_eq!(expected, result);
+
+        // setup accounts
+        let program_id = Pubkey::default();
+        let payers: Arc<Vec<Keypair>> =
+            Arc::new(iter::repeat_with(Keypair::new).take(128).collect());
+        let max_accounts: Arc<Vec<Keypair>> =
+            Arc::new(iter::repeat_with(Keypair::new).take(32).collect());
+        *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig {
+            accounts: BlockGeneratorAccountsOption::Accounts(Arc::new(
+                AccountsFile::with_payers_and_max_size(&program_id, &payers, &max_accounts),
+            )),
+        });
 
         // Set valid TransferRandom attack
         let config = replay_stage_attack::AdversarialConfig {

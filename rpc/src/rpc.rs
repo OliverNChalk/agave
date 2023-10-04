@@ -31,6 +31,7 @@ use {
             AccountIndex, AccountSecondaryIndexes, IndexKey, ScanConfig, ScanOrder, ScanResult,
         },
     },
+    solana_adversary::block_generator_config::BlockGeneratorConfig,
     solana_client::connection_cache::Protocol,
     solana_clock::{Slot, UnixTimestamp, MAX_PROCESSING_AGE},
     solana_commitment_config::{CommitmentConfig, CommitmentLevel},
@@ -288,6 +289,7 @@ pub struct JsonRpcRequestProcessor {
     runtime: Arc<Runtime>,
     serve_repair_socket: Arc<UdpSocket>,
     adversary_meta: JsonRpcAdversaryMeta,
+    block_generator_config: Option<BlockGeneratorConfig>,
 }
 impl Metadata for JsonRpcRequestProcessor {}
 
@@ -453,6 +455,7 @@ impl JsonRpcRequestProcessor {
         runtime: Arc<Runtime>,
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
+        block_generator_config: Option<BlockGeneratorConfig>,
     ) -> (Self, Receiver<TransactionInfo>) {
         let (transaction_sender, transaction_receiver) = unbounded();
         (
@@ -477,6 +480,7 @@ impl JsonRpcRequestProcessor {
                 runtime,
                 serve_repair_socket,
                 adversary_meta: JsonRpcAdversaryMeta::new(rpc_adversary_id),
+                block_generator_config,
             },
             transaction_receiver,
         )
@@ -564,6 +568,7 @@ impl JsonRpcRequestProcessor {
             runtime,
             serve_repair_socket: Arc::new(bind_to_unspecified().unwrap()),
             adversary_meta: JsonRpcAdversaryMeta::new(None),
+            block_generator_config: None,
         }
     }
 
@@ -589,6 +594,14 @@ impl JsonRpcRequestProcessor {
 
     pub fn adversary_meta_mut(&mut self) -> &mut JsonRpcAdversaryMeta {
         &mut self.adversary_meta
+    }
+
+    pub fn block_generator_config(&self) -> &Option<BlockGeneratorConfig> {
+        &self.block_generator_config
+    }
+
+    pub fn block_generator_config_mut(&mut self) -> &mut Option<BlockGeneratorConfig> {
+        &mut self.block_generator_config
     }
 
     pub async fn get_account_info(
@@ -4906,6 +4919,7 @@ pub mod tests {
                 service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
                 Arc::new(bind_to_unspecified().unwrap()),
                 None,
+                None,
             )
             .0;
 
@@ -6962,6 +6976,7 @@ pub mod tests {
             runtime.clone(),
             Arc::new(bind_to_unspecified().unwrap()),
             None,
+            None,
         );
 
         let client = Client::create_client(Some(runtime.handle().clone()), my_tpu_address, None, 1);
@@ -7290,6 +7305,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             runtime,
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
         );
 
@@ -9044,6 +9060,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
         );
 

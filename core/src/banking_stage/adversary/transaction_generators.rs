@@ -1,16 +1,16 @@
 //! Generators for testing banking stage
 
 use {
-    super::accounts_file::{AccountsFile, AccountsFileRaw},
-    crate::{
-        banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
-        validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
-    },
+    crate::banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
     block_generator_stress_test::BlockGeneratorStressTestInstruction,
     rand::{seq::SliceRandom, thread_rng, Rng},
-    solana_adversary::adversary_feature_set::{
-        replay_stage_attack,
-        replay_stage_attack::{Attack, WriteProgramConfig},
+    solana_adversary::{
+        accounts_file::AccountsFile,
+        adversary_feature_set::{
+            replay_stage_attack,
+            replay_stage_attack::{Attack, WriteProgramConfig},
+        },
+        block_generator_config::BlockGeneratorConfig,
     },
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_instruction::{AccountMeta, Instruction},
@@ -28,31 +28,6 @@ use {
 };
 
 pub type TransactionGenerator = Box<dyn Send + FnMut(&Bank) -> (Vec<SanitizedTransaction>, usize)>;
-
-impl From<BlockGeneratorAccountsOption> for Arc<AccountsFile> {
-    fn from(block_generator_config: BlockGeneratorAccountsOption) -> Arc<AccountsFile> {
-        match block_generator_config {
-            BlockGeneratorAccountsOption::AccountsPath(file_name) => {
-                let file_content = std::fs::read_to_string(file_name)
-                    .expect("Failed to read the accounts file.\nPath: {file_name}");
-                let accounts = serde_json::from_str::<AccountsFileRaw>(&file_content)
-                    .expect(
-                        "Failed to parse accounts file.\nPath: \
-                         {file_name}\nContent:\n{file_content}",
-                    )
-                    .into();
-                Arc::new(accounts)
-            }
-            BlockGeneratorAccountsOption::Accounts(account_file) => {
-                debug!(
-                    "Saving accounts for {} starting keypairs into 'payers' group",
-                    account_file.payers.len()
-                );
-                account_file
-            }
-        }
-    }
-}
 
 /// Encapsulate logic for managing selected generator
 pub struct ActiveGenerator {
@@ -150,12 +125,7 @@ fn generator_transfer_random(
     let mut worker_index = 0;
     Box::new(move |bank: &Bank| {
         const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
-
         let accounts = &accounts.payers;
-        assert!(
-            accounts.len() >= 2 * BATCH_SIZE,
-            "not enough accounts for random transfer generator"
-        );
 
         let mut transactions = vec![];
         let mut transfer_accounts = accounts.choose_multiple(&mut thread_rng(), 2 * BATCH_SIZE);
@@ -188,11 +158,6 @@ fn generator_create_nonce_accounts(
         let balance = Rent::default().minimum_balance(nonce_state::State::size());
 
         let accounts = &accounts.payers;
-        assert!(
-            accounts.len() >= BATCH_SIZE,
-            "not enough accounts for create nonce account generator"
-        );
-
         let mut transactions = vec![];
         let mut payers = accounts.choose_multiple(&mut thread_rng(), BATCH_SIZE);
         for _ in 0..BATCH_SIZE {
@@ -375,9 +340,9 @@ fn generator_write_program(
             config.transaction_batch_size
         );
     }
-    let program_id = accounts.owner_program_id.expect(
-        "Accounts owner program is not specified. Cannot generate write program transactions.",
-    );
+    let program_id = accounts
+        .owner_program_id
+        .expect("`owner_program_id` presense is checked during the config validation");
     let num_max_accounts = accounts.max_size.len();
     let accounts_meta: Vec<AccountMeta> = accounts
         .max_size
@@ -386,10 +351,6 @@ fn generator_write_program(
         .collect();
 
     let accounts_batch_size: usize = config.transaction_batch_size * config.num_accounts_per_tx;
-    assert!(
-        num_max_accounts >= accounts_batch_size,
-        "Accounts batch size {accounts_batch_size} is greater than the number of accounts provided"
-    );
 
     let mut batch_index = 0;
     // having index allows to use new payer for each run of the closure

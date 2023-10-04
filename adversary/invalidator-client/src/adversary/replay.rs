@@ -65,7 +65,7 @@ pub fn configure_replay_stage_attack_args(
     rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     let selected_attack = parse_replay_stage_attack_args(sub_matches)?;
-    let attack_config = ReplayStageAttackConfig::new(selected_attack)?;
+    let attack_config = ReplayStageAttackConfig { selected_attack };
     configure_replay_stage_attack(rpc_endpoint_url, attack_config, rpc_adversary_keypair)
 }
 

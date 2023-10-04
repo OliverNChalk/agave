@@ -2,16 +2,15 @@ use {
     agave_reserved_account_keys::ReservedAccountKeys,
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
-    solana_adversary::adversary_feature_set::replay_stage_attack,
+    solana_adversary::{
+        accounts_file::AccountsFile,
+        adversary_feature_set::replay_stage_attack,
+        block_generator_config::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
+    },
     solana_bincode::limited_deserialize,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
-    solana_core::{
-        banking_stage::adversary::accounts_file::AccountsFile,
-        validator::{
-            BlockGeneratorAccountsOption, BlockGeneratorConfig, InvalidatorConfig, ValidatorConfig,
-        },
-    },
+    solana_core::validator::{InvalidatorConfig, ValidatorConfig},
     solana_gossip::gossip_service::discover_validators,
     solana_keypair::Keypair,
     solana_local_cluster::{

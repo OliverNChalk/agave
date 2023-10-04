@@ -1,7 +1,9 @@
 use {
-    crate::validator::{BlockGeneratorAccountsOption, BlockGeneratorConfig},
     clap::{App, Arg, ArgMatches},
     indoc::indoc,
+    solana_adversary::block_generator_config::{
+        BlockGeneratorAccountsOption, BlockGeneratorConfig,
+    },
 };
 
 fn generate_blocks_with_accounts_arg<'a, 'b>() -> Arg<'a, 'b> {

@@ -2,7 +2,9 @@
 //! to investigate the effect on the replay stage performance.
 
 use {
+    crate::{accounts_file::AccountsFile, block_generator_config::BlockGeneratorConfig},
     solana_compute_budget::compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
+    std::sync::Arc,
     strum::VariantNames,
     strum_macros::{Display, EnumString, EnumVariantNames},
 };
@@ -71,32 +73,70 @@ pub struct AdversarialConfig {
 }
 
 impl AdversarialConfig {
-    pub fn new(selected_attack: Option<Attack>) -> Result<Self, String> {
-        let config = AdversarialConfig { selected_attack };
-        config.validate()?;
-        Ok(config)
-    }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if let Some(Attack::WriteProgram(attack)) = &self.selected_attack {
-            if attack.transaction_batch_size == 0 || attack.transaction_batch_size > 64 {
-                return Err(format!(
-                    "transaction_batch_size ({}) must be in range [1, 64]",
-                    attack.transaction_batch_size
-                ));
+    pub fn validate(&self, config: &Option<BlockGeneratorConfig>) -> Result<(), String> {
+        const MAX_TRANSACTIONS_PER_BATCH: usize = 64;
+        let Some(ref selected_attack) = self.selected_attack else {
+            return Ok(());
+        };
+        let Some(config) = config else {
+            return Err(
+                "Cannot launch attack: accounts configuration file was not setup up".to_string(),
+            );
+        };
+        let accounts = Arc::<AccountsFile>::from(config.clone().accounts);
+        match selected_attack {
+            Attack::CreateNonceAccounts => {
+                if accounts.payers.len() < MAX_TRANSACTIONS_PER_BATCH {
+                    return Err(format!(
+                        "Not enough accounts for create nonce account generator: required at \
+                         least {MAX_TRANSACTIONS_PER_BATCH}"
+                    ));
+                }
             }
-            if attack.num_accounts_per_tx == 0 || attack.num_accounts_per_tx > 48 {
-                return Err(format!(
-                    "number of accounts per transactions ({}) must be in range [1, 48]",
-                    attack.num_accounts_per_tx
-                ));
+            Attack::TransferRandom => {
+                if accounts.payers.len() < 2 * MAX_TRANSACTIONS_PER_BATCH {
+                    return Err(format!(
+                        "Not enough accounts for random transfer generator: required at least {}",
+                        2 * MAX_TRANSACTIONS_PER_BATCH
+                    ));
+                }
             }
-            if attack.transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
-                return Err(format!(
-                    "transaction_cu_budget ({}) is greater than max value ({})",
-                    attack.transaction_cu_budget, MAX_COMPUTE_UNIT_LIMIT
-                ));
+            Attack::WriteProgram(attack) => {
+                if accounts.owner_program_id.is_none() {
+                    return Err(
+                        "Accounts owner program is not specified. Cannot generate write program \
+                         transactions."
+                            .to_string(),
+                    );
+                }
+                let accounts_batch_size =
+                    attack.transaction_batch_size * attack.num_accounts_per_tx;
+                if accounts.max_size.len() < accounts_batch_size {
+                    return Err(format!(
+                        "Accounts batch size {accounts_batch_size} is greater than the number of \
+                         accounts provided"
+                    ));
+                }
+                if attack.transaction_batch_size == 0 || attack.transaction_batch_size > 64 {
+                    return Err(format!(
+                        "transaction_batch_size ({}) must be in range [1, 64]",
+                        attack.transaction_batch_size
+                    ));
+                }
+                if attack.num_accounts_per_tx == 0 || attack.num_accounts_per_tx > 48 {
+                    return Err(format!(
+                        "number of accounts per transactions ({}) must be in range [1, 48]",
+                        attack.num_accounts_per_tx
+                    ));
+                }
+                if attack.transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
+                    return Err(format!(
+                        "transaction_cu_budget ({}) is greater than max value ({})",
+                        attack.transaction_cu_budget, MAX_COMPUTE_UNIT_LIMIT
+                    ));
+                }
             }
+            _ => (),
         }
         Ok(())
     }

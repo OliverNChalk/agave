@@ -10,9 +10,10 @@ use {
             qos_service::QosService,
             BankingStage, ConsumeWorker, CrossbeamConsumeWorkerChannels,
         },
-        validator::{BlockGeneratorConfig, BlockProductionMethod},
+        validator::BlockProductionMethod,
     },
     crossbeam_channel::{unbounded, Receiver, Sender},
+    solana_adversary::block_generator_config::BlockGeneratorConfig,
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_poh::{poh_recorder::PohRecorder, transaction_recorder::TransactionRecorder},
     solana_runtime::{

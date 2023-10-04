@@ -26,7 +26,10 @@ use {
         RequestMiddlewareAction, ServerBuilder,
     },
     regex::Regex,
-    solana_adversary::auth::{AuthHeader, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
+    solana_adversary::{
+        auth::{AuthHeader, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
+        block_generator_config::BlockGeneratorConfig,
+    },
     solana_cli_output::display::build_balance_message,
     solana_client::{
         client_option::ClientOption,
@@ -634,6 +637,7 @@ pub struct JsonRpcServiceConfig<'a> {
     pub client_option: ClientOption<'a>,
     pub serve_repair_socket: Arc<UdpSocket>,
     pub rpc_adversary_id: Option<Pubkey>,
+    pub block_generator_config: Option<BlockGeneratorConfig>,
 }
 
 impl JsonRpcService {
@@ -687,6 +691,7 @@ impl JsonRpcService {
                     runtime,
                     config.serve_repair_socket,
                     config.rpc_adversary_id,
+                    config.block_generator_config,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -738,6 +743,7 @@ impl JsonRpcService {
                     runtime,
                     config.serve_repair_socket,
                     config.rpc_adversary_id,
+                    config.block_generator_config,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -768,6 +774,7 @@ impl JsonRpcService {
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
+        block_generator_config: Option<BlockGeneratorConfig>,
     ) -> Result<Self, String> {
         let runtime = service_runtime(
             config.rpc_threads,
@@ -817,6 +824,7 @@ impl JsonRpcService {
             runtime,
             serve_repair_socket,
             rpc_adversary_id,
+            block_generator_config,
         )?;
         Ok(json_rpc_service)
     }
@@ -852,6 +860,7 @@ impl JsonRpcService {
         runtime: Arc<TokioRuntime>,
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
+        block_generator_config: Option<BlockGeneratorConfig>,
     ) -> Result<Self, String> {
         info!("rpc bound to {rpc_addr:?}");
         info!("rpc configuration: {config:?}");
@@ -945,6 +954,7 @@ impl JsonRpcService {
             Arc::clone(&runtime),
             serve_repair_socket,
             rpc_adversary_id,
+            block_generator_config,
         );
         let _send_transaction_service = Arc::new(SendTransactionService::new_with_client(
             &bank_forks,
@@ -1176,6 +1186,7 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
         )
         .expect("assume successful JsonRpcService start");

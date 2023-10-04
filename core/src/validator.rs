@@ -5,7 +5,6 @@ use {
     crate::{
         admin_rpc_post_init::{AdminRpcRequestMetadataPostInit, KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            adversary::accounts_file::AccountsFile,
             transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
         },
         banking_trace::{self, BankingTracer, TraceError},
@@ -49,6 +48,7 @@ use {
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         utils::move_and_async_delete_path_contents,
     },
+    solana_adversary::block_generator_config::BlockGeneratorConfig,
     solana_client::{
         client_option::ClientOption,
         connection_cache::{ConnectionCache, Protocol},
@@ -259,7 +259,6 @@ impl TransactionStructure {
         "DEPRECATED: has no impact on banking stage; will be removed in a future version"
     }
 }
-
 #[derive(
     Clone, Debug, EnumVariantNames, IntoStaticStr, Display, Serialize, Deserialize, PartialEq, Eq,
 )]
@@ -294,22 +293,6 @@ impl SchedulerPacing {
             SchedulerPacing::FillTimeMillis(millis) => Some(Duration::from_millis(millis.get())),
         }
     }
-}
-
-/// Defines possible ways to specify setup accounts:
-/// * read accounts from file (used for private cluster or testnet)
-/// * use accounts provided as part of genesis (used for local cluster tests)
-#[derive(Clone, Debug)]
-pub enum BlockGeneratorAccountsOption {
-    AccountsPath(String),
-    // Arc to make it clonable which is needed for validator::new
-    Accounts(Arc<AccountsFile>),
-}
-
-/// Configuration for the block generator invalidator for replay.
-#[derive(Clone, Debug)]
-pub struct BlockGeneratorConfig {
-    pub accounts: BlockGeneratorAccountsOption,
 }
 
 /// Configuration for adversarial testing.
@@ -1280,6 +1263,7 @@ impl Validator {
                 client_option,
                 serve_repair_socket: serve_repair_socket.clone(),
                 rpc_adversary_id: config.invalidator_config.rpc_adversary_id,
+                block_generator_config: config.invalidator_config.block_generator_config.clone(),
             };
             let json_rpc_service =
                 JsonRpcService::new_with_config(rpc_svc_config).map_err(ValidatorError::Other)?;

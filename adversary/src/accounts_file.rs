@@ -80,6 +80,7 @@ struct KeypairRaw {
 
 impl From<KeypairRaw> for Keypair {
     fn from(raw: KeypairRaw) -> Self {
-        Self::new_from_array(raw.secret_key.try_into().unwrap())
+        assert_eq!(raw.secret_key.len(), 64);
+        Self::new_from_array(raw.secret_key[..32].try_into().unwrap())
     }
 }
