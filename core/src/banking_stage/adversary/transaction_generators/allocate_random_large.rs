@@ -13,28 +13,22 @@ use {
 };
 
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
+    // Large allocations are expensive, so keep batch size small.
+    const BATCH_SIZE: usize = 1;
+    const ACCOUNT_SIZE: u64 = MAX_PERMITTED_DATA_LENGTH;
+
     let mut worker_index = 0;
     Box::new(move |bank: &Bank| {
-        // Large allocations are expensive, so keep batch size small.
-        const BATCH_SIZE: usize = 1;
-        const ACCOUNT_SIZE: u64 = MAX_PERMITTED_DATA_LENGTH;
+        let blockhash = bank.last_blockhash();
 
-        let accounts = &accounts.payers;
-
-        let mut transactions = vec![];
-
-        let mut accounts = accounts.choose_multiple(&mut thread_rng(), BATCH_SIZE);
-        for _ in 0..BATCH_SIZE {
-            let transaction = system_transaction::allocate(
-                accounts.next().unwrap(),
-                &Keypair::new(),
-                bank.last_blockhash(),
-                ACCOUNT_SIZE,
-            );
-            transactions.push(SanitizedTransaction::from_transaction_for_tests(
-                transaction,
-            ));
-        }
+        let transactions = accounts
+            .payers
+            .choose_multiple(&mut thread_rng(), BATCH_SIZE)
+            .map(|account| {
+                system_transaction::allocate(account, &Keypair::new(), blockhash, ACCOUNT_SIZE)
+            })
+            .map(SanitizedTransaction::from_transaction_for_tests)
+            .collect::<Vec<_>>();
 
         let current_worker_index = worker_index;
         worker_index = (worker_index + 1) % num_workers;

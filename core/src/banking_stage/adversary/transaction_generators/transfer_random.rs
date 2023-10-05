@@ -3,6 +3,7 @@
 use {
     super::TransactionGenerator,
     crate::banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
+    itertools::Itertools,
     rand::{seq::SliceRandom, thread_rng},
     solana_adversary::accounts_file::AccountsFile,
     solana_runtime::bank::Bank,
@@ -13,25 +14,21 @@ use {
 };
 
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
+    const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+
     let mut worker_index = 0;
     Box::new(move |bank: &Bank| {
-        const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+        let blockhash = bank.last_blockhash();
 
-        let mut transactions = vec![];
-        let mut transfer_accounts = accounts
+        let transactions = accounts
             .payers
-            .choose_multiple(&mut thread_rng(), 2 * BATCH_SIZE);
-        for _ in 0..BATCH_SIZE {
-            let transaction = system_transaction::transfer(
-                transfer_accounts.next().unwrap(),
-                &transfer_accounts.next().unwrap().pubkey(),
-                1,
-                bank.last_blockhash(),
-            );
-            transactions.push(SanitizedTransaction::from_transaction_for_tests(
-                transaction,
-            ));
-        }
+            .choose_multiple(&mut thread_rng(), 2 * BATCH_SIZE)
+            .tuples()
+            .map(|(source, destination)| {
+                system_transaction::transfer(source, &destination.pubkey(), 1, blockhash)
+            })
+            .map(SanitizedTransaction::from_transaction_for_tests)
+            .collect::<Vec<_>>();
 
         let current_worker_index = worker_index;
         worker_index = (worker_index + 1) % num_workers;

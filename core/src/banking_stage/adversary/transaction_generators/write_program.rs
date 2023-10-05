@@ -45,37 +45,41 @@ pub(super) fn generator(
 
     let accounts_batch_size = config.transaction_batch_size * config.num_accounts_per_tx;
 
+    let num_batches = num_max_accounts / accounts_batch_size;
     let mut batch_index = 0;
+
     // We want to use a new payer for each run of the closure.
     // It is impossible to use cyclic iterator because it would reference payers.
     let mut payer_index = 0;
-    let num_batches = num_max_accounts / accounts_batch_size;
     Box::new(move |bank: &Bank| {
+        let blockhash = bank.last_blockhash();
+
         // Splits all the accounts into set of batches, which are evenly distributed among workers.
         let worker_index = batch_index % num_workers;
 
         let accounts_batch = {
-            let batch_begin = batch_index * accounts_batch_size;
-            let batch_end = batch_begin + accounts_batch_size;
-            &accounts_meta[batch_begin..batch_end]
+            let begin = batch_index * accounts_batch_size;
+            let end = begin + accounts_batch_size;
+            &accounts_meta[begin..end]
         };
 
-        let blockhash = bank.last_blockhash();
-        let mut transactions = Vec::with_capacity(config.transaction_batch_size);
-        for tx_accounts in accounts_batch.chunks(config.num_accounts_per_tx) {
-            let payer = &accounts.payers[payer_index];
-            let message = create_write_message(
-                payer,
-                &program_id,
-                tx_accounts,
-                config.transaction_cu_budget,
-            );
-            let transaction = Transaction::new(&[payer], message, blockhash);
-            transactions.push(SanitizedTransaction::from_transaction_for_tests(
-                transaction,
-            ));
-            payer_index = (payer_index + 1) % num_payers;
-        }
+        let transactions = accounts_batch
+            .chunks(config.num_accounts_per_tx)
+            .map(|tx_accounts| {
+                let payer = &accounts.payers[payer_index];
+                payer_index = (payer_index + 1) % num_payers;
+
+                let message = create_write_message(
+                    payer,
+                    &program_id,
+                    tx_accounts,
+                    config.transaction_cu_budget,
+                );
+                Transaction::new(&[payer], message, blockhash)
+            })
+            .map(SanitizedTransaction::from_transaction_for_tests)
+            .collect::<Vec<_>>();
+
         batch_index = (batch_index + 1) % num_batches;
         (transactions, worker_index)
     })
