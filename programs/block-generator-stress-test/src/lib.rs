@@ -99,8 +99,8 @@ mod test {
             &borsh::to_vec(&instruction).unwrap(),
         )
         .unwrap();
-        assert_eq!(accounts[0].data.borrow_mut()[0], 128u8);
-        assert_eq!(accounts[1].data.borrow_mut()[0], 128u8);
-        assert_eq!(accounts[2].data.borrow_mut()[0], 0u8);
+        assert_eq!(accounts[0].data.borrow()[0], 128u8);
+        assert_eq!(accounts[1].data.borrow()[0], 128u8);
+        assert_eq!(accounts[2].data.borrow()[0], 0u8);
     }
 }
