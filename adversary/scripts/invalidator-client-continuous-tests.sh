@@ -21,6 +21,7 @@ help_msg () {
   cat <<EOM
 $0 --runtime <runtime secs> --sleeptime <sleeptime secs>
   [--iterations <num iterations>] [--rpc-adversary-keypair <keypair path>]
+  [--attack-target {pubkey | IP}]
 EOM
 }
 
@@ -59,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       KEYPAIR="$2"
       shift 2
       ;;
+    --attack-target)
+      ATTACK_TARGET="$2"
+      shift 2
+      ;;
     --help)
       help
       ;;
@@ -79,6 +84,10 @@ fi
 if [ -n "$KEYPAIR" ]; then
   COMMON_ARGS="--rpc-adversary-keypair $KEYPAIR"
   REPAIR_SH_ARGS="$COMMON_ARGS"
+fi
+
+if [ -n "$ATTACK_TARGET" ]; then
+  REPAIR_SH_ARGS="$REPAIR_SH_ARGS --attack-target $ATTACK_TARGET"
 fi
 
 # Reduce ancestor hash sample size for smaller cluster size
