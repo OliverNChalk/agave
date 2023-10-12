@@ -603,6 +603,7 @@ pub mod tests {
                     "newEntryIndexFromEnd": 0,
                     "sendOriginalAfterMs": 0,
                     "sendDestinations": [],
+                    "turbineSendDelayMs": 0,
                 },
             },
             {
@@ -885,6 +886,7 @@ pub mod tests {
             num_duplicate_validators: 2,
             new_entry_index_from_end: 1,
             send_original_after_ms: 500,
+            turbine_send_delay_ms: 0,
             send_destinations: vec![],
         };
         let rsp = send_signed_request_sync(
@@ -906,6 +908,7 @@ pub mod tests {
             num_duplicate_validators: 3,
             new_entry_index_from_end: 2,
             send_original_after_ms: 0,
+            turbine_send_delay_ms: 0,
             send_destinations: vec![
                 Arc::new(vec![
                     SocketAddr::from(([127, 0, 0, 1], 234)),

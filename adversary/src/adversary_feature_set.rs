@@ -158,6 +158,8 @@ pub mod send_duplicate_blocks {
         pub new_entry_index_from_end: usize,
         /// Number of miliseconds to wait between sending out duplicates and original.
         pub send_original_after_ms: u64,
+        /// Number of miliseconds to wait before broadcasting first slot data.
+        pub turbine_send_delay_ms: u64,
         /// Allow sending original and different duplicate block to different network partitions.
         pub send_destinations: Vec<Arc<Vec<SocketAddr>>>,
     }

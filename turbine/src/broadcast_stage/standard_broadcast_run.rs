@@ -350,6 +350,7 @@ impl StandardBroadcastRun {
 
         let now = Instant::now();
 
+        // 1) We transitioned slots.
         if self.slot != bank.slot() {
             if !self.completed {
                 let shreds =
@@ -417,11 +418,15 @@ impl StandardBroadcastRun {
             }
         }
 
-        let send_time = if is_last_in_slot {
-            now.checked_add(Duration::from_millis(config.send_original_after_ms))
-                .unwrap_or(now)
+        // This delay is used in an attack where we try to partition the network by
+        // delivering the first block of one leader simultaneously with the first block of
+        // the next leader.
+        let turbine_send_delay_time = now + Duration::from_millis(config.turbine_send_delay_ms);
+        let send_after = if is_last_in_slot {
+            // Delay last entry so that duplicate version can propagate first.
+            turbine_send_delay_time + Duration::from_millis(config.send_original_after_ms)
         } else {
-            now
+            turbine_send_delay_time
         };
 
         let slot_progress_at_batch_start = SlotShreddingProgress::record(self);
@@ -438,7 +443,7 @@ impl StandardBroadcastRun {
                 MAX_CODE_SHREDS_PER_SLOT as u32,
                 0, // 0 means original blocks
                 bank.clone(),
-                send_time,
+                send_after,
                 &slot_progress_at_batch_start,
             )
             .expect("tried to generate a block that exceeds max shred count!")
@@ -465,6 +470,7 @@ impl StandardBroadcastRun {
                     .len()
                     .saturating_sub(config.new_entry_index_from_end),
             );
+            let send_after = turbine_send_delay_time;
             for validator_index in 0..config.num_duplicate_validators {
                 // Cut original entries into two parts, we will insert transaction in between.
                 let mut popped = new_entries.split_off(original_entries_to_keep);
@@ -492,7 +498,7 @@ impl StandardBroadcastRun {
                         MAX_CODE_SHREDS_PER_SLOT as u32,
                         validator_index + 1, // Duplicates start from index 1
                         bank.clone(),
-                        now,
+                        send_after,
                         &slot_progress_at_batch_start,
                     )
                     .expect("tried to generate a block that exceeds max shred count!")
@@ -515,7 +521,6 @@ impl StandardBroadcastRun {
             self.report_and_reset_stats(false);
             self.completed = true;
         }
-
         Ok(())
     }
 
@@ -828,6 +833,7 @@ mod test {
             num_duplicate_validators: 1,
             new_entry_index_from_end: 1,
             send_original_after_ms: 0,
+            turbine_send_delay_ms: 0,
             send_destinations: vec![],
         });
 
@@ -885,6 +891,7 @@ mod test {
             num_duplicate_validators: 1,
             new_entry_index_from_end: 1,
             send_original_after_ms: 0,
+            turbine_send_delay_ms: 0,
             send_destinations: vec![],
         };
         broadcast_duplicate_blocks_run
@@ -1037,6 +1044,7 @@ mod test {
                         num_duplicate_validators: 1,
                         new_entry_index_from_end: 1,
                         send_original_after_ms: 0,
+                        turbine_send_delay_ms: 0,
                         send_destinations: vec![],
                     },
                     &leader_keypair,
@@ -1099,6 +1107,7 @@ mod test {
                     num_duplicate_validators: 1,
                     new_entry_index_from_end: 1,
                     send_original_after_ms: 0,
+                    turbine_send_delay_ms: 0,
                     send_destinations: vec![],
                 },
                 &leader_keypair,
@@ -1277,6 +1286,7 @@ mod test {
             num_duplicate_validators: 2,
             new_entry_index_from_end: 1,
             send_original_after_ms: 0,
+            turbine_send_delay_ms: 0,
             send_destinations: vec![],
         };
         broadcast_duplicate_blocks_run
@@ -1338,5 +1348,67 @@ mod test {
                 3,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_delay_first_block_broadcast_out() {
+        // Setup
+        let turbine_send_delay_ms = 1600;
+        let num_shreds_per_slot = 2;
+        let (blockstore, genesis_config, _, bank0, leader_keypair, _, _) =
+            setup(num_shreds_per_slot);
+
+        // Insert complete slot of ticks needed to finish the slot
+        let tx0 = system_transaction::transfer(
+            &leader_keypair,
+            &Pubkey::new_unique(),
+            1,
+            Hash::default(),
+        );
+        let entry0 = Entry::new(&genesis_config.hash(), 1, vec![tx0]);
+        let mut ticks0 = create_ticks(genesis_config.ticks_per_slot, 0, entry0.hash);
+        ticks0.insert(0, entry0);
+        let receive_results0 = ReceiveResults {
+            entries: ticks0.clone(),
+            bank: bank0.clone(),
+            last_tick_height: (ticks0.len() - 1) as u64,
+        };
+
+        let mut broadcast_run = StandardBroadcastRun::new(0);
+        let config = AdversarialConfig {
+            num_duplicate_validators: 0,
+            new_entry_index_from_end: 0,
+            send_original_after_ms: 0,
+            turbine_send_delay_ms,
+            send_destinations: vec![],
+        };
+        let (bsend, _) = unbounded();
+        let (ssend, _) = unbounded();
+        let mut process_stats = ProcessShredsStats::default();
+        let shred_send_minimum = Instant::now() + Duration::from_millis(turbine_send_delay_ms);
+        broadcast_run
+            .process_receive_results(
+                &config,
+                &leader_keypair,
+                &blockstore,
+                &ssend,
+                &bsend,
+                receive_results0,
+                &mut process_stats,
+            )
+            .expect("process_receive_results failed");
+
+        assert!(!broadcast_run.shreds_to_send.is_empty());
+        for shred in broadcast_run.shreds_to_send.iter() {
+            assert!(
+                shred.send_after >= shred_send_minimum,
+                "All produced shreds must have `send_after` set at least `turbine_send_delay_ms` \
+                 ({}) ms in the future.\nGot a shred with `send_after`: {:?}\nExpected minimum: \
+                 {:?}",
+                turbine_send_delay_ms,
+                shred.send_after,
+                shred_send_minimum
+            );
+        }
     }
 }

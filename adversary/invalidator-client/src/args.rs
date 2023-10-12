@@ -199,6 +199,14 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         ),
                 )
                 .arg(
+                    Arg::with_name("turbine_send_delay_ms")
+                        .long("turbine-send-delay-ms")
+                        .takes_value(true)
+                        .value_name("MILLISECONDS")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Delay before broadcasting block in milliseconds"),
+                )
+                .arg(
                     Arg::with_name("send_destinations")
                         .long("send-destinations")
                         .takes_value(true)

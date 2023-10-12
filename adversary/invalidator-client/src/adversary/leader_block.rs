@@ -30,6 +30,7 @@ pub fn configure_send_duplicate_blocks_enable(
             num_duplicate_validators: 1,
             new_entry_index_from_end: 0,
             send_original_after_ms: 0,
+            turbine_send_delay_ms: 0,
             send_destinations: Vec::new(),
         },
         rpc_adversary_keypair,
@@ -64,6 +65,10 @@ pub fn configure_send_duplicate_blocks_args(
         .value_of("send_original_after_ms")
         .map(|s| s.parse::<u64>().unwrap())
         .unwrap_or_default();
+    let turbine_send_delay_ms = sub_matches
+        .value_of("turbine_send_delay_ms")
+        .map(|s| s.parse::<u64>().unwrap())
+        .unwrap_or_default();
     let send_destinations = sub_matches
         .value_of("send_destinations")
         .map(|send_destinations| {
@@ -91,6 +96,7 @@ pub fn configure_send_duplicate_blocks_args(
             num_duplicate_validators,
             new_entry_index_from_end,
             send_original_after_ms,
+            turbine_send_delay_ms,
             send_destinations,
         },
         rpc_adversary_keypair,

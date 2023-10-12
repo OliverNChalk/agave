@@ -158,6 +158,11 @@ commands=(
   "sleep $RUNTIME"
   "$BIN $COMMON_ARGS configure-replay-stage-attack"
   "sleep $SLEEPTIME"
+  "$BIN $COMMON_ARGS configure-send-duplicate-blocks \
+    --turbine-send-delay-ms 1600"
+  "sleep $RUNTIME"
+  "$BIN $COMMON_ARGS configure-send-duplicate-blocks"
+  "sleep $SLEEPTIME"
 )
 num_commands=${#commands[@]}
 
