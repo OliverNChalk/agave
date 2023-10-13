@@ -1,6 +1,6 @@
 use {
-    crate::rpc::JsonRpcRequestProcessor,
-    jsonrpc_core::{Error, Result},
+    crate::{rpc::JsonRpcRequestProcessor, rpc_service::AuthenticationMiddleware},
+    jsonrpc_core::{Error, MetaIoHandler, Result},
     jsonrpc_derive::rpc,
     lru::LruCache,
     rand::{thread_rng, Rng},
@@ -445,30 +445,23 @@ impl Adversary for AdversaryImpl {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+pub type MetaIoWithAuth = MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>;
+
+#[cfg(feature = "dev-context-only-utils")]
+pub mod test_helpers {
     use {
         super::*,
         crate::{
             rpc::{
-                tests::{create_test_request, parse_failure_response, parse_success_result},
+                test_helpers::{create_test_request, parse_success_result},
                 JsonRpcRequestProcessor,
             },
             rpc_service::AuthenticationMiddleware,
         },
         http::HeaderMap,
-        jsonrpc_core::{types::error::ErrorCode, MetaIoHandler, Response, Value},
-        serial_test::serial,
-        solana_adversary::{
-            accounts_file::AccountsFile,
-            adversary_context::ADVERSARY_CONTEXT,
-            adversary_feature_set::{
-                repair_packet_flood::{FloodConfig, FloodStrategy},
-                replay_stage_attack,
-            },
-            auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
-            block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
-        },
+        jsonrpc_core::{MetaIoHandler, Response},
+        serde_json::{json, Value},
+        solana_adversary::auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
         solana_keypair::Keypair,
         solana_ledger::genesis_utils::create_genesis_config,
         solana_runtime::bank::Bank,
@@ -477,22 +470,18 @@ pub mod tests {
         },
         solana_signer::Signer,
         solana_streamer::socket::SocketAddrSpace,
-        std::{iter, net::SocketAddr, sync::Arc},
     };
 
-    fn setup_test_meta() -> (JsonRpcRequestProcessor, Keypair) {
+    pub fn setup_test_no_auth() -> (JsonRpcRequestProcessor, Keypair, MetaIoWithAuth) {
         let genesis = create_genesis_config(100);
         let bank = Bank::new_for_tests(&genesis.genesis_config);
-        let processor = JsonRpcRequestProcessor::new_from_bank::<ConnectionCacheClient<NullTpuInfo>>(
+        let meta = JsonRpcRequestProcessor::new_from_bank::<ConnectionCacheClient<NullTpuInfo>>(
             bank,
             SocketAddrSpace::Unspecified,
         );
         let keypair = Keypair::new();
-        processor.adversary_meta().security.lock().unwrap().id = Some(keypair.pubkey());
-        (processor, keypair)
-    }
+        meta.adversary_meta().security.lock().unwrap().id = Some(keypair.pubkey());
 
-    fn setup_test_io() -> MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware> {
         let middleware = AuthenticationMiddleware::new(
             AdversaryImpl
                 .to_delegate()
@@ -503,13 +492,32 @@ pub mod tests {
         );
         let mut io = MetaIoHandler::with_middleware(middleware);
         io.extend_with(AdversaryImpl.to_delegate());
-        io
+
+        (meta, keypair, io)
     }
 
-    fn handle_request_sync(
-        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
+    pub fn setup_test() -> (
+        JsonRpcRequestProcessor,
+        Keypair,
+        MetaIoWithAuth,
+        JsonRpcAuthToken,
+    ) {
+        let (meta, keypair, io) = setup_test_no_auth();
+        let token = fetch_auth_token(meta.clone(), &io);
+        (meta, keypair, io, token)
+    }
+
+    fn fetch_auth_token(meta: JsonRpcRequestProcessor, io: &MetaIoWithAuth) -> JsonRpcAuthToken {
+        let request = create_test_request("fetchAuthToken", None);
+        let result: Value = parse_success_result(handle_request_sync(io, meta, request));
+        let token: JsonRpcAuthToken = serde_json::from_value(result).unwrap();
+        token
+    }
+
+    pub fn handle_request_sync(
+        io: &MetaIoWithAuth,
         meta: JsonRpcRequestProcessor,
-        request: serde_json::Value,
+        request: Value,
     ) -> Response {
         let response = io
             .handle_request_sync(&request.to_string(), meta)
@@ -517,19 +525,9 @@ pub mod tests {
         serde_json::from_str(&response).expect("failed to deserialize response")
     }
 
-    fn fetch_auth_token(
+    pub fn send_signed_request_sync<T: serde::Serialize>(
         meta: JsonRpcRequestProcessor,
-        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
-    ) -> JsonRpcAuthToken {
-        let request = create_test_request("fetchAuthToken", None);
-        let result: Value = parse_success_result(handle_request_sync(io, meta, request));
-        let token: JsonRpcAuthToken = serde_json::from_value(result).unwrap();
-        token
-    }
-
-    fn send_signed_request_sync<T: serde::Serialize>(
-        meta: JsonRpcRequestProcessor,
-        io: &MetaIoHandler<JsonRpcRequestProcessor, AuthenticationMiddleware>,
+        io: &MetaIoWithAuth,
         keypair: &Keypair,
         call: &str,
         token: &JsonRpcAuthToken,
@@ -545,12 +543,35 @@ pub mod tests {
         let request = create_test_request(call, Some(params));
         handle_request_sync(io, meta, request)
     }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use {
+        super::{
+            test_helpers::{
+                handle_request_sync, send_signed_request_sync, setup_test, setup_test_no_auth,
+            },
+            *,
+        },
+        crate::rpc::test_helpers::{
+            create_test_request, parse_failure_response, parse_success_result,
+        },
+        http::HeaderMap,
+        serde_json::{json, Value},
+        serial_test::serial,
+        solana_adversary::{
+            adversary_context::ADVERSARY_CONTEXT,
+            adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
+            auth::HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH,
+        },
+        std::{net::SocketAddr, sync::Arc},
+    };
 
     #[test]
     #[serial]
     fn test_adversary_get_status() {
-        let (meta, _) = setup_test_meta();
-        let io = setup_test_io();
+        let (meta, _, io) = setup_test_no_auth();
 
         let expected_result = json!(
             [{
@@ -620,10 +641,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_fetch_auth_token() {
-        let (mut meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (mut meta, keypair, io, token) = setup_test();
 
         let payload = repair_packet_flood::AdversarialConfig {
             configs: vec![FloodConfig {
@@ -680,10 +698,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_example() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config for example, ensuring that request succeeds
         let config = example::AdversarialConfig { example_num: 313 };
@@ -721,10 +736,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_repair_packet_flood() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config for example, ensuring that request succeeds
         let config = repair_packet_flood::AdversarialConfig {
@@ -833,10 +845,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_shred_receiver_address() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config, ensuring that request succeeds
         let config = shred_receiver_address::AdversarialConfig {
@@ -876,10 +885,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_send_duplicate_blocks() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config for send_duplicate_packets, ensuring that request succeeds
         let config = send_duplicate_blocks::AdversarialConfig {
@@ -948,10 +954,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_drop_turbine_votes() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config, ensuring that request succeeds
         let mut config = drop_turbine_votes::AdversarialConfig::default();
@@ -978,10 +981,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_invalidate_leader_block() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config for invalidate_leader_block, ensuring that request succeeds
         let config = invalidate_leader_block::AdversarialConfig {
@@ -1036,10 +1036,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_adversary_configure_packet_drop_parameters() {
-        let (meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
+        let (meta, keypair, io, token) = setup_test();
 
         // Update the config for network_parameters, ensuring that request succeeds
         let config = packet_drop_parameters::AdversarialConfig {
@@ -1072,109 +1069,5 @@ pub mod tests {
         );
         let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
-    }
-
-    #[test]
-    #[serial]
-    fn test_adversary_configure_replay_stage_attack_transfer() {
-        // To amortize setup cost, will run several tests with one setup
-        let (mut meta, keypair) = setup_test_meta();
-        let io = setup_test_io();
-
-        let token = fetch_auth_token(meta.clone(), &io);
-
-        // Set invalid attack: no accounts have been specified
-        let config = replay_stage_attack::AdversarialConfig {
-            selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
-        };
-        let expected = (
-            ErrorCode::InvalidParams.code(),
-            String::from("Cannot launch attack: accounts configuration file was not setup up"),
-        );
-        let rsp = send_signed_request_sync(
-            meta.clone(),
-            &io,
-            &keypair,
-            "configureReplayStageAttack",
-            &token,
-            &config,
-        );
-        let result = parse_failure_response(rsp);
-        assert_eq!(expected, result);
-
-        // setup accounts
-        let program_id = Pubkey::default();
-        let payers: Arc<Vec<Keypair>> =
-            Arc::new(iter::repeat_with(Keypair::new).take(128).collect());
-        let max_accounts: Arc<Vec<Keypair>> =
-            Arc::new(iter::repeat_with(Keypair::new).take(32).collect());
-        *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig {
-            accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
-                AccountsFile::with_payers_and_max_size(&program_id, &payers, &max_accounts),
-            )),
-        });
-
-        // Set valid TransferRandom attack
-        let config = replay_stage_attack::AdversarialConfig {
-            selected_attack: Some(replay_stage_attack::Attack::TransferRandom),
-        };
-        let rsp = send_signed_request_sync(
-            meta.clone(),
-            &io,
-            &keypair,
-            "configureReplayStageAttack",
-            &token,
-            &config,
-        );
-        let result: Value = parse_success_result(rsp);
-        assert_eq!(result, json!(null));
-        // Confirm that the config update is reflected internally
-        assert_eq!(config, replay_stage_attack::get_config());
-
-        // Reset the config
-        let config = replay_stage_attack::AdversarialConfig::default();
-        let rsp = send_signed_request_sync(
-            meta.clone(),
-            &io,
-            &keypair,
-            "configureReplayStageAttack",
-            &token,
-            &config,
-        );
-        let result: Value = parse_success_result(rsp);
-        assert_eq!(result, json!(null));
-
-        // Set WriteProgram attack with invalid parameters
-        let config = replay_stage_attack::AdversarialConfig {
-            selected_attack: Some(replay_stage_attack::Attack::WriteProgram(
-                replay_stage_attack::WriteProgramConfig {
-                    transaction_batch_size: 0,
-                    num_accounts_per_tx: 8,
-                    transaction_cu_budget: 10000,
-                    use_failed_transaction_hotpath: false,
-                },
-            )),
-        };
-        let expected = (
-            ErrorCode::InvalidParams.code(),
-            String::from("transaction_batch_size (0) must be in range [1, 64]"),
-        );
-        {
-            let rsp = send_signed_request_sync(
-                meta.clone(),
-                &io,
-                &keypair,
-                "configureReplayStageAttack",
-                &token,
-                &config,
-            );
-            let result = parse_failure_response(rsp);
-            assert_eq!(expected, result);
-        }
-        // Confirm that the invalid config didn't change the state.
-        assert_eq!(
-            replay_stage_attack::AdversarialConfig::default(),
-            replay_stage_attack::get_config()
-        );
     }
 }

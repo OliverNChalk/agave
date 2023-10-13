@@ -137,7 +137,7 @@ pub struct JsonRpcService {
     client_updater: Arc<dyn NotifyKeyUpdate + Send + Sync>,
 }
 
-pub(crate) struct AuthenticationMiddleware {
+pub struct AuthenticationMiddleware {
     authenticated_calls: Vec<String>,
 }
 

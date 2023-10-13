@@ -116,8 +116,23 @@ fn create_write_message(
 mod tests {
     use {
         super::*,
+        crate::banking_stage::adversary::test_helpers::{setup_accounts, setup_test},
+        jsonrpc_core::{types::error::ErrorCode, Value},
+        serde_json::json,
+        serial_test::serial,
+        solana_adversary::{
+            accounts_file::AccountsFile,
+            adversary_feature_set::replay_stage_attack::{
+                get_config, AdversarialConfig, Attack, WriteProgramConfig,
+            },
+        },
         solana_ledger::genesis_utils::GenesisConfigInfo,
+        solana_rpc::{
+            rpc::test_helpers::{parse_failure_response, parse_success_result},
+            rpc_adversary::test_helpers::send_signed_request_sync,
+        },
         solana_runtime::{bank::Bank, genesis_utils::create_genesis_config},
+        std::sync::Arc,
     };
 
     fn create_test_bank() -> Arc<Bank> {
@@ -171,5 +186,114 @@ mod tests {
                 Some(&owner_program_id)
             );
         }
+    }
+
+    // TODO `[serial]` is necessary as the RPC configuration is a global singleton.  It would be
+    // nice to move a to a more composable architecture and remove `[serial]`.
+    #[test]
+    #[serial]
+    fn rpc_config_invalid() {
+        let (mut meta, keypair, io, token) = setup_test();
+
+        setup_accounts(&mut meta, 128, 32);
+
+        let config = AdversarialConfig {
+            selected_attack: Some(Attack::WriteProgram(WriteProgramConfig {
+                transaction_batch_size: 0,
+                num_accounts_per_tx: 8,
+                transaction_cu_budget: 10000,
+                use_failed_transaction_hotpath: false,
+            })),
+        };
+
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result = parse_failure_response(rsp);
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            "transaction_batch_size (0) must be in range [1, 64]".into(),
+        );
+        assert_eq!(result, expected);
+        assert_eq!(
+            AdversarialConfig::default(),
+            get_config(),
+            "Invalid config update should not change the config"
+        );
+    }
+
+    // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
+    #[test]
+    #[serial]
+    fn rpc_config_not_enough_payer_accounts() {
+        let (mut meta, keypair, io, token) = setup_test();
+
+        setup_accounts(&mut meta, 2, 1);
+
+        let config = AdversarialConfig {
+            selected_attack: Some(Attack::WriteProgram(WriteProgramConfig {
+                transaction_batch_size: 4,
+                num_accounts_per_tx: 8,
+                transaction_cu_budget: 10000,
+                use_failed_transaction_hotpath: false,
+            })),
+        };
+        let response = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result = parse_failure_response(response);
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            "Accounts batch size 32 is greater than the number of accounts provided".into(),
+        );
+        assert_eq!(result, expected);
+        assert_eq!(
+            AdversarialConfig::default(),
+            get_config(),
+            "Invalid config update should not change the config"
+        );
+    }
+
+    // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
+    #[test]
+    #[serial]
+    fn rpc_config_valid() {
+        let (mut meta, keypair, io, token) = setup_test();
+
+        setup_accounts(&mut meta, 128, 32);
+
+        let config = AdversarialConfig {
+            selected_attack: Some(Attack::WriteProgram(WriteProgramConfig {
+                transaction_batch_size: 4,
+                num_accounts_per_tx: 8,
+                transaction_cu_budget: 10000,
+                use_failed_transaction_hotpath: false,
+            })),
+        };
+        let response = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(response);
+        assert_eq!(result, json!(null));
+        assert_eq!(
+            config,
+            get_config(),
+            "Config update must be reflected internally"
+        );
     }
 }

@@ -8174,6 +8174,7 @@ dependencies = [
  "histogram",
  "indoc",
  "itertools 0.12.1",
+ "jsonrpc-core",
  "libc",
  "log",
  "lru",

@@ -21,6 +21,7 @@ agave-unstable-api = []
 dev-context-only-utils = [
     "solana-ledger/dev-context-only-utils",
     "solana-rpc/dev-context-only-utils",
+    "solana-send-transaction-service/dev-context-only-utils",
 ]
 
 [dependencies]

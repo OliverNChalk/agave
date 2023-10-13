@@ -204,6 +204,7 @@ agave-reserved-account-keys = { workspace = true }
 bencher = { workspace = true }
 criterion = { workspace = true }
 fs_extra = { workspace = true }
+jsonrpc-core = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 solana-account = { workspace = true, features = ["dev-context-only-utils"] }

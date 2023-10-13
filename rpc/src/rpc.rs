@@ -122,7 +122,7 @@ use {
     },
     tokio::runtime::Runtime,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-context-only-utils"))]
 use {
     solana_gossip::contact_info::ContactInfo,
     solana_ledger::get_tmp_ledger_path,
@@ -486,7 +486,7 @@ impl JsonRpcRequestProcessor {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-context-only-utils"))]
     pub fn new_from_bank<Client: ClientWithCreator>(
         bank: Bank,
         socket_addr_space: SocketAddrSpace,
@@ -4585,11 +4585,65 @@ pub fn populate_blockstore_for_tests(
     transaction_status_service.quiesce_and_join_for_tests(tss_exit);
 }
 
+pub mod test_helpers {
+    use {
+        jsonrpc_core::{Output, Response},
+        serde::de::DeserializeOwned,
+        serde_json::json,
+    };
+
+    pub fn create_test_request(
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> serde_json::Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1u64,
+            "method": method,
+            "params": params,
+        })
+    }
+
+    #[track_caller]
+    pub fn parse_success_result<T: DeserializeOwned>(response: Response) -> T {
+        if let Response::Single(output) = response {
+            match output {
+                Output::Success(success) => serde_json::from_value(success.result).unwrap(),
+                Output::Failure(failure) => {
+                    panic!("Expected success but received: {failure:?}");
+                }
+            }
+        } else {
+            panic!("Expected single response");
+        }
+    }
+
+    #[track_caller]
+    pub fn parse_failure_response(response: Response) -> (i64, String) {
+        if let Response::Single(output) = response {
+            match output {
+                Output::Success(success) => {
+                    panic!("Expected failure but received: {success:?}");
+                }
+                Output::Failure(failure) => (failure.error.code.code(), failure.error.message),
+            }
+        } else {
+            panic!("Expected single response");
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use {
         super::{
-            rpc_accounts::*, rpc_accounts_scan::*, rpc_bank::*, rpc_full::*, rpc_minimal::*, *,
+            rpc_accounts::*,
+            rpc_accounts_scan::*,
+            rpc_bank::*,
+            rpc_full::*,
+            rpc_minimal::*,
+            test_helpers::{create_test_request, parse_failure_response, parse_success_result},
+            *,
         },
         crate::{
             optimistically_confirmed_bank_tracker::{
@@ -4600,9 +4654,8 @@ pub mod tests {
         },
         agave_reserved_account_keys::ReservedAccountKeys,
         bincode::deserialize,
-        jsonrpc_core::{futures, ErrorCode, MetaIoHandler, Output, Response, Value},
+        jsonrpc_core::{futures, ErrorCode, MetaIoHandler, Response, Value},
         jsonrpc_core_client::transports::local,
-        serde::de::DeserializeOwned,
         solana_account::{state_traits::StateMut, Account, WritableAccount},
         solana_accounts_db::accounts_db::{AccountsDbConfig, ACCOUNTS_DB_CONFIG_FOR_TESTING},
         solana_address_lookup_table_interface::{
@@ -4694,46 +4747,6 @@ pub mod tests {
             solana_time_utils::timestamp(), // wallclock
         );
         ClusterInfo::new(contact_info, keypair, SocketAddrSpace::Unspecified)
-    }
-
-    pub(crate) fn create_test_request(
-        method: &str,
-        params: Option<serde_json::Value>,
-    ) -> serde_json::Value {
-        json!({
-            "jsonrpc": "2.0",
-            "id": 1u64,
-            "method": method,
-            "params": params,
-        })
-    }
-
-    #[track_caller]
-    pub(crate) fn parse_success_result<T: DeserializeOwned>(response: Response) -> T {
-        if let Response::Single(output) = response {
-            match output {
-                Output::Success(success) => serde_json::from_value(success.result).unwrap(),
-                Output::Failure(failure) => {
-                    panic!("Expected success but received: {failure:?}");
-                }
-            }
-        } else {
-            panic!("Expected single response");
-        }
-    }
-
-    #[track_caller]
-    pub(crate) fn parse_failure_response(response: Response) -> (i64, String) {
-        if let Response::Single(output) = response {
-            match output {
-                Output::Success(success) => {
-                    panic!("Expected failure but received: {success:?}");
-                }
-                Output::Failure(failure) => (failure.error.code.code(), failure.error.message),
-            }
-        } else {
-            panic!("Expected single response");
-        }
     }
 
     fn expected_loaded_accounts_data_size(bank: &Bank, tx: &Transaction) -> u32 {
