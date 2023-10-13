@@ -15,8 +15,19 @@ use {
     std::sync::Arc,
 };
 
+const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+
+pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
+    if accounts.payers.len() < BATCH_SIZE {
+        return Err(format!(
+            "Not enough `payer` accounts: need at least {BATCH_SIZE}",
+        ));
+    }
+
+    Ok(())
+}
+
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
     let balance = Rent::default().minimum_balance(nonce::state::State::size());
 
     let mut worker_index = 0;

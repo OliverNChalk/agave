@@ -13,9 +13,20 @@ use {
     std::sync::Arc,
 };
 
-pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
 
+pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
+    if accounts.payers.len() < 2 * BATCH_SIZE {
+        return Err(format!(
+            "Not enough `payer` accounts: need at least {}",
+            2 * BATCH_SIZE
+        ));
+    }
+
+    Ok(())
+}
+
+pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
     let mut worker_index = 0;
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();

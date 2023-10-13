@@ -5,8 +5,10 @@ use {
     block_generator_stress_test::BlockGeneratorStressTestInstruction,
     rand::{thread_rng, Rng},
     solana_adversary::{
-        accounts_file::AccountsFile, adversary_feature_set::replay_stage_attack::WriteProgramConfig,
+        accounts_file::AccountsFile,
+        adversary_feature_set::replay_stage_attack::{Attack, WriteProgramConfig},
     },
+    solana_compute_budget::compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_instruction::{AccountMeta, Instruction},
     solana_keypair::Keypair,
@@ -17,6 +19,61 @@ use {
     solana_transaction::{sanitized::SanitizedTransaction, Transaction},
     std::sync::Arc,
 };
+
+pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
+    let Attack::WriteProgram(attack) = attack else {
+        panic!("Unexpected Attack passed into `write_program::verify`: {attack:?}",);
+    };
+
+    let WriteProgramConfig {
+        transaction_batch_size,
+        num_accounts_per_tx,
+        transaction_cu_budget,
+        ..
+    } = *attack;
+
+    if accounts.owner_program_id.is_none() {
+        return Err("`owner_program_id` must be set.".to_string());
+    }
+
+    let batch_size = transaction_batch_size * num_accounts_per_tx;
+
+    let payers_len = accounts.payers.len();
+    if payers_len < batch_size {
+        return Err(format!(
+            "Not enough \"payer\" accounts: need at least {batch_size}\n\"payer\" accounts: \
+             {payers_len}"
+        ));
+    }
+
+    let max_size_len = accounts.max_size.len();
+    if max_size_len < batch_size {
+        return Err(format!(
+            "Batch size (`transaction_batch_size` * `num_accounts_per_tx`) must be less than the \
+             number of \"max_size\" accounts.\nBatch size: {batch_size}\n\"max_size\" accounts: \
+             {max_size_len}",
+        ));
+    }
+
+    if transaction_batch_size == 0 || transaction_batch_size > 64 {
+        return Err(format!(
+            "`transaction_batch_size` ({transaction_batch_size}) must be in range [1, 64]",
+        ));
+    }
+    if num_accounts_per_tx == 0 || num_accounts_per_tx > 48 {
+        return Err(format!(
+            "`num_accounts_per_tx` ({num_accounts_per_tx}) must be in range [1, 48]",
+        ));
+    }
+    if transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
+        return Err(format!(
+            "`transaction_cu_budget` ({transaction_cu_budget}) is greater than max value \
+             ({MAX_COMPUTE_UNIT_LIMIT})",
+        ));
+    }
+
+    Ok(())
+}
 
 pub(super) fn generator(
     accounts: Arc<AccountsFile>,
@@ -217,7 +274,7 @@ mod tests {
         let result = parse_failure_response(rsp);
         let expected = (
             ErrorCode::InvalidParams.code(),
-            "transaction_batch_size (0) must be in range [1, 64]".into(),
+            "`transaction_batch_size` (0) must be in range [1, 64]".into(),
         );
         assert_eq!(result, expected);
         assert_eq!(
@@ -254,7 +311,7 @@ mod tests {
         let result = parse_failure_response(response);
         let expected = (
             ErrorCode::InvalidParams.code(),
-            "Accounts batch size 32 is greater than the number of accounts provided".into(),
+            "Not enough \"payer\" accounts: need at least 32\n\"payer\" accounts: 2".into(),
         );
         assert_eq!(result, expected);
         assert_eq!(

@@ -397,7 +397,7 @@ impl Adversary for AdversaryImpl {
     ) -> Result<()> {
         self.perform_configuration(meta.clone(), || {
             config
-                .validate(meta.block_generator_config())
+                .verify(meta.block_generator_config())
                 .map_err(|message| Error::invalid_params(message.to_string()))?;
             replay_stage_attack::set_config(config);
             Ok(())

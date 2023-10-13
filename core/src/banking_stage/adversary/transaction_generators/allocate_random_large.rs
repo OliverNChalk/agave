@@ -12,9 +12,20 @@ use {
     std::sync::Arc,
 };
 
+// Large allocations are expensive, so keep batch size small.
+const BATCH_SIZE: usize = 1;
+
+pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
+    if accounts.payers.len() < BATCH_SIZE {
+        return Err(format!(
+            "Not enough `payer` accounts: need at least {BATCH_SIZE}",
+        ));
+    }
+
+    Ok(())
+}
+
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    // Large allocations are expensive, so keep batch size small.
-    const BATCH_SIZE: usize = 1;
     const ACCOUNT_SIZE: u64 = MAX_PERMITTED_DATA_LENGTH;
 
     let mut worker_index = 0;

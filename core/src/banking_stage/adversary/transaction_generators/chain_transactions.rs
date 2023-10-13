@@ -11,8 +11,21 @@ use {
     std::{iter::zip, sync::Arc},
 };
 
+const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+
+pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
+    // We need at least two batches, for the attack to make sense.
+    if accounts.payers.len() < 2 * BATCH_SIZE {
+        return Err(format!(
+            "Not enough `payer` accounts: need at least {}",
+            2 * BATCH_SIZE
+        ));
+    }
+
+    Ok(())
+}
+
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
     const TRANSFER_AMOUNT: u64 = 1;
 
     // Splits all the accounts into set of batches, which are evenly distributed among workers.

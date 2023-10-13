@@ -10,12 +10,12 @@ use {
     std::sync::Arc,
 };
 
-mod allocate_random_large;
-mod allocate_random_small;
-mod chain_transactions;
-mod create_nonce_accounts;
-mod transfer_random;
-mod write_program;
+pub(super) mod allocate_random_large;
+pub(super) mod allocate_random_small;
+pub(super) mod chain_transactions;
+pub(super) mod create_nonce_accounts;
+pub(super) mod transfer_random;
+pub(super) mod write_program;
 
 /// Attacks are essentially sequences of transactions.  Each will have a function that is
 /// responsible for generating these transactions, and those functions will adhere to this type.

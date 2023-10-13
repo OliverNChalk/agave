@@ -5,7 +5,7 @@ use {
     crate::{
         admin_rpc_post_init::{AdminRpcRequestMetadataPostInit, KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
+            self, transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
         },
         banking_trace::{self, BankingTracer, TraceError},
         cluster_info_vote_listener::VoteTracker,
@@ -1240,6 +1240,9 @@ impl Validator {
                 };
                 ClientOption::ConnectionCache(connection_cache.clone())
             };
+            // Invalidator RPC API exposed by the `JsonRpcService::new()` needs this global verifier
+            // registration to happen before the very first RPC call.
+            banking_stage::adversary::register_attack_config_verifiers();
             let rpc_svc_config = JsonRpcServiceConfig {
                 rpc_addr,
                 rpc_config: config.rpc_config.clone(),

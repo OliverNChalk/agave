@@ -5855,6 +5855,7 @@ dependencies = [
  "enum-iterator",
  "futures 0.3.31",
  "http 0.2.12",
+ "itertools 0.12.1",
  "jsonrpc-core",
  "log",
  "rand 0.8.5",
@@ -5887,6 +5888,7 @@ dependencies = [
  "solana-validator-exit",
  "strum",
  "strum_macros",
+ "thiserror 2.0.17",
  "toml 0.8.12",
 ]
 

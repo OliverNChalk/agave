@@ -6,9 +6,56 @@ pub(crate) mod failed_transaction_hotpath;
 pub mod invalidate_leader_block_attack;
 pub mod transaction_generators;
 
+use {
+    solana_adversary::adversary_feature_set::replay_stage_attack::Attack,
+    std::{file, line},
+};
+
+/// Provides late binding for the attack configuration verification code in `adversary`.
+///
+/// `adversary` crate can not rely on the `core` crate, and thus, can not use compile time binding
+/// to call different validation functions.
+pub(crate) fn register_attack_config_verifiers() {
+    macro_rules! verify_accounts {
+        ($name:literal, $attack_module:ident) => {
+            Attack::register_config_verifier(
+                $name,
+                concat!(file!(), ":", line!()),
+                Box::new(move |accounts, _attack| {
+                    transaction_generators::$attack_module::verify(accounts)
+                }),
+            )
+            .expect("Successful registration");
+        };
+    }
+
+    macro_rules! verify_accounts_and_attack_config {
+        ($name:literal, $attack_module:ident) => {
+            Attack::register_config_verifier(
+                $name,
+                concat!(file!(), ":", line!()),
+                Box::new(move |accounts, attack| {
+                    transaction_generators::$attack_module::verify(accounts, attack)
+                }),
+            )
+            .expect("Successful registration");
+        };
+    }
+
+    verify_accounts!("transferRandom", transfer_random);
+    verify_accounts!("createNonceAccounts", create_nonce_accounts);
+    verify_accounts!("allocateRandomLarge", allocate_random_large);
+    verify_accounts!("allocateRandomSmall", allocate_random_small);
+    verify_accounts!("chainTransactions", chain_transactions);
+    verify_accounts_and_attack_config!("writeProgram", write_program);
+
+    Attack::end_verifier_registration().expect("All config verifiers are registered");
+}
+
 #[cfg(test)]
 mod test_helpers {
     use {
+        super::register_attack_config_verifiers,
         solana_adversary::{
             accounts_file::AccountsFile,
             adversary_feature_set::replay_stage_attack::{set_config, AdversarialConfig},
@@ -25,7 +72,8 @@ mod test_helpers {
     };
 
     /// Should be used instead of [`solana_rpc::rpc_adversary::setup_test()`], as resets the global
-    /// replay attack configuration state to the default at the beginning of each test.
+    /// replay attack configuration state to the default at the beginning of each test.  And runs
+    /// [`register_attack_config_verifiers()`], to allow correct RPC endpoint verification in tests.
     ///
     /// This only applies to tests that configure replay stage attacks.
     pub(super) fn setup_test() -> (
@@ -38,6 +86,8 @@ mod test_helpers {
         // So we clean it every time we setup test environment.
         // We should switch to a more composable design for the configuration.
         set_config(AdversarialConfig::default());
+
+        register_attack_config_verifiers();
 
         setup_test_from_rpc()
     }

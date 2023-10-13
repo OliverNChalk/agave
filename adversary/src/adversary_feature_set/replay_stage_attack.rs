@@ -1,12 +1,28 @@
-//! Groups of attacks which are using artificially generated blocks
-//! to investigate the effect on the replay stage performance.
+//! Groups of attacks which are using artificially generated blocks to investigate the effect on the
+//! replay stage performance.
+//!
+//! Individual attacks may have configuration and constraints on when they can be executed.  Those
+//! are expressed as configuration verifiers, that need to be registered via an
+//! [`Attacks::register_verifier()`] call.  This is effectively a late binding.
+//!
+//! It would be nice to be able to call individual attack config verifiers directly.  But they are
+//! defined in the `solana_core` crate, and `adversary` crate can not directly depend on it.  So we
+//! have to use late binding.
+//!
+//! We may want to replace [`Attack`] with an open enum, that is populated in a way similar to the
+//! current verifiers setup.  Making both configuration and execution of the attack fully defined in
+//! a single location, removing all attack specific code from this module.
 
 use {
     crate::{accounts_file::AccountsFile, block_generator_config::BlockGeneratorConfig},
-    solana_compute_budget::compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
-    std::sync::Arc,
+    itertools::Itertools,
+    std::{
+        collections::{hash_map, HashMap},
+        sync::{Arc, LazyLock, Mutex},
+    },
     strum::VariantNames,
-    strum_macros::{Display, EnumString, EnumVariantNames},
+    strum_macros::{AsRefStr, Display, EnumString, EnumVariantNames},
+    thiserror::Error,
 };
 
 pub const ID: &str = "replay_stage_attack";
@@ -43,6 +59,7 @@ impl Default for WriteProgramConfig {
     Debug,
     Display,
     Eq,
+    AsRefStr,
     EnumString,
     EnumVariantNames,
     PartialEq,
@@ -60,9 +77,125 @@ pub enum Attack {
     WriteProgram(WriteProgramConfig),
 }
 
+pub type AttackConfigVerifier =
+    Box<dyn Fn(&AccountsFile, &Attack) -> Result<(), String> + Send + 'static>;
+
+#[derive(Error, Debug)]
+pub enum VerifierRegistrationError {
+    #[error("No Attack member exists named '{0}'.")]
+    UnexpectedName(&'static str),
+
+    #[error("Entry for '{0}' is already registered at: {1}")]
+    AlreadyRegistered(&'static str, &'static str),
+
+    #[error("Verifier for '{0}' was not registered along with the rest of the verifiers.")]
+    Missing(&'static str),
+}
+
+struct VerifierInfo {
+    // Source location of the verifier registration or the verifier function itself.
+    // To allow duplicate registration of the save verifier.
+    location: &'static str,
+
+    verifier: AttackConfigVerifier,
+}
+
+static CONFIG_VERIFIERS: LazyLock<Mutex<HashMap<&'static str, VerifierInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 impl Attack {
     pub const fn cli_names() -> &'static [&'static str] {
         Self::VARIANTS
+    }
+
+    /// Register a config verifier for the specified attack `name`, as listed in
+    /// [`Attack::VARIANTS`].
+    ///
+    /// Verifier should be registered for a given attack only once.  But some tests create the TPU
+    /// multiple times.  In order to distinguish a case when the same verifier is registered twice
+    /// from the case when two different verifiers are registered for the same attack, `location` is
+    /// used.  Duplicate registration for the same attack with an identical `location` is ignored.
+    ///
+    /// `location` should be a file and line of the verifier registration or the verifier function.
+    pub fn register_config_verifier(
+        name: &'static str,
+        location: &'static str,
+        verifier: AttackConfigVerifier,
+    ) -> Result<(), VerifierRegistrationError> {
+        if !Self::VARIANTS.contains(&name) {
+            return Err(VerifierRegistrationError::UnexpectedName(name));
+        }
+
+        let mut verifiers = CONFIG_VERIFIERS.lock().unwrap();
+        let entry = match verifiers.entry(name) {
+            hash_map::Entry::Occupied(entry) => {
+                let existing_location = entry.get().location;
+                if location == existing_location {
+                    // Duplicate registration of the same verifier.
+                    return Ok(());
+                } else {
+                    return Err(VerifierRegistrationError::AlreadyRegistered(
+                        name,
+                        existing_location,
+                    ));
+                }
+            }
+            hash_map::Entry::Vacant(entry) => entry,
+        };
+
+        entry.insert(VerifierInfo { location, verifier });
+        Ok(())
+    }
+
+    /// When all attack verifiers are registered, call this function to make sure that no
+    /// verifiers are missing.
+    ///
+    /// Helps detect missing verifiers early, rather then when an attempt is made to verify a
+    /// specific attack configuration and the verifier is not found.
+    pub fn end_verifier_registration() -> Result<(), VerifierRegistrationError> {
+        let verifiers = CONFIG_VERIFIERS.lock().unwrap();
+        for name in Self::VARIANTS {
+            if !verifiers.contains_key(name) {
+                return Err(VerifierRegistrationError::Missing(name));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn verify(&self, accounts: &AccountsFile) -> Result<(), String> {
+        let verifiers = CONFIG_VERIFIERS.lock().unwrap();
+        let verifier = {
+            let name = self.as_ref();
+            &verifiers
+                .get(name)
+                .unwrap_or_else(|| {
+                    let has_verifiers_for = if verifiers.is_empty() {
+                        "<none>".to_owned()
+                    } else {
+                        // When `Iterator::intersperse` is actually added to the stable part of the
+                        // standard library, then we can decide if we want to switch, or if we want
+                        // to keep using `Itertools::intersperse()`.  There seems to be no value in
+                        // this warning before then.
+                        #[allow(unstable_name_collisions)]
+                        verifiers
+                            .keys()
+                            .copied()
+                            .intersperse(", ")
+                            .collect::<String>()
+                    };
+
+                    panic!(
+                        "All attack verifiers should be set before the first RPC call.\nMake sure \
+                         that `core::banking_stage::adversary::register_attack_config_verifiers()` \
+                         has been invoked.\nMissing config verifier for: {name}\nVerifiers have \
+                         been registered for:\n{has_verifiers_for}"
+                    )
+                })
+                .verifier
+        };
+
+        verifier(accounts, self)
     }
 }
 
@@ -73,8 +206,7 @@ pub struct AdversarialConfig {
 }
 
 impl AdversarialConfig {
-    pub fn validate(&self, config: &Option<BlockGeneratorConfig>) -> Result<(), String> {
-        const MAX_TRANSACTIONS_PER_BATCH: usize = 64;
+    pub fn verify(&self, config: &Option<BlockGeneratorConfig>) -> Result<(), String> {
         let Some(ref selected_attack) = self.selected_attack else {
             return Ok(());
         };
@@ -83,61 +215,11 @@ impl AdversarialConfig {
                 "Cannot launch attack: accounts configuration file was not setup up".to_string(),
             );
         };
-        let accounts = Arc::<AccountsFile>::from(config.clone().accounts);
-        match selected_attack {
-            Attack::CreateNonceAccounts => {
-                if accounts.payers.len() < MAX_TRANSACTIONS_PER_BATCH {
-                    return Err(format!(
-                        "Not enough accounts for create nonce account generator: required at \
-                         least {MAX_TRANSACTIONS_PER_BATCH}"
-                    ));
-                }
-            }
-            Attack::TransferRandom => {
-                if accounts.payers.len() < 2 * MAX_TRANSACTIONS_PER_BATCH {
-                    return Err(format!(
-                        "Not enough accounts for random transfer generator: required at least {}",
-                        2 * MAX_TRANSACTIONS_PER_BATCH
-                    ));
-                }
-            }
-            Attack::WriteProgram(attack) => {
-                if accounts.owner_program_id.is_none() {
-                    return Err(
-                        "Accounts owner program is not specified. Cannot generate write program \
-                         transactions."
-                            .to_string(),
-                    );
-                }
-                let accounts_batch_size =
-                    attack.transaction_batch_size * attack.num_accounts_per_tx;
-                if accounts.max_size.len() < accounts_batch_size {
-                    return Err(format!(
-                        "Accounts batch size {accounts_batch_size} is greater than the number of \
-                         accounts provided"
-                    ));
-                }
-                if attack.transaction_batch_size == 0 || attack.transaction_batch_size > 64 {
-                    return Err(format!(
-                        "transaction_batch_size ({}) must be in range [1, 64]",
-                        attack.transaction_batch_size
-                    ));
-                }
-                if attack.num_accounts_per_tx == 0 || attack.num_accounts_per_tx > 48 {
-                    return Err(format!(
-                        "number of accounts per transactions ({}) must be in range [1, 48]",
-                        attack.num_accounts_per_tx
-                    ));
-                }
-                if attack.transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
-                    return Err(format!(
-                        "transaction_cu_budget ({}) is greater than max value ({})",
-                        attack.transaction_cu_budget, MAX_COMPUTE_UNIT_LIMIT
-                    ));
-                }
-            }
-            _ => (),
-        }
-        Ok(())
+
+        // TODO We are reading the accounts configuration file here, just to validate the RPC call,
+        // and then we discard this configuration.  It is suboptimal.
+        let accounts = Arc::<AccountsFile>::from(config.accounts.clone());
+
+        selected_attack.verify(&accounts)
     }
 }
