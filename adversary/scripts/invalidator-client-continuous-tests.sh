@@ -126,6 +126,11 @@ commands=(
   "sleep $RUNTIME"
   "$SCRIPT_DIR/repair-tests.sh $REPAIR_SH_ARGS --test disable"
   "sleep $SLEEPTIME"
+  "$SCRIPT_DIR/repair-tests.sh $REPAIR_SH_ARGS --test fake_future_leader_slots \
+    --iteration-delay-us 10000000 --packets-per-iteration 20"
+  "sleep $RUNTIME"
+  "$SCRIPT_DIR/repair-tests.sh $REPAIR_SH_ARGS --test disable"
+  "sleep $SLEEPTIME"
   "$BIN $COMMON_ARGS configure-gossip-packet-flood \
     --flood-strategy pingCacheOverflow \
     --iteration-delay-us 1000000 \
