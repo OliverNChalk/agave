@@ -173,7 +173,9 @@ fn create_write_message(
 mod tests {
     use {
         super::*,
-        crate::banking_stage::adversary::test_helpers::{setup_accounts, setup_test},
+        crate::banking_stage::adversary::test_helpers::{
+            create_test_bank, setup_accounts, setup_test,
+        },
         jsonrpc_core::{types::error::ErrorCode, Value},
         serde_json::json,
         serial_test::serial,
@@ -183,19 +185,12 @@ mod tests {
                 get_config, AdversarialConfig, Attack, WriteProgramConfig,
             },
         },
-        solana_ledger::genesis_utils::GenesisConfigInfo,
         solana_rpc::{
             rpc::test_helpers::{parse_failure_response, parse_success_result},
             rpc_adversary::test_helpers::send_signed_request_sync,
         },
-        solana_runtime::{bank::Bank, genesis_utils::create_genesis_config},
         std::sync::Arc,
     };
-
-    fn create_test_bank() -> Arc<Bank> {
-        let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10_000);
-        Bank::new_no_wallclock_throttle_for_tests(&genesis_config).0
-    }
 
     #[test]
     fn test_generator_write_program() {

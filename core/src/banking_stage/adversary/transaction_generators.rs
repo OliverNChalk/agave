@@ -14,7 +14,9 @@ pub(super) mod allocate_random_large;
 pub(super) mod allocate_random_small;
 pub(super) mod chain_transactions;
 pub(super) mod create_nonce_accounts;
+pub(super) mod read_max_accounts;
 pub(super) mod transfer_random;
+pub(super) mod write_max_accounts;
 pub(super) mod write_program;
 
 /// Attacks are essentially sequences of transactions.  Each will have a function that is
@@ -78,6 +80,8 @@ impl ActiveGenerator {
                 write_program::generator(accounts, *num_workers, write_program_config.clone()),
                 1,
             ),
+            ReadMaxAccounts => (read_max_accounts::generator(accounts, *num_workers), 1),
+            WriteMaxAccounts => (write_max_accounts::generator(accounts, *num_workers), 1),
         })
     }
 

@@ -3,6 +3,8 @@ pub mod args;
 pub mod attack_scheduler;
 pub mod bypass;
 pub(crate) mod failed_transaction_hotpath;
+mod generator_components;
+mod generator_templates;
 pub mod invalidate_leader_block_attack;
 pub mod transaction_generators;
 
@@ -48,6 +50,8 @@ pub(crate) fn register_attack_config_verifiers() {
     verify_accounts!("allocateRandomSmall", allocate_random_small);
     verify_accounts!("chainTransactions", chain_transactions);
     verify_accounts_and_attack_config!("writeProgram", write_program);
+    verify_accounts!("readMaxAccounts", read_max_accounts);
+    verify_accounts!("writeMaxAccounts", write_max_accounts);
 
     Attack::end_verifier_registration().expect("All config verifiers are registered");
 }
@@ -63,10 +67,12 @@ mod test_helpers {
             block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         },
         solana_keypair::Keypair,
+        solana_ledger::genesis_utils::GenesisConfigInfo,
         solana_rpc::{
             rpc::JsonRpcRequestProcessor,
             rpc_adversary::{test_helpers::setup_test as setup_test_from_rpc, MetaIoWithAuth},
         },
+        solana_runtime::{bank::Bank, genesis_utils::create_genesis_config},
         solana_signer::Signer,
         std::{iter, sync::Arc},
     };
@@ -92,23 +98,63 @@ mod test_helpers {
         setup_test_from_rpc()
     }
 
+    pub(super) fn create_test_bank() -> Arc<Bank> {
+        let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10_000);
+        Bank::new_no_wallclock_throttle_for_tests(&genesis_config).0
+    }
+
+    pub(super) struct TestAccounts {
+        program_id: Keypair,
+        payers: Vec<Keypair>,
+        max_size: Vec<Keypair>,
+    }
+
+    impl TestAccounts {
+        pub(super) fn new(payers_count: usize, max_size_count: usize) -> Self {
+            let program_id = Keypair::new();
+            let payers = iter::repeat_with(Keypair::new)
+                .take(payers_count)
+                .collect::<Vec<_>>();
+            let max_size = iter::repeat_with(Keypair::new)
+                .take(max_size_count)
+                .collect::<Vec<_>>();
+
+            TestAccounts {
+                program_id,
+                payers,
+                max_size,
+            }
+        }
+    }
+
+    impl From<TestAccounts> for AccountsFile {
+        fn from(
+            TestAccounts {
+                program_id,
+                payers,
+                max_size,
+            }: TestAccounts,
+        ) -> Self {
+            Self {
+                owner_program_id: Some(program_id.pubkey()),
+                payers,
+                max_size,
+            }
+        }
+    }
+
     /// Populates the [`JsonRpcRequestProcessor::block_generator_config`] field.
     pub(super) fn setup_accounts(
         meta: &mut JsonRpcRequestProcessor,
         payers_count: usize,
         max_size_count: usize,
     ) {
-        let program_id = Keypair::new();
-        let payers = Arc::new(
-            iter::repeat_with(Keypair::new)
-                .take(payers_count)
-                .collect::<Vec<_>>(),
-        );
-        let max_size = Arc::new(
-            iter::repeat_with(Keypair::new)
-                .take(max_size_count)
-                .collect::<Vec<_>>(),
-        );
+        let TestAccounts {
+            program_id,
+            payers,
+            max_size,
+        } = TestAccounts::new(payers_count, max_size_count);
+
         *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig {
             accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
                 AccountsFile::with_payers_and_max_size(&program_id.pubkey(), &payers, &max_size),

@@ -75,6 +75,8 @@ pub enum Attack {
     AllocateRandomSmall,
     ChainTransactions,
     WriteProgram(WriteProgramConfig),
+    ReadMaxAccounts,
+    WriteMaxAccounts,
 }
 
 pub type AttackConfigVerifier =
