@@ -6,6 +6,7 @@ use {
     },
     bincode::serialize,
     log::{error, info},
+    rand::seq::SliceRandom,
     rayon::{prelude::*, ThreadPool},
     solana_gossip::{
         cluster_info::ClusterInfo, contact_info::ContactInfo, crds_data::CrdsData,
@@ -139,6 +140,7 @@ impl GossipPacketFlood {
         keypair_pool: &RwLock<Vec<Keypair>>,
     ) {
         const REPORT_INTERVAL_MS: u64 = 2_000;
+        const DEFAULT_NUM_PEERS: usize = 10;
         let mut last_report = Instant::now();
         let mut iteration: u64 = 0;
         let mut packet_count: usize = 0;
@@ -170,7 +172,11 @@ impl GossipPacketFlood {
                             Vec::default()
                         })
                 } else {
+                    let mut rng = rand::thread_rng();
                     peers
+                        .choose_multiple(&mut rng, DEFAULT_NUM_PEERS)
+                        .cloned()
+                        .collect()
                 }
             };
 
