@@ -304,6 +304,20 @@ pub mod gossip_packet_flood {
     }
 }
 
+/// Configuration for delaying votes.
+pub mod delay_votes {
+    pub const ID: &str = "delay_votes";
+    adversarial_feature_impl!(DelayVotes);
+
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        /// Required delta between current slot and vote slot before vote can be
+        /// cast.
+        pub delay_votes_by_slot_count: u64,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -328,6 +342,8 @@ pub enum AdversaryFeatureConfig {
     ReplayStageAttack(replay_stage_attack::AdversarialConfig),
     #[serde(rename = "gossipPacketFloodAdversarialConfig")]
     GossipPacketFlood(gossip_packet_flood::AdversarialConfig),
+    #[serde(rename = "delayVotes")]
+    DelayVotes(delay_votes::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig>> =
@@ -390,6 +406,10 @@ static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig
                 AdversaryFeatureConfig::GossipPacketFlood(
                     gossip_packet_flood::AdversarialConfig::default(),
                 ),
+            ),
+            (
+                delay_votes::ID,
+                AdversaryFeatureConfig::DelayVotes(delay_votes::AdversarialConfig::default()),
             ),
         ]
         .into_iter()

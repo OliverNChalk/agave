@@ -6,6 +6,7 @@ use {
     },
     bincode::serialize,
     crossbeam_channel::Receiver,
+    solana_adversary::adversary_feature_set::delay_votes,
     solana_client::connection_cache::ConnectionCache,
     solana_clock::{Slot, FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET},
     solana_connection_cache::client_connection::ClientConnection,
@@ -17,7 +18,10 @@ use {
     solana_transaction_error::TransportError,
     std::{
         net::{SocketAddr, UdpSocket},
-        sync::{Arc, RwLock},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, RwLock,
+        },
         thread::{self, Builder, JoinHandle},
     },
     thiserror::Error,
@@ -78,9 +82,91 @@ fn send_vote_transaction(
 
 pub struct VotingService {
     thread_hdl: JoinHandle<()>,
+    vote_storage_size: Arc<AtomicUsize>,
 }
 
 impl VotingService {
+    fn run(
+        vote_storage_size: Arc<AtomicUsize>,
+        vote_receiver: Receiver<VoteOp>,
+        cluster_info: Arc<ClusterInfo>,
+        poh_recorder: Arc<RwLock<PohRecorder>>,
+        tower_storage: Arc<dyn TowerStorage>,
+        connection_cache: Arc<ConnectionCache>,
+        bank_forks: Arc<RwLock<BankForks>>,
+        mut mock_alpenglow: Option<MockAlpenglowConsensus>,
+    ) {
+        let mut vote_storage = Vec::new();
+        loop {
+            if vote_storage.is_empty() {
+                match vote_receiver.recv() {
+                    Ok(vote) => vote_storage.push(vote),
+                    Err(_) => break,
+                }
+            } else {
+                // Only wait for a short time so we can handle stored
+                // votes if we're allowed.
+                match vote_receiver.recv_timeout(std::time::Duration::from_millis(10)) {
+                    Ok(vote) => vote_storage.push(vote),
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => (),
+                    Err(_) => break,
+                }
+            }
+
+            // Floor to 0 to allow all votes to go through
+            let current_slot = poh_recorder
+                .read()
+                .unwrap()
+                .leader_and_slot_after_n_slots(0)
+                .map_or(0, |(_, current_slot)| current_slot);
+
+            let delay_votes_by_slot_count = delay_votes::get_config().delay_votes_by_slot_count;
+
+            vote_storage.retain(|vote_op| {
+                // Figure out if we are casting a vote for a new slot, and what slot it is for
+                let vote_slot = match vote_op {
+                    VoteOp::PushVote { tower_slots, .. } => {
+                        if let Some(vote_slot) = tower_slots.last() {
+                            if *vote_slot + delay_votes_by_slot_count > current_slot {
+                                debug!(
+                                    "Not handling vote for slot {vote_slot}, currently at slot \
+                                     {current_slot} and delaying votes by \
+                                     {delay_votes_by_slot_count}"
+                                );
+                                return true;
+                            }
+                            Some(*vote_slot)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                Self::handle_vote(
+                    &cluster_info,
+                    &poh_recorder,
+                    tower_storage.as_ref(),
+                    vote_op,
+                    connection_cache.clone(),
+                );
+
+                // trigger mock alpenglow vote if we have just cast an actual vote
+                if let Some(slot) = vote_slot {
+                    if let Some(ag) = mock_alpenglow.as_mut() {
+                        let root_bank = { bank_forks.read().unwrap().root_bank() };
+                        ag.signal_new_slot(slot, &root_bank);
+                    }
+                }
+
+                false
+            });
+            vote_storage_size.store(vote_storage.len(), Ordering::Relaxed);
+        }
+        if let Some(ag) = mock_alpenglow {
+            let _ = ag.join();
+        }
+    }
     pub fn new(
         vote_receiver: Receiver<VoteOp>,
         cluster_info: Arc<ClusterInfo>,
@@ -90,57 +176,47 @@ impl VotingService {
         alpenglow_socket: Option<UdpSocket>,
         bank_forks: Arc<RwLock<BankForks>>,
     ) -> Self {
+        let vote_storage_size = Arc::new(AtomicUsize::new(0));
         let thread_hdl = Builder::new()
             .name("solVoteService".to_string())
             .spawn({
-                let mut mock_alpenglow = alpenglow_socket.map(|s| {
+                let mock_alpenglow = alpenglow_socket.map(|s| {
                     MockAlpenglowConsensus::new(
                         s,
                         cluster_info.clone(),
                         EpochSpecs::from(bank_forks.clone()),
                     )
                 });
+                let vote_storage_size = vote_storage_size.clone();
                 move || {
-                    for vote_op in vote_receiver.iter() {
-                        // Figure out if we are casting a vote for a new slot, and what slot it is for
-                        let vote_slot = match vote_op {
-                            VoteOp::PushVote {
-                                tx: _,
-                                ref tower_slots,
-                                ..
-                            } => tower_slots.iter().copied().last(),
-                            _ => None,
-                        };
-                        // perform all the normal vote handling routines
-                        Self::handle_vote(
-                            &cluster_info,
-                            &poh_recorder,
-                            tower_storage.as_ref(),
-                            vote_op,
-                            connection_cache.clone(),
-                        );
-                        // trigger mock alpenglow vote if we have just cast an actual vote
-                        if let Some(slot) = vote_slot {
-                            if let Some(ag) = mock_alpenglow.as_mut() {
-                                let root_bank = { bank_forks.read().unwrap().root_bank() };
-                                ag.signal_new_slot(slot, &root_bank);
-                            }
-                        }
-                    }
-                    if let Some(ag) = mock_alpenglow {
-                        let _ = ag.join();
-                    }
+                    Self::run(
+                        vote_storage_size,
+                        vote_receiver,
+                        cluster_info,
+                        poh_recorder,
+                        tower_storage,
+                        connection_cache.clone(),
+                        bank_forks,
+                        mock_alpenglow,
+                    )
                 }
             })
             .unwrap();
-        Self { thread_hdl }
+        Self {
+            thread_hdl,
+            vote_storage_size,
+        }
+    }
+
+    pub fn vote_storage_count(&self) -> usize {
+        self.vote_storage_size.load(Ordering::Relaxed)
     }
 
     pub fn handle_vote(
         cluster_info: &ClusterInfo,
         poh_recorder: &RwLock<PohRecorder>,
         tower_storage: &dyn TowerStorage,
-        vote_op: VoteOp,
+        vote_op: &VoteOp,
         connection_cache: Arc<ConnectionCache>,
     ) {
         if let VoteOp::PushVote { saved_tower, .. } = &vote_op {
@@ -185,13 +261,13 @@ impl VotingService {
             VoteOp::PushVote {
                 tx, tower_slots, ..
             } => {
-                cluster_info.push_vote(&tower_slots, tx);
+                cluster_info.push_vote(tower_slots, tx.clone());
             }
             VoteOp::RefreshVote {
                 tx,
                 last_voted_slot,
             } => {
-                cluster_info.refresh_vote(tx, last_voted_slot);
+                cluster_info.refresh_vote(tx.clone(), *last_voted_slot);
             }
         }
     }

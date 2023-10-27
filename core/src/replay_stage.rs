@@ -4443,6 +4443,7 @@ pub(crate) mod tests {
             },
             replay_stage::ReplayStage,
             vote_simulator::{self, VoteSimulator},
+            voting_service::VotingService,
         },
         blockstore_processor::{
             confirm_full_slot, fill_blockstore_slot_with_ticks, process_bank_0, ProcessOptions,
@@ -4450,6 +4451,7 @@ pub(crate) mod tests {
         crossbeam_channel::unbounded,
         itertools::Itertools,
         solana_account::{state_traits::StateMut, ReadableAccount},
+        solana_adversary::adversary_feature_set::delay_votes,
         solana_client::connection_cache::ConnectionCache,
         solana_clock::NUM_CONSECUTIVE_LEADER_SLOTS,
         solana_entry::entry::{self, Entry},
@@ -4488,6 +4490,7 @@ pub(crate) mod tests {
             fs::remove_dir_all,
             iter,
             sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+            thread::sleep,
         },
         tempfile::tempdir,
         test_case::test_case,
@@ -5357,7 +5360,7 @@ pub(crate) mod tests {
             if done {
                 break;
             } else {
-                thread::sleep(Duration::from_millis(200));
+                sleep(Duration::from_millis(200));
             }
         }
 
@@ -7749,10 +7752,8 @@ pub(crate) mod tests {
         let mut tracked_vote_transactions = vec![];
 
         let identity_keypair = cluster_info.keypair();
-        let my_vote_keypair = vec![Arc::new(
-            validator_keypairs.remove(&my_pubkey).unwrap().vote_keypair,
-        )];
-        let my_vote_pubkey = my_vote_keypair[0].pubkey();
+        let my_vote_keypair = Arc::new(validator_keypairs.remove(&my_pubkey).unwrap().vote_keypair);
+        let my_vote_pubkey = my_vote_keypair.pubkey();
         let bank0 = bank_forks.read().unwrap().get(0).unwrap();
         progress.insert(
             bank0.slot(),
@@ -7787,19 +7788,12 @@ pub(crate) mod tests {
                 0,
             ),
         );
-        tower.record_bank_vote(&bank0);
-        ReplayStage::push_vote(
+        cast_simple_push_vote(
             &bank0,
-            &my_vote_pubkey,
             &identity_keypair,
-            &my_vote_keypair,
+            my_vote_keypair.clone(),
             &mut tower,
-            &SwitchForkDecision::SameFork,
-            &mut tracked_vote_transactions,
-            has_new_vote_been_rooted,
-            &mut ReplayLoopTiming::default(),
             &voting_sender,
-            None,
         );
         let vote_info = voting_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -7821,7 +7815,7 @@ pub(crate) mod tests {
             &cluster_info,
             &poh_recorder,
             &tower_storage,
-            vote_info,
+            &vote_info,
             Arc::new(connection_cache),
         );
 
@@ -7871,7 +7865,7 @@ pub(crate) mod tests {
                 Some(refresh_bank.clone()),
                 &my_vote_pubkey,
                 &identity_keypair,
-                &my_vote_keypair,
+                &[my_vote_keypair.clone()],
                 &mut tracked_vote_transactions,
                 has_new_vote_been_rooted,
                 &mut last_vote_refresh_time,
@@ -7892,19 +7886,12 @@ pub(crate) mod tests {
 
         // Simulate submitting a new vote for bank 1 to the network, but the vote
         // not landing
-        tower.record_bank_vote(&bank1);
-        ReplayStage::push_vote(
+        cast_simple_push_vote(
             &bank1,
-            &my_vote_pubkey,
             &identity_keypair,
-            &my_vote_keypair,
+            my_vote_keypair.clone(),
             &mut tower,
-            &SwitchForkDecision::SameFork,
-            &mut tracked_vote_transactions,
-            has_new_vote_been_rooted,
-            &mut ReplayLoopTiming::default(),
             &voting_sender,
-            None,
         );
         let vote_info = voting_receiver
             .recv_timeout(Duration::from_secs(1))
@@ -7926,7 +7913,7 @@ pub(crate) mod tests {
             &cluster_info,
             &poh_recorder,
             &tower_storage,
-            vote_info,
+            &vote_info,
             Arc::new(connection_cache),
         );
 
@@ -7960,7 +7947,7 @@ pub(crate) mod tests {
             Some(bank2.clone()),
             &my_vote_pubkey,
             &identity_keypair,
-            &my_vote_keypair,
+            &[my_vote_keypair.clone()],
             &mut tracked_vote_transactions,
             has_new_vote_been_rooted,
             &mut last_vote_refresh_time,
@@ -8028,7 +8015,7 @@ pub(crate) mod tests {
             Some(expired_bank.clone()),
             &my_vote_pubkey,
             &identity_keypair,
-            &my_vote_keypair,
+            &[my_vote_keypair.clone()],
             &mut tracked_vote_transactions,
             has_new_vote_been_rooted,
             &mut last_vote_refresh_time,
@@ -8054,7 +8041,7 @@ pub(crate) mod tests {
             &cluster_info,
             &poh_recorder,
             &tower_storage,
-            vote_info,
+            &vote_info,
             Arc::new(connection_cache),
         );
 
@@ -8122,7 +8109,7 @@ pub(crate) mod tests {
             Some(expired_bank_sibling),
             &my_vote_pubkey,
             &identity_keypair,
-            &my_vote_keypair,
+            &[my_vote_keypair],
             &mut tracked_vote_transactions,
             has_new_vote_been_rooted,
             &mut last_vote_refresh_time,
@@ -8141,6 +8128,149 @@ pub(crate) mod tests {
             BlockhashStatus::Blockhash(expired_bank.last_blockhash())
         );
         assert_eq!(tower.last_voted_slot().unwrap(), 1);
+    }
+
+    fn cast_simple_push_vote(
+        bank: &Arc<Bank>,
+        identity_keypair: &Arc<Keypair>,
+        vote_keypair: Arc<Keypair>,
+        tower: &mut Tower,
+        voting_sender: &Sender<VoteOp>,
+    ) {
+        tower.record_bank_vote(bank);
+        let mut tracked_vote_transactions = vec![];
+        ReplayStage::push_vote(
+            bank,
+            &vote_keypair.pubkey(),
+            identity_keypair,
+            &[vote_keypair],
+            tower,
+            &SwitchForkDecision::SameFork,
+            &mut tracked_vote_transactions,
+            false,
+            &mut ReplayLoopTiming::default(),
+            voting_sender,
+            None,
+        );
+    }
+
+    #[test]
+    fn test_replay_stage_voting_service() {
+        // Setup cluster metadata needed for voting service.
+        let ReplayBlockstoreComponents {
+            cluster_info,
+            poh_recorder,
+            mut tower,
+            my_pubkey,
+            vote_simulator:
+                VoteSimulator {
+                    mut validator_keypairs,
+                    bank_forks,
+                    ..
+                },
+            ..
+        } = replay_blockstore_components(None, 10, None::<GenerateVotes>);
+
+        delay_votes::set_config(delay_votes::AdversarialConfig {
+            delay_votes_by_slot_count: 4,
+        });
+
+        let connection_cache = if DEFAULT_VOTE_USE_QUIC {
+            ConnectionCache::new_quic(
+                "connection_cache_vote_quic",
+                DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            )
+        } else {
+            ConnectionCache::with_udp(
+                "connection_cache_vote_udp",
+                DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            )
+        };
+
+        // Spawn Voting Service.
+        let (voting_sender, vote_receiver) = unbounded();
+        let cluster_info = Arc::new(cluster_info);
+        let tower_storage = NullTowerStorage::default();
+        let voting_service = VotingService::new(
+            vote_receiver,
+            cluster_info.clone(),
+            poh_recorder.clone(),
+            Arc::new(tower_storage),
+            Arc::new(connection_cache),
+            None,
+            bank_forks.clone(),
+        );
+
+        let identity_keypair = cluster_info.keypair().clone();
+        let my_vote_keypair = Arc::new(validator_keypairs.remove(&my_pubkey).unwrap().vote_keypair);
+        let bank0 = bank_forks.read().unwrap().get(0).unwrap();
+
+        let bank1 = Arc::new(Bank::new_from_parent(bank0.clone(), &Pubkey::default(), 1));
+        bank1.fill_bank_with_ticks_for_tests();
+        cast_simple_push_vote(
+            &bank0,
+            &identity_keypair,
+            my_vote_keypair.clone(),
+            &mut tower,
+            &voting_sender,
+        );
+
+        let bank2 = Arc::new(Bank::new_from_parent(bank1.clone(), &Pubkey::default(), 2));
+        bank2.fill_bank_with_ticks_for_tests();
+        cast_simple_push_vote(
+            &bank1,
+            &identity_keypair,
+            my_vote_keypair.clone(),
+            &mut tower,
+            &voting_sender,
+        );
+
+        let bank3 = Arc::new(Bank::new_from_parent(bank2.clone(), &Pubkey::default(), 3));
+        bank3.fill_bank_with_ticks_for_tests();
+        cast_simple_push_vote(
+            &bank2,
+            &identity_keypair,
+            my_vote_keypair.clone(),
+            &mut tower,
+            &voting_sender,
+        );
+
+        let bank4 = Arc::new(Bank::new_from_parent(bank3.clone(), &Pubkey::default(), 4));
+        bank4.fill_bank_with_ticks_for_tests();
+        cast_simple_push_vote(
+            &bank3,
+            &identity_keypair,
+            my_vote_keypair,
+            &mut tower,
+            &voting_sender,
+        );
+
+        // Allow enough time for votes to get pulled off the receiver
+        sleep(Duration::from_millis(50));
+        assert_eq!(voting_service.vote_storage_count(), 4);
+
+        // Tick to the very end of slot 4 such that only 1 vote will have passed
+        // the threshold to be sent.
+        let target_tick_height = bank4.max_tick_height().saturating_sub(1);
+        while poh_recorder.read().unwrap().tick_height() != target_tick_height {
+            poh_recorder.write().unwrap().tick();
+        }
+
+        // Allow enough time for votes to be handled
+        sleep(Duration::from_millis(50));
+        assert_eq!(voting_service.vote_storage_count(), 3);
+
+        // Disable the vote delay and wait for votes to be handled
+        delay_votes::set_config(delay_votes::AdversarialConfig {
+            delay_votes_by_slot_count: 0,
+        });
+        sleep(Duration::from_millis(50));
+        assert_eq!(voting_service.vote_storage_count(), 0);
+
+        drop(voting_sender);
+        voting_service
+            .join()
+            .expect("voting service should exit gracefully");
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8196,7 +8326,7 @@ pub(crate) mod tests {
             cluster_info,
             poh_recorder,
             tower_storage,
-            vote_info,
+            &vote_info,
             Arc::new(connection_cache),
         );
 

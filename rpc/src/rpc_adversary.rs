@@ -212,6 +212,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
     let mut invalidate_leader_block = false;
     let mut replay_stage_attack = false;
     let mut gossip_packet_flood = false;
+    let mut delay_votes = false;
 
     for adversary_feature_config in adversary_feature_configs {
         match adversary_feature_config {
@@ -243,6 +244,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                     gossip_packet_flood = true;
                 }
             }
+            AdversaryFeatureConfig::DelayVotes(config) => {
+                if config.delay_votes_by_slot_count > 0 {
+                    delay_votes = true;
+                }
+            }
             AdversaryFeatureConfig::Example(_)
             | AdversaryFeatureConfig::PacketDropParameters(_)
             | AdversaryFeatureConfig::RepairParameters(_)
@@ -258,6 +264,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         ("invalidate_leader_block", invalidate_leader_block, i64),
         ("replay_stage_attack", replay_stage_attack, i64),
         ("gossip_packet_flood", gossip_packet_flood, i64),
+        ("delay_votes", delay_votes, i64),
     );
 }
 
@@ -575,6 +582,11 @@ pub mod tests {
 
         let expected_result = json!(
             [{
+                "delayVotes": {
+                    "delayVotesBySlotCount": 0
+                },
+            },
+            {
                 "turbineVotes": {
                     "dropTurbineVotes": false,
                 },
