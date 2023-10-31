@@ -3,31 +3,57 @@ use {
     solana_keypair::Keypair,
     solana_rayon_threadlimit::get_thread_count,
     std::{
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc, RwLock,
-        },
+        sync::{Arc, Condvar, Mutex, RwLock},
         thread::{self, JoinHandle},
+        time::Duration,
     },
 };
 
+#[derive(Debug, Default)]
+pub struct ExitCondition {
+    set: Mutex<bool>,
+    wait_condition: Condvar,
+}
+
+impl ExitCondition {
+    fn set(&self) {
+        *self.set.lock().unwrap() = true;
+        self.wait_condition.notify_all();
+    }
+
+    pub fn is_set(&self) -> bool {
+        *self.set.lock().unwrap()
+    }
+
+    pub fn wait_is_set(&self, max_wait: Duration) -> bool {
+        let set = self.set.lock().unwrap();
+        if *set {
+            return true;
+        }
+        let (set, _wait_timeout_result) = self
+            .wait_condition
+            .wait_timeout_while(set, max_wait, |set_val| !(*set_val))
+            .unwrap();
+        *set
+    }
+}
+
 #[derive(Debug)]
 pub struct AdversaryWorkersContext {
-    exit: Arc<AtomicBool>,
+    exit: Arc<ExitCondition>,
     thread_hdls: Vec<JoinHandle<()>>,
 }
 
 impl AdversaryWorkersContext {
-    pub fn new(exit: Arc<AtomicBool>, thread_hdls: Vec<JoinHandle<()>>) -> Self {
+    pub fn new(exit: Arc<ExitCondition>, thread_hdls: Vec<JoinHandle<()>>) -> Self {
         Self { exit, thread_hdls }
     }
 
     pub fn join(self) -> thread::Result<()> {
-        self.exit.store(true, Ordering::Relaxed);
+        self.exit.set();
         for hdl in self.thread_hdls {
             hdl.join()?;
         }
-        self.exit.store(false, Ordering::Relaxed);
         Ok(())
     }
 }

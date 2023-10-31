@@ -1,7 +1,9 @@
 use {
     crate::{
         adversary_feature_set::repair_packet_flood::{FloodConfig, FloodStrategy},
-        flood_worker::{create_rayon_thread_pool, init_keypair_pool, AdversaryWorkersContext},
+        flood_worker::{
+            create_rayon_thread_pool, init_keypair_pool, AdversaryWorkersContext, ExitCondition,
+        },
         PeerIdentifierSanitized,
     },
     log::*,
@@ -26,11 +28,8 @@ use {
     solana_time_utils::timestamp,
     std::{
         net::UdpSocket,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc, RwLock,
-        },
-        thread::{self, sleep, Builder},
+        sync::{Arc, RwLock},
+        thread::{self, Builder},
         time::{Duration, Instant},
     },
 };
@@ -45,7 +44,7 @@ impl RepairPacketFlood {
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         configs: Vec<FloodConfig>,
     ) -> AdversaryWorkersContext {
-        let exit = Arc::new(AtomicBool::default());
+        let exit = Arc::new(ExitCondition::default());
         let thread_pool = create_rayon_thread_pool("solAdvRPFWrkr");
         let keypair_pool = Arc::new(RwLock::new(Vec::default()));
         let mut i: usize = 0;
@@ -84,26 +83,32 @@ impl RepairPacketFlood {
 
     fn flood_minimal_packets(
         repair_socket: &UdpSocket,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
     ) -> usize {
-        let mut reqs_v = Vec::default();
-        peers.iter().for_each(|peer| {
+        let mut packet_count: usize = 0;
+        for peer in peers {
+            let mut reqs_v = Vec::default();
             for i in 0..config.packets_per_peer_per_iteration {
                 let val: u8 = i.wrapping_rem(u8::MAX as u32).try_into().unwrap();
                 reqs_v.push((vec![val], peer.serve_repair(Protocol::UDP).unwrap()));
             }
-        });
-        let mut packet_count = reqs_v.len();
-        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
-            packet_count = packet_count.saturating_sub(num_failed);
-            error!(
-                "batch_send failed to send {}/{} packets first error {:?}",
-                num_failed,
-                reqs_v.len(),
-                err
-            );
+            packet_count = packet_count.saturating_add(reqs_v.len());
+            let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+            match batch_send(repair_socket, reqs_iter) {
+                Ok(()) => (),
+                Err(SendPktsError::IoError(err, num_failed)) => {
+                    packet_count = packet_count.saturating_sub(num_failed);
+                    error!(
+                        "batch_send failed to send {num_failed}/{} packets first error {err:?}",
+                        reqs_v.len()
+                    );
+                }
+            }
+            if exit.is_set() {
+                break;
+            }
         }
         packet_count
     }
@@ -111,12 +116,14 @@ impl RepairPacketFlood {
     fn flood_signed_packets(
         repair_socket: &UdpSocket,
         cluster_info: &ClusterInfo,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
     ) -> usize {
         let identity_keypair = cluster_info.keypair().clone();
-        let mut reqs_v = Vec::default();
-        peers.iter().for_each(|peer| {
+        let mut packet_count: usize = 0;
+        for peer in peers {
+            let mut reqs_v = Vec::default();
             let header = RepairRequestHeader::new(
                 cluster_info.id(),
                 *peer.pubkey(),
@@ -136,17 +143,21 @@ impl RepairPacketFlood {
                     peer.serve_repair(Protocol::UDP).unwrap(),
                 ));
             }
-        });
-        let mut packet_count = reqs_v.len();
-        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
-            packet_count = packet_count.saturating_sub(num_failed);
-            error!(
-                "batch_send failed to send {}/{} packets first error {:?}",
-                num_failed,
-                reqs_v.len(),
-                err
-            );
+            packet_count = packet_count.saturating_add(reqs_v.len());
+            let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+            match batch_send(repair_socket, reqs_iter) {
+                Ok(()) => (),
+                Err(SendPktsError::IoError(err, num_failed)) => {
+                    packet_count = packet_count.saturating_sub(num_failed);
+                    error!(
+                        "batch_send failed to send {num_failed}/{} packets first error {err:?}",
+                        reqs_v.len()
+                    );
+                }
+            }
+            if exit.is_set() {
+                break;
+            }
         }
         packet_count
     }
@@ -154,6 +165,7 @@ impl RepairPacketFlood {
     fn flood_ping_cache(
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
         thread_pool: &ThreadPool,
@@ -173,7 +185,7 @@ impl RepairPacketFlood {
         let slot = bank_forks.read().unwrap().working_bank().slot();
         let mut packet_count: usize = 0;
         let keypairs = keypair_pool.read().unwrap();
-        peers.iter().for_each(|peer| {
+        for peer in peers {
             for chunk in keypairs.chunks(MAX_SENDMMSG_ITEMS) {
                 let reqs_v: Vec<_> = thread_pool
                     .install(|| {
@@ -201,19 +213,21 @@ impl RepairPacketFlood {
                     .collect();
                 packet_count = packet_count.saturating_add(reqs_v.len());
                 let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-                if let Err(SendPktsError::IoError(err, num_failed)) =
-                    batch_send(repair_socket, reqs_iter)
-                {
-                    packet_count = packet_count.saturating_sub(num_failed);
-                    error!(
-                        "batch_send failed to send {}/{} packets first error {:?}",
-                        num_failed,
-                        reqs_v.len(),
-                        err
-                    );
+                match batch_send(repair_socket, reqs_iter) {
+                    Ok(()) => (),
+                    Err(SendPktsError::IoError(err, num_failed)) => {
+                        packet_count = packet_count.saturating_sub(num_failed);
+                        error!(
+                            "batch_send failed to send {num_failed}/{} packets first error {err:?}",
+                            reqs_v.len()
+                        );
+                    }
+                }
+                if exit.is_set() {
+                    return packet_count;
                 }
             }
-        });
+        }
         packet_count
     }
 
@@ -221,13 +235,15 @@ impl RepairPacketFlood {
         repair_socket: &UdpSocket,
         cluster_info: &ClusterInfo,
         bank_forks: &RwLock<BankForks>,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
     ) -> usize {
         let identity_keypair = cluster_info.keypair().clone();
         let slot = bank_forks.read().unwrap().highest_slot();
-        let mut reqs_v = Vec::default();
-        peers.iter().for_each(|peer| {
+        let mut packet_count: usize = 0;
+        for peer in peers {
+            let mut reqs_v = Vec::default();
             let nonce = thread_rng().gen_range(0..Nonce::MAX);
             let header =
                 RepairRequestHeader::new(cluster_info.id(), *peer.pubkey(), timestamp(), nonce);
@@ -240,17 +256,21 @@ impl RepairPacketFlood {
                     peer.serve_repair(Protocol::UDP).unwrap(),
                 ));
             }
-        });
-        let mut packet_count = reqs_v.len();
-        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
-            packet_count = packet_count.saturating_sub(num_failed);
-            error!(
-                "batch_send failed to send {}/{} packets first error {:?}",
-                num_failed,
-                reqs_v.len(),
-                err
-            );
+            packet_count = packet_count.saturating_add(reqs_v.len());
+            let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+            match batch_send(repair_socket, reqs_iter) {
+                Ok(()) => (),
+                Err(SendPktsError::IoError(err, num_failed)) => {
+                    packet_count = packet_count.saturating_sub(num_failed);
+                    error!(
+                        "batch_send failed to send {num_failed}/{} packets first error {err:?}",
+                        reqs_v.len()
+                    );
+                }
+            }
+            if exit.is_set() {
+                break;
+            }
         }
         packet_count
     }
@@ -260,6 +280,7 @@ impl RepairPacketFlood {
         bank_forks: &RwLock<BankForks>,
         cluster_info: &ClusterInfo,
         leader_schedule_cache: &LeaderScheduleCache,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
     ) -> usize {
@@ -306,22 +327,27 @@ impl RepairPacketFlood {
                 }
             });
         let mut packet_count: usize = 0;
-        peers.iter().for_each(|peer| {
+        for peer in peers {
             let packets: Vec<_> = shreds_v
                 .iter()
                 .map(|shred| (shred.payload(), peer.tvu(Protocol::UDP).unwrap()))
                 .collect();
             let packets_len = packets.len();
             packet_count = packet_count.saturating_add(packets_len);
-            if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, packets)
-            {
-                packet_count = packet_count.saturating_sub(num_failed);
-                error!(
-                    "batch_send failed to send {num_failed}/{packets_len} packets first error \
-                     {err:?}",
-                );
+            match batch_send(repair_socket, packets) {
+                Ok(()) => (),
+                Err(SendPktsError::IoError(err, num_failed)) => {
+                    packet_count = packet_count.saturating_sub(num_failed);
+                    error!(
+                        "batch_send failed to send {num_failed}/{packets_len} packets first error \
+                         {err:?}",
+                    );
+                }
             }
-        });
+            if exit.is_set() {
+                break;
+            }
+        }
         packet_count
     }
 
@@ -329,14 +355,16 @@ impl RepairPacketFlood {
         repair_socket: &UdpSocket,
         bank_forks: &RwLock<BankForks>,
         cluster_info: &ClusterInfo,
+        exit: &ExitCondition,
         config: &FloodConfig,
         peers: &[ContactInfo],
     ) -> usize {
         const FUTURE_SLOT_OFFSET: u64 = 1_000;
         let identity_keypair = cluster_info.keypair().clone();
         let base_slot = bank_forks.read().unwrap().working_bank().slot() + FUTURE_SLOT_OFFSET;
-        let mut reqs_v = Vec::default();
-        peers.iter().for_each(|peer| {
+        let mut packet_count: usize = 0;
+        for peer in peers {
+            let mut reqs_v = Vec::default();
             for i in 0..config.packets_per_peer_per_iteration {
                 let header = RepairRequestHeader::new(
                     cluster_info.id(),
@@ -354,17 +382,21 @@ impl RepairPacketFlood {
                         .unwrap();
                 reqs_v.push((packet_buf, peer.serve_repair(Protocol::UDP).unwrap()));
             }
-        });
-        let mut packet_count = reqs_v.len();
-        let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-        if let Err(SendPktsError::IoError(err, num_failed)) = batch_send(repair_socket, reqs_iter) {
-            packet_count -= num_failed;
-            error!(
-                "batch_send failed to send {}/{} packets first error {:?}",
-                num_failed,
-                reqs_v.len(),
-                err
-            );
+            packet_count = packet_count.saturating_add(reqs_v.len());
+            let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
+            match batch_send(repair_socket, reqs_iter) {
+                Ok(()) => (),
+                Err(SendPktsError::IoError(err, num_failed)) => {
+                    packet_count = packet_count.saturating_sub(num_failed);
+                    error!(
+                        "batch_send failed to send {num_failed}/{} packets first error {err:?}",
+                        reqs_v.len()
+                    );
+                }
+            }
+            if exit.is_set() {
+                break;
+            }
         }
         packet_count
     }
@@ -374,7 +406,7 @@ impl RepairPacketFlood {
         bank_forks: &RwLock<BankForks>,
         cluster_info: &ClusterInfo,
         leader_schedule_cache: &LeaderScheduleCache,
-        exit: &AtomicBool,
+        exit: &ExitCondition,
         thread_pool: &ThreadPool,
         config: FloodConfig,
         thread_name: String,
@@ -387,10 +419,6 @@ impl RepairPacketFlood {
         let mut packet_count: usize = 0;
 
         loop {
-            if exit.load(Ordering::Relaxed) {
-                return;
-            }
-
             let peers = {
                 let peers = cluster_info.repair_peers(u64::MAX);
                 if let Some(peer_id) = config.target.as_ref() {
@@ -425,14 +453,15 @@ impl RepairPacketFlood {
 
             packet_count = packet_count.saturating_add(match config.flood_strategy {
                 FloodStrategy::MinimalPackets => {
-                    Self::flood_minimal_packets(repair_socket, &config, &peers)
+                    Self::flood_minimal_packets(repair_socket, exit, &config, &peers)
                 }
                 FloodStrategy::SignedPackets => {
-                    Self::flood_signed_packets(repair_socket, cluster_info, &config, &peers)
+                    Self::flood_signed_packets(repair_socket, cluster_info, exit, &config, &peers)
                 }
                 FloodStrategy::PingCacheOverflow => Self::flood_ping_cache(
                     repair_socket,
                     bank_forks,
+                    exit,
                     &config,
                     &peers,
                     thread_pool,
@@ -442,6 +471,7 @@ impl RepairPacketFlood {
                     repair_socket,
                     cluster_info,
                     bank_forks,
+                    exit,
                     &config,
                     &peers,
                 ),
@@ -450,6 +480,7 @@ impl RepairPacketFlood {
                     bank_forks,
                     cluster_info,
                     leader_schedule_cache,
+                    exit,
                     &config,
                     &peers,
                 ),
@@ -457,6 +488,7 @@ impl RepairPacketFlood {
                     repair_socket,
                     bank_forks,
                     cluster_info,
+                    exit,
                     &config,
                     &peers,
                 ),
@@ -471,8 +503,11 @@ impl RepairPacketFlood {
                 last_report = Instant::now();
             }
             iteration = iteration.saturating_add(1);
-            if config.iteration_delay_us > 0 {
-                sleep(Duration::from_micros(config.iteration_delay_us));
+            if config.iteration_delay_us > 0
+                && exit.wait_is_set(Duration::from_micros(config.iteration_delay_us))
+                || config.iteration_delay_us == 0 && exit.is_set()
+            {
+                return;
             }
         }
     }

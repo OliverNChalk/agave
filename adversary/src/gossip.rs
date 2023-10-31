@@ -1,7 +1,9 @@
 use {
     crate::{
         adversary_feature_set::gossip_packet_flood::{FloodConfig, FloodStrategy},
-        flood_worker::{create_rayon_thread_pool, init_keypair_pool, AdversaryWorkersContext},
+        flood_worker::{
+            create_rayon_thread_pool, init_keypair_pool, AdversaryWorkersContext, ExitCondition,
+        },
         PeerIdentifierSanitized,
     },
     bincode::serialize,
@@ -18,11 +20,8 @@ use {
     solana_streamer::sendmmsg::{batch_send, SendPktsError},
     std::{
         net::UdpSocket,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc, RwLock,
-        },
-        thread::{self, sleep, Builder},
+        sync::{Arc, RwLock},
+        thread::{self, Builder},
         time::{Duration, Instant},
     },
 };
@@ -34,7 +33,7 @@ impl GossipPacketFlood {
         cluster_info: Arc<ClusterInfo>,
         configs: Vec<FloodConfig>,
     ) -> AdversaryWorkersContext {
-        let exit = Arc::new(AtomicBool::default());
+        let exit = Arc::new(ExitCondition::default());
         let thread_pool = create_rayon_thread_pool("solAdvGPFWrkr");
         let keypair_pool = Arc::new(RwLock::new(Vec::default()));
 
@@ -114,16 +113,17 @@ impl GossipPacketFlood {
                     .collect();
                 packet_count = packet_count.saturating_add(reqs_v.len());
                 let reqs_iter = reqs_v.iter().map(|(data, addr)| (data, addr));
-                if let Err(SendPktsError::IoError(err, num_failed)) =
-                    batch_send(send_socket, reqs_iter)
-                {
-                    packet_count = packet_count.saturating_sub(num_failed);
-                    error!(
-                        "batch_send failed to send {}/{} packets first error {:?}",
-                        num_failed,
-                        reqs_v.len(),
-                        err
-                    );
+                match batch_send(send_socket, reqs_iter) {
+                    Ok(()) => (),
+                    Err(SendPktsError::IoError(err, num_failed)) => {
+                        packet_count = packet_count.saturating_sub(num_failed);
+                        error!(
+                            "batch_send failed to send {}/{} packets first error {:?}",
+                            num_failed,
+                            reqs_v.len(),
+                            err
+                        );
+                    }
                 }
             }
         });
@@ -133,7 +133,7 @@ impl GossipPacketFlood {
     fn run(
         send_socket: &UdpSocket,
         cluster_info: &ClusterInfo,
-        exit: &AtomicBool,
+        exit: &ExitCondition,
         thread_pool: &ThreadPool,
         config: FloodConfig,
         thread_name: String,
@@ -146,7 +146,7 @@ impl GossipPacketFlood {
         let mut packet_count: usize = 0;
 
         loop {
-            if exit.load(Ordering::Relaxed) {
+            if exit.is_set() {
                 return;
             }
 
@@ -200,8 +200,10 @@ impl GossipPacketFlood {
                 last_report = Instant::now();
             }
             iteration = iteration.saturating_add(1);
-            if config.iteration_delay_us > 0 {
-                sleep(Duration::from_micros(config.iteration_delay_us));
+            if config.iteration_delay_us > 0
+                && exit.wait_is_set(Duration::from_micros(config.iteration_delay_us))
+            {
+                return;
             }
         }
     }
