@@ -284,9 +284,19 @@ attack_replayStage() {
   sleep "$sleeptime"
 }
 
-attack_sendDuplicateBlocks() {
+attack_delayBroadcast() {
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
     --turbine-send-delay-ms 1600
+  sleep "$runtime"
+  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
+  sleep "$sleeptime"
+}
+
+attack_sendDuplicateBlocks() {
+  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
+    --new-entry-index-from-end 0 \
+    --num-duplicate-validators 1 \
+    --send-original-after-ms 0
   sleep "$runtime"
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
   sleep "$sleeptime"
@@ -319,6 +329,8 @@ run_attacks_all() {
   attack_replayStage allocateRandomLarge
   attack_replayStage allocateRandomSmall
   attack_replayStage chainTransactions
+
+  attack_delayBroadcast
 
   attack_sendDuplicateBlocks
 }
