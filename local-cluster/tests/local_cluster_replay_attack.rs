@@ -351,7 +351,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
     let _ = TestSetup;
 
-    let attack_config = replay_stage_attack::WriteProgramConfig::default();
+    let attack_config = replay_stage_attack::AttackProgramConfig::default();
     // For the sake of this test, check with smaller than
     // `solana_system_interface::MAX_PERMITTED_DATA_LENGTH` accounts to avoid too large
     // archive problem due to ledger genesis archive size limit (see

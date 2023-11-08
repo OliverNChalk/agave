@@ -29,7 +29,7 @@ pub const ID: &str = "replay_stage_attack";
 adversarial_feature_impl!(ReplayStageAttack);
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct WriteProgramConfig {
+pub struct AttackProgramConfig {
     /// Max value is 64. In some parts of the code it is called "entry size".
     pub transaction_batch_size: usize,
     pub num_accounts_per_tx: usize,
@@ -43,11 +43,12 @@ pub struct WriteProgramConfig {
 // Default values are such that generated block can be replayed in ~400ms.
 // Generating heavier blocks is possible but requires skipping loading accounts and execution
 // transactions in the block.
-impl Default for WriteProgramConfig {
+impl Default for AttackProgramConfig {
     fn default() -> Self {
         Self {
             transaction_batch_size: 1,
             num_accounts_per_tx: 1,
+            // high enough value so that transaction is valid
             transaction_cu_budget: 1_000,
             use_failed_transaction_hotpath: false,
         }
@@ -74,9 +75,10 @@ pub enum Attack {
     AllocateRandomLarge,
     AllocateRandomSmall,
     ChainTransactions,
-    WriteProgram(WriteProgramConfig),
+    WriteProgram(AttackProgramConfig),
     ReadMaxAccounts,
     WriteMaxAccounts,
+    ReadProgram(AttackProgramConfig),
 }
 
 pub type AttackConfigVerifier =

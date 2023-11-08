@@ -1,10 +1,10 @@
-//! Creates a generator that executes the program, which writes into an account.
+//! Creates a generator that executes the program, which reads the first byte of every account.
 
 use {
     super::TransactionGenerator,
     crate::banking_stage::adversary::generator_templates::replay_attack_program,
     block_generator_stress_test::BlockGeneratorStressTestInstruction,
-    rand::{thread_rng, Rng},
+    rand::{thread_rng, RngCore},
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{Attack, AttackProgramConfig},
@@ -19,13 +19,9 @@ use {
 };
 
 pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
-    let Attack::WriteProgram(attack) = attack else {
-        panic!("Unexpected Attack passed into `write_program::verify`: {attack:?}",);
+    let Attack::ReadProgram(attack) = attack else {
+        panic!("Unexpected Attack passed into `read_program::verify`: {attack:?}",);
     };
-
-    if accounts.owner_program_id.is_none() {
-        return Err("`owner_program_id` must be set.".to_string());
-    }
     replay_attack_program::verify(accounts, attack.clone())
 }
 
@@ -38,20 +34,18 @@ pub(super) fn generator(
         accounts,
         num_workers,
         config,
-        create_write_message,
+        create_read_message,
     ))
 }
 
-fn create_write_message(
+fn create_read_message(
     payer: &Keypair,
     program_id: &Pubkey,
     accounts_meta: &[AccountMeta],
     transaction_cu_budget: u32,
 ) -> Message {
-    let rnd = thread_rng().gen_range(0..=u64::MAX);
-    let data = BlockGeneratorStressTestInstruction::WriteAccounts {
-        value: 128,
-        random: rnd,
+    let data = BlockGeneratorStressTestInstruction::ReadAccounts {
+        random: thread_rng().next_u64(),
     };
 
     // Explicitly specify the CU budget to avoid dropping some transactions on the CU check side.
@@ -62,9 +56,9 @@ fn create_write_message(
     let set_cu_instruction =
         ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget);
 
-    let write_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta.to_vec());
+    let read_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta.to_vec());
     Message::new(
-        &[set_cu_instruction, write_instruction],
+        &[set_cu_instruction, read_instruction],
         Some(&payer.pubkey()),
     )
 }
@@ -76,7 +70,7 @@ mod tests {
         crate::banking_stage::adversary::test_helpers::{
             create_test_bank, setup_accounts, setup_test,
         },
-        jsonrpc_core::{types::error::ErrorCode, Value},
+        jsonrpc_core::Value,
         serde_json::json,
         serial_test::serial,
         solana_adversary::{
@@ -86,18 +80,17 @@ mod tests {
             },
         },
         solana_rpc::{
-            rpc::test_helpers::{parse_failure_response, parse_success_result},
+            rpc::test_helpers::parse_success_result,
             rpc_adversary::test_helpers::send_signed_request_sync,
         },
-        std::sync::Arc,
     };
 
     #[test]
-    fn test_generator_write_program() {
+    fn test_generator_read_program() {
         let num_workers = 1;
         let num_payers = 64;
         let num_max_sized_accounts = 1024;
-        let owner_program_id = Pubkey::default();
+        let owner_program_id = Keypair::new().pubkey();
         let payers_accounts: Vec<Keypair> = (0..num_payers).map(|_| Keypair::new()).collect();
         let max_size_accounts: Vec<Keypair> = (0..num_max_sized_accounts)
             .map(|_| Keypair::new())
@@ -121,12 +114,12 @@ mod tests {
 
         assert_eq!(txs.len(), config.transaction_batch_size);
 
-        // In addition to the accounts to be modified, tx also includes a payer, the owner program
-        // id, and the compute budget program id.
-        let expected_num_accounts_per_tx = config.num_accounts_per_tx + 3;
         for tx in txs {
             let message = tx.message();
 
+            // In addition to the accounts to be read, tx also includes a payer, the owner program
+            // id, and the compute budget program id.
+            let expected_num_accounts_per_tx = config.num_accounts_per_tx + 3;
             assert_eq!(message.account_keys().len(), expected_num_accounts_per_tx);
             let instructions = &message.instructions();
             assert_eq!(instructions.len(), 2);
@@ -144,20 +137,19 @@ mod tests {
     // nice to move a to a more composable architecture and remove `[serial]`.
     #[test]
     #[serial]
-    fn rpc_config_invalid() {
+    fn rpc_config_valid() {
         let (mut meta, keypair, io, token) = setup_test();
 
         setup_accounts(&mut meta, 128, 32);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteProgram(AttackProgramConfig {
-                transaction_batch_size: 0,
+            selected_attack: Some(Attack::ReadProgram(AttackProgramConfig {
+                transaction_batch_size: 1,
                 num_accounts_per_tx: 8,
                 transaction_cu_budget: 10000,
                 use_failed_transaction_hotpath: false,
             })),
         };
-
         let rsp = send_signed_request_sync(
             meta.clone(),
             &io,
@@ -166,81 +158,7 @@ mod tests {
             &token,
             &config,
         );
-        let result = parse_failure_response(rsp);
-        let expected = (
-            ErrorCode::InvalidParams.code(),
-            "`transaction_batch_size` (0) must be in range [1, 64]".into(),
-        );
-        assert_eq!(result, expected);
-        assert_eq!(
-            AdversarialConfig::default(),
-            get_config(),
-            "Invalid config update should not change the config"
-        );
-    }
-
-    // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
-    #[test]
-    #[serial]
-    fn rpc_config_not_enough_payer_accounts() {
-        let (mut meta, keypair, io, token) = setup_test();
-
-        setup_accounts(&mut meta, 2, 1);
-
-        let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteProgram(AttackProgramConfig {
-                transaction_batch_size: 4,
-                num_accounts_per_tx: 8,
-                transaction_cu_budget: 10000,
-                use_failed_transaction_hotpath: false,
-            })),
-        };
-        let response = send_signed_request_sync(
-            meta.clone(),
-            &io,
-            &keypair,
-            "configureReplayStageAttack",
-            &token,
-            &config,
-        );
-        let result = parse_failure_response(response);
-        let expected = (
-            ErrorCode::InvalidParams.code(),
-            "Not enough \"payer\" accounts: need at least 32\n\"payer\" accounts: 2".into(),
-        );
-        assert_eq!(result, expected);
-        assert_eq!(
-            AdversarialConfig::default(),
-            get_config(),
-            "Invalid config update should not change the config"
-        );
-    }
-
-    // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
-    #[test]
-    #[serial]
-    fn rpc_config_valid() {
-        let (mut meta, keypair, io, token) = setup_test();
-
-        setup_accounts(&mut meta, 128, 32);
-
-        let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteProgram(AttackProgramConfig {
-                transaction_batch_size: 4,
-                num_accounts_per_tx: 8,
-                transaction_cu_budget: 10000,
-                use_failed_transaction_hotpath: false,
-            })),
-        };
-        let response = send_signed_request_sync(
-            meta.clone(),
-            &io,
-            &keypair,
-            "configureReplayStageAttack",
-            &token,
-            &config,
-        );
-        let result: Value = parse_success_result(response);
+        let result: Value = parse_success_result(rsp);
         assert_eq!(result, json!(null));
         assert_eq!(
             config,

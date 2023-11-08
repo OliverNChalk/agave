@@ -10,6 +10,7 @@ use {
     solana_program_entrypoint::{entrypoint, ProgramResult},
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
+    std::ptr::read_volatile,
     thiserror::Error,
 };
 
@@ -29,8 +30,14 @@ impl From<Error> for ProgramError {
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq)]
 pub enum BlockGeneratorStressTestInstruction {
     WriteAccounts {
-        value: u8,   // value to write to each of the accounts
-        random: u64, // this is random number to avoid having duplicate transactions errors
+        // value to write to each of the accounts
+        value: u8,
+        // this is random number to avoid having duplicate transactions errors
+        random: u64,
+    },
+    ReadAccounts {
+        // this is random number to avoid having duplicate transactions errors
+        random: u64,
     },
 }
 
@@ -51,6 +58,7 @@ pub fn process_instruction(
         BlockGeneratorStressTestInstruction::WriteAccounts { value, random: _ } => {
             write_accounts(accounts, value)
         }
+        BlockGeneratorStressTestInstruction::ReadAccounts { random: _ } => read_accounts(accounts),
     };
 
     Ok(())
@@ -63,6 +71,18 @@ fn write_accounts(accounts: &[AccountInfo], value: u8) {
             if data.len() > 0 {
                 data[0] = value;
             }
+        }
+    }
+}
+
+fn read_accounts(accounts: &[AccountInfo]) {
+    for account in accounts {
+        let data = &account.data;
+        let first_byte = data.borrow().as_ptr();
+        unsafe {
+            // Make sure the compiler will emit the memory read, forcing the VM to access the
+            // account data.
+            let _ = read_volatile(first_byte);
         }
     }
 }
@@ -103,4 +123,6 @@ mod test {
         assert_eq!(accounts[1].data.borrow()[0], 128u8);
         assert_eq!(accounts[2].data.borrow()[0], 0u8);
     }
+
+    // No test_sanity_read() because there are not observable side-effects of execution this function
 }

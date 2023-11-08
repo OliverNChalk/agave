@@ -481,7 +481,7 @@ mod tests {
         super::*,
         crate::adversary::replay::parse_replay_stage_attack_args,
         solana_adversary::adversary_feature_set::replay_stage_attack::{
-            Attack, WriteProgramConfig,
+            Attack, AttackProgramConfig,
         },
     };
 
@@ -534,7 +534,7 @@ mod tests {
     fn test_cli_parse_replay_stage_attack_write_program_default_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &["writeProgram"],
-            Attack::WriteProgram(WriteProgramConfig::default()),
+            Attack::WriteProgram(AttackProgramConfig::default()),
         );
     }
 
@@ -551,11 +551,32 @@ mod tests {
                 "--transaction-cu-budget",
                 "100",
             ],
-            Attack::WriteProgram(WriteProgramConfig {
+            Attack::WriteProgram(AttackProgramConfig {
                 transaction_batch_size: 32,
                 num_accounts_per_tx: 8,
                 transaction_cu_budget: 100,
                 use_failed_transaction_hotpath: true,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_read_program_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "readProgram",
+                "--transaction-batch-size",
+                "61",
+                "--num-accounts-per-tx",
+                "4",
+                "--transaction-cu-budget",
+                "2000",
+            ],
+            Attack::ReadProgram(AttackProgramConfig {
+                transaction_batch_size: 61,
+                num_accounts_per_tx: 4,
+                transaction_cu_budget: 2000,
+                use_failed_transaction_hotpath: false,
             }),
         );
     }
