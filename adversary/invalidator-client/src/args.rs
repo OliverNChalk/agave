@@ -245,6 +245,18 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("configure-delay-votes")
+                .about("Configure delaying sending votes to leader")
+                .arg(
+                    Arg::with_name("slot_count")
+                        .long("slot-count")
+                        .default_value("0")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Number of slots to delay sending votes by."),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("configure-packet-drop-parameters")
                 .about("Configure parameters to control dropping packets")
                 .arg(
@@ -419,6 +431,13 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-invalidate-leader-block", Some(sub_matches)) => {
             crate::adversary::leader_block::configure_invalidate_leader_block_args(
+                &rpc_endpoint_url,
+                sub_matches,
+                &rpc_adversary_keypair,
+            )
+        }
+        ("configure-delay-votes", Some(sub_matches)) => {
+            crate::adversary::delay_votes::configure_delay_votes_args(
                 &rpc_endpoint_url,
                 sub_matches,
                 &rpc_adversary_keypair,

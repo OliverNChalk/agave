@@ -7,9 +7,10 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, drop_turbine_votes, example, gossip_packet_flood, invalidate_leader_block,
-            packet_drop_parameters, repair_packet_flood, repair_parameters, replay_stage_attack,
-            send_duplicate_blocks, shred_receiver_address, AdversaryFeatureConfig,
+            self, delay_votes, drop_turbine_votes, example, gossip_packet_flood,
+            invalidate_leader_block, packet_drop_parameters, repair_packet_flood,
+            repair_parameters, replay_stage_attack, send_duplicate_blocks, shred_receiver_address,
+            AdversaryFeatureConfig,
         },
         auth::{AuthHeader, JsonRpcAuthToken},
         gossip::GossipPacketFlood,
@@ -154,6 +155,13 @@ pub trait Adversary {
         &self,
         meta: Self::Metadata,
         config: drop_turbine_votes::AdversarialConfig,
+    ) -> Result<()>;
+
+    #[rpc(meta, name = "delayVotes")]
+    fn configure_delay_votes(
+        &self,
+        meta: Self::Metadata,
+        config: delay_votes::AdversarialConfig,
     ) -> Result<()>;
 
     #[rpc(meta, name = "configureInvalidateLeaderBlock")]
@@ -366,6 +374,17 @@ impl Adversary for AdversaryImpl {
     ) -> Result<()> {
         self.perform_configuration(meta, || {
             shred_receiver_address::set_config(config);
+            Ok(())
+        })
+    }
+
+    fn configure_delay_votes(
+        &self,
+        meta: Self::Metadata,
+        config: delay_votes::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta, || {
+            delay_votes::set_config(config);
             Ok(())
         })
     }

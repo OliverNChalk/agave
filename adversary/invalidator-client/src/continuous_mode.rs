@@ -74,6 +74,24 @@ pub fn run_continuous_mode(
     ));
 
     adversary_scenarios.push((
+        "delay_votes",
+        AdversaryScenario {
+            start_fn: Box::new(|| {
+                adversary::delay_votes::configure_delay_votes_enable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
+            }),
+            stop_fn: Box::new(|| {
+                adversary::delay_votes::configure_delay_votes_disable(
+                    rpc_endpoint_url.clone(),
+                    rpc_adversary_keypair,
+                )
+            }),
+        },
+    ));
+
+    adversary_scenarios.push((
         "repair_packet_flood",
         AdversaryScenario {
             start_fn: Box::new(|| {

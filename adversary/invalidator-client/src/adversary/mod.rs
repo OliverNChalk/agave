@@ -7,6 +7,7 @@ use {
     solana_signer::Signer,
 };
 
+pub(super) mod delay_votes;
 pub(super) mod drop_turbine_votes;
 pub(super) mod gossip;
 pub(super) mod leader_block;
