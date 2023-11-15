@@ -707,6 +707,12 @@ impl BroadcastRun for StandardBroadcastRun {
         socket_sender: &Sender<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>,
         blockstore_sender: &Sender<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>,
     ) -> Result<()> {
+        if !self.shreds_to_send.is_empty() {
+            let mut process_stats = ProcessShredsStats::default();
+            self.send_all_shreds(socket_sender, blockstore_sender, &mut process_stats)?;
+            self.process_shreds_stats += process_stats;
+        }
+
         let mut process_stats = ProcessShredsStats::default();
         let receive_results = broadcast_utils::recv_slot_entries(
             receiver,
