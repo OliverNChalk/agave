@@ -31,7 +31,7 @@ use {
             AccountIndex, AccountSecondaryIndexes, IndexKey, ScanConfig, ScanOrder, ScanResult,
         },
     },
-    solana_adversary::block_generator_config::BlockGeneratorConfig,
+    solana_adversary::{block_generator_config::BlockGeneratorConfig, ReplayAttackSender},
     solana_client::connection_cache::Protocol,
     solana_clock::{Slot, UnixTimestamp, MAX_PROCESSING_AGE},
     solana_commitment_config::{CommitmentConfig, CommitmentLevel},
@@ -290,6 +290,7 @@ pub struct JsonRpcRequestProcessor {
     serve_repair_socket: Arc<UdpSocket>,
     adversary_meta: JsonRpcAdversaryMeta,
     block_generator_config: Option<BlockGeneratorConfig>,
+    replay_attack_sender: Option<ReplayAttackSender>,
 }
 impl Metadata for JsonRpcRequestProcessor {}
 
@@ -456,6 +457,7 @@ impl JsonRpcRequestProcessor {
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
         block_generator_config: Option<BlockGeneratorConfig>,
+        replay_attack_sender: Option<ReplayAttackSender>,
     ) -> (Self, Receiver<TransactionInfo>) {
         let (transaction_sender, transaction_receiver) = unbounded();
         (
@@ -481,6 +483,7 @@ impl JsonRpcRequestProcessor {
                 serve_repair_socket,
                 adversary_meta: JsonRpcAdversaryMeta::new(rpc_adversary_id),
                 block_generator_config,
+                replay_attack_sender,
             },
             transaction_receiver,
         )
@@ -569,6 +572,7 @@ impl JsonRpcRequestProcessor {
             serve_repair_socket: Arc::new(bind_to_unspecified().unwrap()),
             adversary_meta: JsonRpcAdversaryMeta::new(None),
             block_generator_config: None,
+            replay_attack_sender: None,
         }
     }
 
@@ -596,12 +600,16 @@ impl JsonRpcRequestProcessor {
         &mut self.adversary_meta
     }
 
-    pub fn block_generator_config(&self) -> &Option<BlockGeneratorConfig> {
-        &self.block_generator_config
+    pub fn block_generator_config(&self) -> Option<&BlockGeneratorConfig> {
+        self.block_generator_config.as_ref()
     }
 
     pub fn block_generator_config_mut(&mut self) -> &mut Option<BlockGeneratorConfig> {
         &mut self.block_generator_config
+    }
+
+    pub fn replay_attack_sender(&self) -> Option<&ReplayAttackSender> {
+        self.replay_attack_sender.as_ref()
     }
 
     pub async fn get_account_info(
@@ -4933,6 +4941,7 @@ pub mod tests {
                 Arc::new(bind_to_unspecified().unwrap()),
                 None,
                 None,
+                None,
             )
             .0;
 
@@ -6990,6 +6999,7 @@ pub mod tests {
             Arc::new(bind_to_unspecified().unwrap()),
             None,
             None,
+            None,
         );
 
         let client = Client::create_client(Some(runtime.handle().clone()), my_tpu_address, None, 1);
@@ -7318,6 +7328,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             runtime,
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
             None,
         );
@@ -9073,6 +9084,7 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
             None,
         );

@@ -1,19 +1,13 @@
 use {
     crate::{
         banking_stage::{
-            adversary::{
-                attack_scheduler::AttackScheduler, transaction_generators::ActiveGenerator,
-            },
-            committer::Committer,
-            consumer::Consumer,
-            decision_maker::DecisionMaker,
-            qos_service::QosService,
-            BankingStage, ConsumeWorker, CrossbeamConsumeWorkerChannels,
+            adversary::attack_scheduler::AttackScheduler, committer::Committer, consumer::Consumer,
+            decision_maker::DecisionMaker, qos_service::QosService, BankingStage, ConsumeWorker,
         },
         validator::BlockProductionMethod,
     },
     crossbeam_channel::{unbounded, Receiver, Sender},
-    solana_adversary::block_generator_config::BlockGeneratorConfig,
+    solana_adversary::ReplayAttackReceiver,
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_poh::{poh_recorder::PohRecorder, transaction_recorder::TransactionRecorder},
     solana_runtime::{
@@ -49,7 +43,6 @@ impl AdversarialBankingStage {
     /// [`BankingStage::new()`]: crate::banking_stage::BankingStage::new()
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        exit: Arc<AtomicBool>,
         block_production_method: BlockProductionMethod,
         poh_recorder: &Arc<RwLock<PohRecorder>>,
         transaction_recorder: TransactionRecorder,
@@ -58,7 +51,7 @@ impl AdversarialBankingStage {
         replay_vote_sender: ReplayVoteSender,
         log_messages_bytes_limit: Option<usize>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
-        block_generator_config: Option<BlockGeneratorConfig>,
+        replay_attack_receiver: Option<ReplayAttackReceiver>,
         drop_packets: Arc<AtomicBool>,
     ) -> Self {
         match block_production_method {
@@ -68,7 +61,6 @@ impl AdversarialBankingStage {
                 // But we do not care, and so we do not need the `use_greedy_scheduler` flag.
 
                 new_adversarial_central_scheduler(
-                    exit,
                     poh_recorder,
                     transaction_recorder,
                     num_workers,
@@ -76,7 +68,7 @@ impl AdversarialBankingStage {
                     replay_vote_sender,
                     log_messages_bytes_limit,
                     prioritization_fee_cache,
-                    block_generator_config,
+                    replay_attack_receiver,
                     drop_packets,
                 )
             }
@@ -98,7 +90,6 @@ impl AdversarialBankingStage {
 /// [`BankingStage::new_central_scheduler()`]: crate::banking_stage::BankingStage::new_central_scheduler()
 #[allow(clippy::too_many_arguments)]
 fn new_adversarial_central_scheduler(
-    exit: Arc<AtomicBool>,
     poh_recorder: &Arc<RwLock<PohRecorder>>,
     transaction_recorder: TransactionRecorder,
     num_workers: NonZeroUsize,
@@ -106,11 +97,11 @@ fn new_adversarial_central_scheduler(
     replay_vote_sender: ReplayVoteSender,
     log_messages_bytes_limit: Option<usize>,
     prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
-    block_generator_config: Option<BlockGeneratorConfig>,
+    replay_attack_receiver: Option<ReplayAttackReceiver>,
     drop_packets: Arc<AtomicBool>,
 ) -> AdversarialBankingStage {
     // If not configured for adversarial mode, spawn no threads.
-    let Some(block_generator_config) = block_generator_config else {
+    let Some(replay_attack_receiver) = replay_attack_receiver else {
         return AdversarialBankingStage {
             non_vote_exit_signal: Arc::new(AtomicBool::new(false)),
             non_vote_thread_hdls: vec![],
@@ -132,14 +123,13 @@ fn new_adversarial_central_scheduler(
     // more work than necessary.
 
     let (non_vote_exit_signal, non_vote_thread_hdls) = spawn_adversarial_scheduler_and_workers(
-        exit,
         decision_maker,
         committer,
         poh_recorder,
         transaction_recorder,
         num_workers,
         log_messages_bytes_limit,
-        block_generator_config,
+        replay_attack_receiver,
         drop_packets,
     );
 
@@ -152,14 +142,13 @@ fn new_adversarial_central_scheduler(
 // NOTE This is mostly copied from `BankingStage::spawn_scheduler_and_workers()`.
 #[allow(clippy::too_many_arguments)]
 fn spawn_adversarial_scheduler_and_workers(
-    exit: Arc<AtomicBool>,
     decision_maker: DecisionMaker,
     committer: Committer,
     poh_recorder: &Arc<RwLock<PohRecorder>>,
     transaction_recorder: TransactionRecorder,
     num_workers: NonZeroUsize,
     log_messages_bytes_limit: Option<usize>,
-    block_generator_config: BlockGeneratorConfig,
+    replay_attack_receiver: ReplayAttackReceiver,
     drop_packets: Arc<AtomicBool>,
 ) -> (Arc<AtomicBool>, Vec<JoinHandle<()>>) {
     // Create channels for communication between scheduler and workers
@@ -168,6 +157,7 @@ fn spawn_adversarial_scheduler_and_workers(
         (0..num_workers).map(|_| unbounded()).unzip();
     let (finished_work_sender, finished_work_receiver) = unbounded();
 
+    let exit = Arc::new(AtomicBool::new(false));
     // + 1 for the central scheduler thread
     let mut non_vote_thread_hdls = Vec::with_capacity(num_workers + 1);
 
@@ -208,17 +198,15 @@ fn spawn_adversarial_scheduler_and_workers(
         decision_maker,
         work_senders,
         finished_work_receiver,
-        ActiveGenerator::new(block_generator_config, num_workers),
+        num_workers,
+        replay_attack_receiver,
         drop_packets,
     );
 
     non_vote_thread_hdls.push(
         Builder::new()
             .name("solAdvBnkTxSched".to_string())
-            .spawn({
-                let exit = exit.clone();
-                move || scheduler.run(exit)
-            })
+            .spawn(move || scheduler.run())
             .unwrap(),
     );
 

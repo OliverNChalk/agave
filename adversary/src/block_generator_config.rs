@@ -19,6 +19,13 @@ pub struct BlockGeneratorConfig {
     pub accounts: BlockGeneratorAccountsSource,
 }
 
+// TODO Will be replaced by AttackAccountsManager structure, see issue#215
+impl BlockGeneratorConfig {
+    pub fn get_accounts(&self) -> Arc<AccountsFile> {
+        Arc::<AccountsFile>::from(self.accounts.clone())
+    }
+}
+
 impl From<BlockGeneratorAccountsSource> for Arc<AccountsFile> {
     fn from(block_generator_config: BlockGeneratorAccountsSource) -> Arc<AccountsFile> {
         match block_generator_config {

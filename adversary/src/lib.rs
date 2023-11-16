@@ -2,6 +2,9 @@
 
 use {
     crate::auth::{JsonRpcAuthToken, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
+    accounts_file::AccountsFile,
+    adversary_feature_set::replay_stage_attack,
+    crossbeam_channel::{Receiver, Sender},
     log::*,
     reqwest::{
         blocking::Client,
@@ -10,6 +13,7 @@ use {
     serde::{Deserialize, Serialize},
     serde_json::Value,
     solana_pubkey::Pubkey,
+    std::{fmt, sync::Arc},
 };
 
 pub mod accounts_file;
@@ -20,6 +24,38 @@ pub mod block_generator_config;
 pub mod flood_worker;
 pub mod gossip;
 pub mod repair;
+
+/// `Sender` and `Receiver` types to exchange information about requested attacks
+/// between rpc, banking stage and attach scheduler.
+pub type ReplayAttackSender = Sender<SelectedReplayAttack>;
+pub type ReplayAttackReceiver = Receiver<SelectedReplayAttack>;
+
+/// Selected attack targeting replay stage.
+///
+/// If `None`, invalidator performs normal banking stage processing.
+/// Otherwise, it builds blocks using specified attack type and accounts.
+pub enum SelectedReplayAttack {
+    None,
+    Selected {
+        attack: replay_stage_attack::Attack,
+        accounts: Arc<AccountsFile>,
+    },
+}
+
+impl fmt::Debug for SelectedReplayAttack {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SelectedReplayAttack::None => write!(fmt, "SelectedReplayAttack::None"),
+            SelectedReplayAttack::Selected {
+                attack,
+                accounts: _,
+            } => fmt
+                .debug_struct("SelectedReplayAttack::Selected")
+                .field("attack", attack)
+                .finish_non_exhaustive(),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcRequest {

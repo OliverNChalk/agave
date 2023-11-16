@@ -29,6 +29,7 @@ use {
     solana_adversary::{
         auth::{AuthHeader, HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH},
         block_generator_config::BlockGeneratorConfig,
+        ReplayAttackSender,
     },
     solana_cli_output::display::build_balance_message,
     solana_client::{
@@ -638,6 +639,7 @@ pub struct JsonRpcServiceConfig<'a> {
     pub serve_repair_socket: Arc<UdpSocket>,
     pub rpc_adversary_id: Option<Pubkey>,
     pub block_generator_config: Option<BlockGeneratorConfig>,
+    pub replay_attack_sender: Option<ReplayAttackSender>,
 }
 
 impl JsonRpcService {
@@ -692,6 +694,7 @@ impl JsonRpcService {
                     config.serve_repair_socket,
                     config.rpc_adversary_id,
                     config.block_generator_config,
+                    config.replay_attack_sender,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -744,6 +747,7 @@ impl JsonRpcService {
                     config.serve_repair_socket,
                     config.rpc_adversary_id,
                     config.block_generator_config,
+                    config.replay_attack_sender,
                 )?;
                 Ok(json_rpc_service)
             }
@@ -775,6 +779,7 @@ impl JsonRpcService {
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
         block_generator_config: Option<BlockGeneratorConfig>,
+        replay_attack_sender: Option<ReplayAttackSender>,
     ) -> Result<Self, String> {
         let runtime = service_runtime(
             config.rpc_threads,
@@ -825,6 +830,7 @@ impl JsonRpcService {
             serve_repair_socket,
             rpc_adversary_id,
             block_generator_config,
+            replay_attack_sender,
         )?;
         Ok(json_rpc_service)
     }
@@ -861,6 +867,7 @@ impl JsonRpcService {
         serve_repair_socket: Arc<UdpSocket>,
         rpc_adversary_id: Option<Pubkey>,
         block_generator_config: Option<BlockGeneratorConfig>,
+        replay_attack_sender: Option<ReplayAttackSender>,
     ) -> Result<Self, String> {
         info!("rpc bound to {rpc_addr:?}");
         info!("rpc configuration: {config:?}");
@@ -955,6 +962,7 @@ impl JsonRpcService {
             serve_repair_socket,
             rpc_adversary_id,
             block_generator_config,
+            replay_attack_sender,
         );
         let _send_transaction_service = Arc::new(SendTransactionService::new_with_client(
             &bank_forks,
@@ -1186,6 +1194,7 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             Arc::new(bind_to_unspecified().unwrap()),
+            None,
             None,
             None,
         )

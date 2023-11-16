@@ -85,7 +85,7 @@ pub mod tests {
         let result = parse_failure_response(response);
         let expected = (
             ErrorCode::InvalidParams.code(),
-            "Cannot launch attack: accounts configuration file was not setup up".into(),
+            "Cannot launch attack: accounts were not setup".into(),
         );
         assert_eq!(result, expected);
         assert_eq!(

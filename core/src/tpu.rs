@@ -33,7 +33,7 @@ use {
     },
     bytes::Bytes,
     crossbeam_channel::{bounded, unbounded, Receiver},
-    solana_adversary::block_generator_config::BlockGeneratorConfig,
+    solana_adversary::ReplayAttackReceiver,
     solana_clock::Slot,
     solana_gossip::cluster_info::ClusterInfo,
     solana_keypair::Keypair,
@@ -165,7 +165,7 @@ impl Tpu {
         block_production_num_workers: NonZeroUsize,
         block_production_scheduler_config: SchedulerConfig,
         enable_block_production_forwarding: bool,
-        block_generator_config: Option<BlockGeneratorConfig>, /* vestigial code for replay invalidator */
+        replay_attack_receiver: Option<ReplayAttackReceiver>,
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         cancel: CancellationToken,
     ) -> Self {
@@ -351,7 +351,6 @@ impl Tpu {
         };
 
         let adversarial_banking_stage = AdversarialBankingStage::new(
-            exit.clone(),
             block_production_method,
             poh_recorder,
             transaction_recorder.clone(),
@@ -360,7 +359,7 @@ impl Tpu {
             replay_vote_sender,
             log_messages_bytes_limit,
             prioritization_fee_cache,
-            block_generator_config,
+            replay_attack_receiver,
             drop_packets,
         );
 

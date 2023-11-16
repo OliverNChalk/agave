@@ -1209,6 +1209,7 @@ impl Validator {
             rpc_completed_slots_service,
             optimistically_confirmed_bank_tracker,
             bank_notification_sender,
+            replay_attack_receiver,
         ) = if let Some((rpc_addr, rpc_pubsub_addr)) = config.rpc_addrs {
             assert_eq!(
                 node.info.rpc().map(|addr| socket_addr_space.check(&addr)),
@@ -1222,6 +1223,9 @@ impl Validator {
             } else {
                 None
             };
+
+            // Channel to connect RPC replay attack setup with the execution of the attack
+            let (replay_attack_sender, replay_attack_receiver) = unbounded();
 
             let client_option = if config.use_tpu_client_next {
                 let runtime_handle = tpu_client_next_runtime
@@ -1267,6 +1271,7 @@ impl Validator {
                 serve_repair_socket: serve_repair_socket.clone(),
                 rpc_adversary_id: config.invalidator_config.rpc_adversary_id,
                 block_generator_config: config.invalidator_config.block_generator_config.clone(),
+                replay_attack_sender: Some(replay_attack_sender),
             };
             let json_rpc_service =
                 JsonRpcService::new_with_config(rpc_svc_config).map_err(ValidatorError::Other)?;
@@ -1360,9 +1365,10 @@ impl Validator {
                 rpc_completed_slots_service,
                 optimistically_confirmed_bank_tracker,
                 bank_notification_sender_config,
+                Some(replay_attack_receiver),
             )
         } else {
-            (None, None, None, None, None, None, None, None)
+            (None, None, None, None, None, None, None, None, None)
         };
 
         if config.halt_at_slot.is_some() {
@@ -1748,7 +1754,7 @@ impl Validator {
             config.block_production_num_workers,
             config.block_production_scheduler_config.clone(),
             config.enable_block_production_forwarding,
-            config.invalidator_config.block_generator_config.clone(),
+            replay_attack_receiver,
             key_notifiers.clone(),
             cancel,
         );

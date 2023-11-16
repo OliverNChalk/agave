@@ -9,8 +9,8 @@ use {
         scheduler_messages::{self, ConsumeWork, FinishedConsumeWork},
         transaction_scheduler::batch_id_generator::BatchIdGenerator,
     },
-    crossbeam_channel::{Receiver, Sender},
-    solana_adversary::adversary_feature_set::replay_stage_attack,
+    crossbeam_channel::{Receiver, Sender, TryRecvError},
+    solana_adversary::ReplayAttackReceiver,
     solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
     solana_transaction::sanitized::SanitizedTransaction,
     std::{
@@ -39,8 +39,11 @@ pub struct AttackScheduler {
     finished_consume_work_receiver:
         Receiver<FinishedConsumeWork<RuntimeTransaction<SanitizedTransaction>>>,
 
-    /// Selected generator
-    active_generator: ActiveGenerator,
+    /// Number of workers replaying transactions
+    num_workers: usize,
+
+    /// Informs the `AttackScheduler` of the attack it should start running.
+    replay_attack_receiver: ReplayAttackReceiver,
 
     /// Controls the `BankingStage` scheduler, indicating that it should be dropping packets rather
     /// then processing them.
@@ -54,41 +57,55 @@ impl AttackScheduler {
         finished_consume_work_receiver: Receiver<
             FinishedConsumeWork<RuntimeTransaction<SanitizedTransaction>>,
         >,
-        active_generator: ActiveGenerator,
+        num_workers: usize,
+        replay_attack_receiver: ReplayAttackReceiver,
         drop_packets: Arc<AtomicBool>,
     ) -> Self {
         Self {
             decision_maker,
             consume_work_senders,
             finished_consume_work_receiver,
-            active_generator,
+            num_workers,
+            replay_attack_receiver,
             drop_packets,
         }
     }
 
-    pub fn run(self, exit: Arc<AtomicBool>) {
+    pub fn run(self) {
         let mut tx_batch_id_gen = BatchIdGenerator::default();
         let mut tx_id: usize = 0;
+        let mut active_generator = None;
 
         let Self {
             decision_maker,
             consume_work_senders,
             finished_consume_work_receiver,
-            mut active_generator,
+            num_workers,
+            replay_attack_receiver,
             drop_packets,
         } = self;
 
         'scheduler_loop: loop {
-            if exit.load(atomic::Ordering::Relaxed) {
-                debug!("AttackScheduler exiting");
-                break 'scheduler_loop;
+            match replay_attack_receiver.try_recv() {
+                Ok(selected_attack) => {
+                    info!("Reset selected generator to: {selected_attack:?}");
+                    active_generator =
+                        ActiveGenerator::with_selected_attack(selected_attack, num_workers);
+                }
+                Err(TryRecvError::Empty) => {
+                    // continue executing active_generator
+                }
+                Err(TryRecvError::Disconnected) => {
+                    debug!("AttackScheduler exiting");
+                    break 'scheduler_loop;
+                }
             }
 
             // Drop finished work from banking stage so we don't OOM
             finished_consume_work_receiver.try_iter().for_each(drop);
 
-            update_active_attack(&mut active_generator);
-            if !active_generator.is_active() {
+            let Some(ref mut active_generator) = active_generator else {
+                // We do not want to drop traffic if no attack is being run.
                 // We do not want to drop traffic if no attack is being run.
                 if drop_packets.load(atomic::Ordering::Relaxed) {
                     drop_packets.store(false, atomic::Ordering::Relaxed);
@@ -96,7 +113,7 @@ impl AttackScheduler {
 
                 sleep(Duration::from_millis(100));
                 continue;
-            }
+            };
 
             if !drop_packets.load(atomic::Ordering::Relaxed) {
                 drop_packets.store(true, atomic::Ordering::Relaxed);
@@ -153,11 +170,4 @@ impl AttackScheduler {
             }
         }
     }
-}
-
-fn update_active_attack(active_generator: &mut ActiveGenerator) {
-    let replay_stage_attack::AdversarialConfig {
-        selected_attack, ..
-    } = replay_stage_attack::get_config();
-    active_generator.ensure_active(selected_attack);
 }

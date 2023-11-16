@@ -15,7 +15,7 @@ use {
         auth::{AuthHeader, JsonRpcAuthToken},
         gossip::GossipPacketFlood,
         repair::RepairPacketFlood,
-        verify_peer_identifier,
+        verify_peer_identifier, SelectedReplayAttack,
     },
     solana_metrics::metrics::public_metrics_db,
     solana_pubkey::Pubkey,
@@ -428,10 +428,36 @@ impl Adversary for AdversaryImpl {
         config: replay_stage_attack::AdversarialConfig,
     ) -> Result<()> {
         self.perform_configuration(meta.clone(), || {
-            config
-                .verify(meta.block_generator_config())
-                .map_err(|message| Error::invalid_params(message.to_string()))?;
+            let selected_attack = match config.selected_attack {
+                Some(ref selected_attack) => {
+                    let accounts_manager = meta.block_generator_config();
+                    let Some(accounts_manager) = accounts_manager else {
+                        return Err(Error::invalid_params(
+                            "Cannot launch attack: accounts were not setup".to_string(),
+                        ));
+                    };
+
+                    let accounts = accounts_manager.get_accounts();
+                    selected_attack
+                        .verify(&accounts)
+                        .map_err(|message| Error::invalid_params(message.to_string()))?;
+
+                    SelectedReplayAttack::Selected {
+                        attack: selected_attack.clone(),
+                        accounts,
+                    }
+                }
+                None => SelectedReplayAttack::None,
+            };
+
+            // We still need to use this configuration to drop received packets in banking stage during attack
             replay_stage_attack::set_config(config);
+
+            if let Some(replay_attack_sender) = meta.replay_attack_sender() {
+                replay_attack_sender
+                    .send(selected_attack)
+                    .unwrap_or_else(|err| warn!("Failed to send replay attack: {err}"));
+            }
             Ok(())
         })
     }

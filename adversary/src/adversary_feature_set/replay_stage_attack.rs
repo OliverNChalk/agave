@@ -14,11 +14,11 @@
 //! a single location, removing all attack specific code from this module.
 
 use {
-    crate::{accounts_file::AccountsFile, block_generator_config::BlockGeneratorConfig},
+    crate::accounts_file::AccountsFile,
     itertools::Itertools,
     std::{
         collections::{hash_map, HashMap},
-        sync::{Arc, LazyLock, Mutex},
+        sync::{LazyLock, Mutex},
     },
     strum::VariantNames,
     strum_macros::{AsRefStr, Display, EnumString, EnumVariantNames},
@@ -207,23 +207,4 @@ impl Attack {
 #[serde(rename_all = "camelCase")]
 pub struct AdversarialConfig {
     pub selected_attack: Option<Attack>,
-}
-
-impl AdversarialConfig {
-    pub fn verify(&self, config: &Option<BlockGeneratorConfig>) -> Result<(), String> {
-        let Some(ref selected_attack) = self.selected_attack else {
-            return Ok(());
-        };
-        let Some(config) = config else {
-            return Err(
-                "Cannot launch attack: accounts configuration file was not setup up".to_string(),
-            );
-        };
-
-        // TODO We are reading the accounts configuration file here, just to validate the RPC call,
-        // and then we discard this configuration.  It is suboptimal.
-        let accounts = Arc::<AccountsFile>::from(config.accounts.clone());
-
-        selected_attack.verify(&accounts)
-    }
 }
