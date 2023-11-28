@@ -67,6 +67,7 @@ pub(crate) fn generator<CreateMessage>(
     accounts: Arc<AccountsFile>,
     num_workers: usize,
     config: AttackProgramConfig,
+    are_writable_accounts: bool,
     create_message: CreateMessage,
 ) -> impl FnMut(&Bank) -> (Vec<SanitizedTransaction>, usize) + Send
 where
@@ -89,7 +90,11 @@ where
     let accounts_meta: Vec<AccountMeta> = accounts
         .max_size
         .iter()
-        .map(|account| AccountMeta::new(account.pubkey(), false))
+        .map(|account| AccountMeta {
+            pubkey: account.pubkey(),
+            is_signer: false,
+            is_writable: are_writable_accounts,
+        })
         .collect();
 
     let accounts_batch_size = config.transaction_batch_size * config.num_accounts_per_tx;

@@ -6,6 +6,8 @@ use {
     borsh::{BorshDeserialize, BorshSerialize},
     num_derive::{FromPrimitive, ToPrimitive},
     solana_account_info::AccountInfo,
+    solana_cpi::invoke,
+    solana_instruction::{AccountMeta, Instruction},
     solana_msg::msg,
     solana_program_entrypoint::{entrypoint, ProgramResult},
     solana_program_error::ProgramError,
@@ -39,12 +41,18 @@ pub enum BlockGeneratorStressTestInstruction {
         // this is random number to avoid having duplicate transactions errors
         random: u64,
     },
+    Recurse {
+        // recursion depth
+        depth: u8,
+        // this is random number to avoid having duplicate transactions errors
+        random: u64,
+    },
 }
 
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
-    _program_id: &Pubkey,
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
@@ -59,12 +67,13 @@ pub fn process_instruction(
             write_accounts(accounts, value)
         }
         BlockGeneratorStressTestInstruction::ReadAccounts { random: _ } => read_accounts(accounts),
-    };
-
-    Ok(())
+        BlockGeneratorStressTestInstruction::Recurse { depth, random } => {
+            recurse(program_id, depth, random, accounts)
+        }
+    }
 }
 
-fn write_accounts(accounts: &[AccountInfo], value: u8) {
+fn write_accounts(accounts: &[AccountInfo], value: u8) -> ProgramResult {
     for account in accounts {
         if account.is_writable {
             let mut data = account.data.borrow_mut();
@@ -73,9 +82,10 @@ fn write_accounts(accounts: &[AccountInfo], value: u8) {
             }
         }
     }
+    Ok(())
 }
 
-fn read_accounts(accounts: &[AccountInfo]) {
+fn read_accounts(accounts: &[AccountInfo]) -> ProgramResult {
     for account in accounts {
         let data = &account.data;
         let first_byte = data.borrow().as_ptr();
@@ -85,6 +95,34 @@ fn read_accounts(accounts: &[AccountInfo]) {
             let _ = read_volatile(first_byte);
         }
     }
+    Ok(())
+}
+
+fn recurse(program_id: &Pubkey, depth: u8, random: u64, accounts: &[AccountInfo]) -> ProgramResult {
+    if depth == 0 {
+        return Ok(());
+    }
+
+    let accounts_meta: Vec<AccountMeta> = accounts
+        .iter()
+        .map(|a| AccountMeta {
+            pubkey: *a.key,
+            is_writable: a.is_writable,
+            is_signer: a.is_signer,
+        })
+        .collect();
+
+    let data = borsh::to_vec(&BlockGeneratorStressTestInstruction::Recurse {
+        depth: depth.saturating_sub(1),
+        random,
+    })
+    .map_err(|_| ProgramError::BorshIoError)?;
+    let instruction = Instruction {
+        program_id: *program_id,
+        accounts: accounts_meta,
+        data,
+    };
+    invoke(&instruction, accounts)
 }
 
 // Sanity tests

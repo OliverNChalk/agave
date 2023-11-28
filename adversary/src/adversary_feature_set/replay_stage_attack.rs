@@ -79,6 +79,7 @@ pub enum Attack {
     ReadMaxAccounts,
     WriteMaxAccounts,
     ReadProgram(AttackProgramConfig),
+    RecursiveProgram(AttackProgramConfig),
 }
 
 pub type AttackConfigVerifier =

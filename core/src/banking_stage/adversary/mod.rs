@@ -53,6 +53,7 @@ pub(crate) fn register_attack_config_verifiers() {
     verify_accounts!("readMaxAccounts", read_max_accounts);
     verify_accounts!("writeMaxAccounts", write_max_accounts);
     verify_accounts_and_attack_config!("readProgram", read_program);
+    verify_accounts_and_attack_config!("recursiveProgram", recursive_program);
 
     Attack::end_verifier_registration().expect("All config verifiers are registered");
 }

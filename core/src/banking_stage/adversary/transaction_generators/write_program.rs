@@ -38,6 +38,7 @@ pub(super) fn generator(
         accounts,
         num_workers,
         config,
+        true,
         create_write_message,
     ))
 }

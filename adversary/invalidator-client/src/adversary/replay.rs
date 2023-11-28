@@ -47,7 +47,9 @@ pub fn parse_replay_stage_attack_args(
     let mut selected_attack = Attack::from_str(selected_attack)
         .map_err(|_| format!("Error converting to enum from string: {selected_attack}"))?;
     match &mut selected_attack {
-        Attack::WriteProgram(config) | Attack::ReadProgram(config) => {
+        Attack::WriteProgram(config)
+        | Attack::ReadProgram(config)
+        | Attack::RecursiveProgram(config) => {
             config.use_failed_transaction_hotpath =
                 sub_matches.is_present("use_failed_transaction_hotpath");
             config.transaction_batch_size = value_t!(sub_matches, "transaction_batch_size", usize)

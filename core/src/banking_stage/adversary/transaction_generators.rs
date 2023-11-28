@@ -16,6 +16,7 @@ pub(super) mod chain_transactions;
 pub(super) mod create_nonce_accounts;
 pub(super) mod read_max_accounts;
 pub(super) mod read_program;
+pub(super) mod recursive_program;
 pub(super) mod transfer_random;
 pub(super) mod write_max_accounts;
 pub(super) mod write_program;
@@ -81,6 +82,14 @@ impl ActiveGenerator {
             WriteMaxAccounts => (write_max_accounts::generator(accounts, num_workers), 1),
             ReadProgram(read_program_config) => (
                 read_program::generator(accounts, num_workers, read_program_config.clone()),
+                1,
+            ),
+            RecursiveProgram(recursive_program_config) => (
+                recursive_program::generator(
+                    accounts,
+                    num_workers,
+                    recursive_program_config.clone(),
+                ),
                 1,
             ),
         }

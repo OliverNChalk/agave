@@ -1,4 +1,4 @@
-//! Creates a generator that executes the program, which reads the first byte of every account.
+//! Creates a generator that executes the program, which calls recursively read function
 
 use {
     super::TransactionGenerator,
@@ -18,10 +18,17 @@ use {
     std::sync::Arc,
 };
 
+/// Empirically found that higher values lead to error
+/// "Cross-program invocation call depth too deep"
+const MAX_CPI_DEPTH: u8 = 4;
+
 pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
-    let Attack::ReadProgram(attack) = attack else {
-        panic!("Unexpected Attack passed into `read_program::verify`: {attack:?}",);
+    let Attack::RecursiveProgram(attack) = attack else {
+        panic!("Unexpected Attack passed into `recursive_program::verify`: {attack:?}",);
     };
+    if accounts.owner_program_id.is_none() {
+        return Err("`owner_program_id` must be set.".to_string());
+    }
     replay_attack_program::verify(accounts, attack.clone())
 }
 
@@ -34,18 +41,19 @@ pub(super) fn generator(
         accounts,
         num_workers,
         config,
-        false,
-        create_read_message,
+        true, // TODO(klykov) check if matters
+        create_recursive_message,
     ))
 }
 
-fn create_read_message(
+fn create_recursive_message(
     payer: &Keypair,
     program_id: &Pubkey,
     accounts_meta: &[AccountMeta],
     transaction_cu_budget: u32,
 ) -> Message {
-    let data = BlockGeneratorStressTestInstruction::ReadAccounts {
+    let data = BlockGeneratorStressTestInstruction::Recurse {
+        depth: MAX_CPI_DEPTH,
         random: thread_rng().next_u64(),
     };
 
@@ -57,9 +65,17 @@ fn create_read_message(
     let set_cu_instruction =
         ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget);
 
-    let read_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta.to_vec());
+    // For the CPI, we need to pass program_id as well
+    let program_account_meta = AccountMeta {
+        pubkey: *program_id,
+        is_signer: false,
+        is_writable: false,
+    };
+    let accounts_meta = [&[program_account_meta], accounts_meta].concat();
+
+    let recursive_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta);
     Message::new(
-        &[set_cu_instruction, read_instruction],
+        &[set_cu_instruction, recursive_instruction],
         Some(&payer.pubkey()),
     )
 }
@@ -87,7 +103,7 @@ mod tests {
     };
 
     #[test]
-    fn test_generator_read_program() {
+    fn test_generator_recursive_program() {
         let num_workers = 1;
         let num_payers = 64;
         let num_max_sized_accounts = 1024;
@@ -144,7 +160,7 @@ mod tests {
         setup_accounts(&mut meta, 128, 32);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::ReadProgram(AttackProgramConfig {
+            selected_attack: Some(Attack::RecursiveProgram(AttackProgramConfig {
                 transaction_batch_size: 1,
                 num_accounts_per_tx: 8,
                 transaction_cu_budget: 10000,
