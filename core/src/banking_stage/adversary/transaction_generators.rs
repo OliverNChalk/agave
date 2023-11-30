@@ -33,27 +33,27 @@ pub struct ActiveGenerator {
 }
 
 impl ActiveGenerator {
-    pub fn with_selected_attack(
-        selected_attack: SelectedReplayAttack,
-        num_workers: usize,
-    ) -> Option<Self> {
-        if let SelectedReplayAttack::Selected { accounts, attack } = selected_attack {
-            info!("Reset selected generator to: {attack:?}");
-            let (generator, execution_tx_batch_size) =
-                Self::create_generator(accounts, attack.clone(), num_workers);
-            Some(Self {
-                attack,
-                generator,
-                execution_tx_batch_size,
-            })
-        } else {
-            None
-        }
+    /// Produces an `ActiveGenerator` if the `SelectedReplayAttack` indicates an attack needs to be
+    /// run.
+    pub fn given(selected_attack: SelectedReplayAttack, num_workers: usize) -> Option<Self> {
+        let (accounts, attack) = match selected_attack {
+            SelectedReplayAttack::Selected { accounts, attack } => (accounts, attack),
+            SelectedReplayAttack::None => return None,
+        };
+
+        info!("Reset selected generator to: {attack:?}");
+        let (generator, execution_tx_batch_size) =
+            Self::create_generator(accounts, attack.clone(), num_workers);
+        Some(Self {
+            attack,
+            generator,
+            execution_tx_batch_size,
+        })
     }
 
     /// Run the generator this many times at once, when producing transactions.
     /// Generators that do little work per transaction should use a larger value.
-    pub fn get_num_generator_exec_batch_size(&self) -> usize {
+    pub fn get_execution_batch_size(&self) -> usize {
         self.execution_tx_batch_size
     }
 

@@ -89,8 +89,7 @@ impl AttackScheduler {
             match replay_attack_receiver.try_recv() {
                 Ok(selected_attack) => {
                     info!("Reset selected generator to: {selected_attack:?}");
-                    active_generator =
-                        ActiveGenerator::with_selected_attack(selected_attack, num_workers);
+                    active_generator = ActiveGenerator::given(selected_attack, num_workers);
                 }
                 Err(TryRecvError::Empty) => {
                     // continue executing active_generator
@@ -128,7 +127,7 @@ impl AttackScheduler {
                 continue;
             };
 
-            let num_generator_exec = active_generator.get_num_generator_exec_batch_size();
+            let num_generator_exec = active_generator.get_execution_batch_size();
             let use_failed_transaction_hotpath = active_generator.use_failed_transaction_hotpath();
 
             // Batch transactions to amortize decision cost.
