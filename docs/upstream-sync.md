@@ -152,7 +152,7 @@ beforehand.  To make sure existing issues are not mixed with the new ones:
 ```sh
 git rebase --interactive --no-autosquash \
     --exec "./cargo check --tests \
-        && ./cargo nightly fmt \
+        && ./scripts/cargo-fmt.sh \
         && cd programs/sbf && \
         ../../cargo check --tests" \
     "$( git merge-base master-next sync/master-upstream )"
@@ -176,7 +176,7 @@ checked all the commits before already.
 Check that the issue is resolved, and the continue checking:
 
 ```sh
-./cargo check --tests && ./cargo nightly fmt
+./cargo check --tests && ./scripts/cargo-fmt.sh
 git rebase --continue
 ```
 
@@ -211,7 +211,7 @@ a complete rebase is done, I do another run like this:
 ```sh
 git rebase --interactive \
     --exec "./cargo check --tests \
-        && ./cargo nightly fmt \
+        && ./scripts/cargo-fmt.sh \
         && ./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
             --deny=warnings \
             --deny=clippy::default_trait_access \
@@ -220,8 +220,7 @@ git rebase --interactive \
             --deny=clippy::used_underscore_binding \
             --allow=clippy::redundant_clone \
         && cd programs/sbf \
-        && ../../cargo check --tests \
-        && ../../cargo nightly fmt" \
+        && ../../cargo check --tests" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
 
@@ -492,10 +491,9 @@ In case you created any "DO NOT SUBMIT: Fixup" commits:
 ```sh
 git rebase --interactive \
     --exec "./cargo check --tests \
-        && ./cargo nightly fmt \
+        && ./scripts/cargo-fmt.sh \
         && cd programs/sbf \
-        && ../../cargo check --tests \
-        && ../../cargo nightly fmt" \
+        && ../../cargo check --tests" \
     "$( git merge-base sync/v1.16-upstream HEAD )"
 ```
 
