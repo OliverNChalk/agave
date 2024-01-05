@@ -151,9 +151,10 @@ beforehand.  To make sure existing issues are not mixed with the new ones:
 
 ```sh
 git rebase --interactive --no-autosquash \
-    --exec "./cargo check --tests \
-        && ./scripts/cargo-fmt.sh \
-        && cd programs/sbf && \
+    --reschedule-failed-exec \
+    --exec "./cargo check --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "cd programs/sbf && \
         ../../cargo check --tests" \
     "$( git merge-base master-next sync/master-upstream )"
 ```
@@ -210,16 +211,17 @@ a complete rebase is done, I do another run like this:
 
 ```sh
 git rebase --interactive \
-    --exec "./cargo check --tests \
-        && ./scripts/cargo-fmt.sh \
-        && ./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
+    --reschedule-failed-exec \
+    --exec "./cargo check --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
             --deny=warnings \
             --deny=clippy::default_trait_access \
             --deny=clippy::arithmetic_side_effects \
             --deny=clippy::manual_let_else \
             --deny=clippy::used_underscore_binding \
-            --allow=clippy::redundant_clone \
-        && cd programs/sbf \
+            --allow=clippy::redundant_clone" \
+    --exec "cd programs/sbf \
         && ../../cargo check --tests" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
@@ -490,9 +492,10 @@ In case you created any "DO NOT SUBMIT: Fixup" commits:
 
 ```sh
 git rebase --interactive \
-    --exec "./cargo check --tests \
-        && ./scripts/cargo-fmt.sh \
-        && cd programs/sbf \
+    --reschedule-failed-exec \
+    --exec "./cargo check --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "cd programs/sbf \
         && ../../cargo check --tests" \
     "$( git merge-base sync/v1.16-upstream HEAD )"
 ```
