@@ -143,7 +143,7 @@ git branch --no-track "sync/master-local" "sync/master/local/$SYNC_DATE"
 git switch --create master-next --no-track sync/master-local
 ```
 
-### 1.5. Run `cargo check --test` and `cargo fmt` for `invalidator`
+### 1.5. Run `cargo check --all` and `cargo fmt` for `invalidator`
 
 While the `invalidator` repo does not have a working CI, it might be desirable
 to run `cargo check` and `cargo fmt` on each commit in the rebased branch
@@ -152,10 +152,10 @@ beforehand.  To make sure existing issues are not mixed with the new ones:
 ```sh
 git rebase --interactive --no-autosquash \
     --reschedule-failed-exec \
-    --exec "./cargo check --tests" \
+    --exec "./cargo check --all" \
     --exec "./scripts/cargo-fmt.sh" \
     --exec "cd programs/sbf && \
-        ../../cargo check --tests" \
+        ../../cargo check --all" \
     "$( git merge-base master-next sync/master-upstream )"
 ```
 
@@ -177,7 +177,7 @@ checked all the commits before already.
 Check that the issue is resolved, and the continue checking:
 
 ```sh
-./cargo check --tests && ./scripts/cargo-fmt.sh
+./cargo check --all && ./scripts/cargo-fmt.sh
 git rebase --continue
 ```
 
@@ -212,7 +212,7 @@ a complete rebase is done, I do another run like this:
 ```sh
 git rebase --interactive \
     --reschedule-failed-exec \
-    --exec "./cargo check --tests" \
+    --exec "./cargo check --all" \
     --exec "./scripts/cargo-fmt.sh" \
     --exec "./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
             --deny=warnings \
@@ -222,7 +222,7 @@ git rebase --interactive \
             --deny=clippy::used_underscore_binding \
             --allow=clippy::redundant_clone" \
     --exec "cd programs/sbf \
-        && ../../cargo check --tests" \
+        && ../../cargo check --all" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
 
@@ -493,10 +493,10 @@ In case you created any "DO NOT SUBMIT: Fixup" commits:
 ```sh
 git rebase --interactive \
     --reschedule-failed-exec \
-    --exec "./cargo check --tests" \
+    --exec "./cargo check --all" \
     --exec "./scripts/cargo-fmt.sh" \
     --exec "cd programs/sbf \
-        && ../../cargo check --tests" \
+        && ../../cargo check --all" \
     "$( git merge-base sync/v1.16-upstream HEAD )"
 ```
 
