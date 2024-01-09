@@ -255,10 +255,10 @@ attack_repairTests() {
   shift
   local -a extraConfig=( "$@" )
 
-  "${here}/repair-tests.sh" "${repairShArgs[@]}" --test "$test" \
+  "${here}/repair-tests.sh" "${repairShArgs[@]}" --invalidator-client "$invalidatorClient" --test "$test" \
     "${extraConfig[@]}"
   sleep "$runtime"
-  "${here}/repair-tests.sh" "${repairShArgs[@]}" --test disable
+  "${here}/repair-tests.sh" "${repairShArgs[@]}" --invalidator-client "$invalidatorClient" --test disable
   sleep "$sleeptime"
 }
 

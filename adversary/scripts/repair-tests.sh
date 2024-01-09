@@ -5,13 +5,6 @@
 
 BIN=solana-invalidator-client
 
-command -v "$BIN" > /dev/null 2>&1 || {
-  echo
-  echo "Unable to locate $BIN."
-  echo
-  exit 1
-}
-
 export RUST_LOG=${RUST_LOG:-solana=info,solana_runtime::message_processor=debug} # if RUST_LOG is unset, default to info
 export RUST_BACKTRACE=1
 
@@ -24,6 +17,7 @@ $0 --test {minimal_packets | signed_packets | ping_cache_overflow
   [--attack-target {pubkey | IP}]
   [--iteration-delay-us <delay in us>]
   [--packets-per-iteration <num packets>]
+  [--invalidator-client <solana-invalidator-client path>]
 EOM
 }
 
@@ -69,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       ATTACK_TARGET="$2"
       shift 2
       ;;
+    --invalidator-client)
+      BIN="$2"
+      shift 2
+      ;;
     --help)
       help
       ;;
@@ -77,6 +75,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+command -v "$BIN" > /dev/null 2>&1 || {
+  cat <<EOM
+Error: Unable to run as an executable: $BIN
+    Set via the --invalidator-client CLI argument.
+EOM
+  exit 1
+}
 
 if [ -z "$TESTCASE" ]; then
   help "Error: --test argument is required"
