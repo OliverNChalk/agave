@@ -19,7 +19,7 @@ here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 
 runtime=
 sleeptime=
-iterations=inf
+iterations=unbounded
 rpcAdversaryKeypair=
 attackTarget=
 invalidatorClient=solana-invalidator-client
@@ -182,6 +182,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --attack-target)
       requires_arg $# "$1" attackTarget "attack-target" "attack name"
+      shift
+      ;;
+    --invalidator-client)
+      requires_arg $# "$1" invalidatorClient "invalidator-client" \
+        "path to binary"
       shift
       ;;
     -h|-\?|--help)
