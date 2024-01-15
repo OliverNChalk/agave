@@ -23,7 +23,10 @@ use {
     solana_pubkey::Pubkey,
     solana_pubsub_client::pubsub_client::PubsubClient,
     solana_rent::Rent,
-    solana_rpc_client_api::config::{RpcBlockSubscribeConfig, RpcBlockSubscribeFilter},
+    solana_rpc_client_api::{
+        config::{RpcBlockSubscribeConfig, RpcBlockSubscribeFilter},
+        response::RpcBlockUpdateError,
+    },
     solana_sdk_ids::{bpf_loader, system_program},
     solana_signer::Signer,
     solana_stake_interface::stake_history::Epoch,
@@ -228,12 +231,12 @@ fn test_mainnet_beta_cluster_type_generator() {
     // check that the leader generated transactions that call transfer system instruction
     let num_response_check_iterations = 5;
     let check_sleep_duration = test_duration / num_response_check_iterations;
-    let mut num_errors = 0;
     let mut num_transfer_txs = 0;
     for _ in 0..num_response_check_iterations {
         receiver.try_iter().for_each(|response| {
-            if response.value.err.is_some() {
-                num_errors += 1;
+            if let Some(err) = response.value.err {
+                // sometimes block is not ready, see issues/33462
+                assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
             }
             if let Some(block) = response.value.block {
                 if let Some(encoded_transactions) = block.transactions {
@@ -250,7 +253,6 @@ fn test_mainnet_beta_cluster_type_generator() {
         });
         sleep(check_sleep_duration);
     }
-    assert_eq!(num_errors, 0);
     assert_ne!(num_transfer_txs, 0);
     assert_eq!(
         configure_block_generator(None, &get_rpc_url(&cluster)),
@@ -269,8 +271,9 @@ fn test_mainnet_beta_cluster_type_generator() {
     // wait for a while to have some vote transactions
     sleep(Duration::from_secs(1));
     receiver.try_iter().for_each(|response| {
-        if response.value.err.is_some() {
-            num_errors += 1;
+        if let Some(err) = response.value.err {
+            // sometimes block is not ready, see issues/33462
+            assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
         }
         if let Some(block) = response.value.block {
             if let Some(encoded_transactions) = block.transactions {
@@ -283,7 +286,6 @@ fn test_mainnet_beta_cluster_type_generator() {
             }
         }
     });
-    assert!(num_errors == 0);
 
     // If we don't drop the cluster, the blocking web socket service
     // won't return, and the `block_subscribe_client` won't shut down
