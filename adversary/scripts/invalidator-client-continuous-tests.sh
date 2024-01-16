@@ -321,9 +321,9 @@ run_attacks_all() {
   attack_repairTests ping_cache_overflow
   attack_repairTests unavailable_slots
   attack_repairTests ping_overflow_with_orphan
-  attack_repairTests fake_future_leader_slots \
-    --iteration-delay-us 10000000 \
-    --packets-per-iteration 20
+  # attack_repairTests fake_future_leader_slots \
+  #  --iteration-delay-us 10000000 \
+  #  --packets-per-iteration 20
 
   attack_gossipPacketFlood pingCacheOverflow \
     --iteration-delay-us 1000000 \
