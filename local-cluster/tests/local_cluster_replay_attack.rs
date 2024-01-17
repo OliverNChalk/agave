@@ -6,6 +6,7 @@ use {
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack,
         block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
+        send_request_verified,
     },
     solana_bincode::limited_deserialize,
     solana_cluster_type::ClusterType,
@@ -97,44 +98,12 @@ impl TestVersionedTransaction for VersionedTransaction {
     }
 }
 
-// This code was adapted from adversary client
-// The intention to move it in the follow up PR to a new place
-fn configure_block_generator(
+fn call_configure_replay_stage_attack(
     selected_attack: Option<replay_stage_attack::Attack>,
     url: &str,
 ) -> Result<(), String> {
-    use {
-        reqwest::blocking::Client,
-        serde::{Deserialize, Serialize},
-    };
-    #[derive(Debug, Serialize, Deserialize)]
-    struct RpcRequest {
-        jsonrpc: String,
-        method: String,
-        params: serde_json::Value,
-        id: u64,
-    }
-
-    let config = replay_stage_attack::AdversarialConfig { selected_attack };
-
-    let rpc_method = "configureReplayStageAttack";
-    let params = serde_json::json!([config]);
-    let payload = RpcRequest {
-        jsonrpc: "2.0".to_string(),
-        method: rpc_method.to_string(),
-        params,
-        id: 1,
-    };
-    let client = Client::new();
-    let response = client
-        .post(url)
-        .json(&payload)
-        .timeout(Duration::from_secs(10))
-        .send()
-        .map_err(|e| format!("RPC Send Error: {e:?}"))?;
-    response
-        .json::<serde_json::Value>()
-        .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
+    let params = serde_json::json!([replay_stage_attack::AdversarialConfig { selected_attack }]);
+    send_request_verified(url, "configureReplayStageAttack", params, None)?;
     Ok(())
 }
 
@@ -222,7 +191,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     .unwrap();
 
     sleep(Duration::from_millis(800));
-    assert!(configure_block_generator(
+    assert!(call_configure_replay_stage_attack(
         Some(replay_stage_attack::Attack::TransferRandom),
         &get_rpc_url(&cluster)
     )
@@ -255,7 +224,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     }
     assert_ne!(num_transfer_txs, 0);
     assert_eq!(
-        configure_block_generator(None, &get_rpc_url(&cluster)),
+        call_configure_replay_stage_attack(None, &get_rpc_url(&cluster)),
         Ok(())
     );
     // Check that the cluster is making progress
@@ -457,7 +426,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
 
     sleep(Duration::from_millis(800));
     assert_eq!(
-        configure_block_generator(
+        call_configure_replay_stage_attack(
             Some(replay_stage_attack::Attack::WriteProgram(attack_config)),
             &get_rpc_url(&cluster)
         ),

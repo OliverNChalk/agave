@@ -69,7 +69,7 @@ pub fn send_request(
     url: &str,
     method: &str,
     params: Value,
-    header_auth: Option<HeaderValue>,
+    auth_header: Option<HeaderValue>,
 ) -> Result<Value, String> {
     let payload = RpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -79,8 +79,8 @@ pub fn send_request(
     };
 
     let mut headers = HeaderMap::default();
-    if let Some(header_auth) = header_auth {
-        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, header_auth);
+    if let Some(auth_header) = auth_header {
+        headers.insert(HTTP_HEADER_FIELD_NAME_INVALIDATOR_AUTH, auth_header);
     }
 
     let client = Client::new();
@@ -97,6 +97,21 @@ pub fn send_request(
         .json::<Value>()
         .map_err(|e| format!("RPC Parse Response Error: {e:?}"))?;
     trace!("rpc command json: {response:#?}");
+    Ok(response)
+}
+
+pub fn send_request_verified(
+    url: &str,
+    method: &str,
+    params: Value,
+    auth_header: Option<HeaderValue>,
+) -> Result<Value, String> {
+    let response = send_request(url, method, params, auth_header)?;
+    if let serde_json::Value::Object(response_map) = &response {
+        if response_map.contains_key("error") {
+            return Err(response_map["error"].to_string());
+        }
+    }
     Ok(response)
 }
 

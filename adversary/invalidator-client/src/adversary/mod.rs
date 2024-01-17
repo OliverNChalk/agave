@@ -2,7 +2,7 @@ use {
     log::*,
     reqwest::header::HeaderValue,
     serde::Serialize,
-    solana_adversary::{auth::AuthHeader, fetch_auth_token, send_request},
+    solana_adversary::{auth::AuthHeader, fetch_auth_token, send_request_verified},
     solana_keypair::Keypair,
     solana_signer::Signer,
 };
@@ -39,7 +39,7 @@ pub trait Command: Serialize + Sized {
             .transpose()?;
 
         let params = serde_json::json!([self]);
-        send_request(url, Self::RPC_METHOD, params, auth_header)?;
+        send_request_verified(url, Self::RPC_METHOD, params, auth_header)?;
         Ok(())
     }
 }
