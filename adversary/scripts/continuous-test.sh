@@ -11,17 +11,17 @@ set -o pipefail
 declare me
 me=$( realpath "${BASH_SOURCE[0]}" )
 declare here
-here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+here=$( realpath "$(dirname "${BASH_SOURCE[0]}")" )
 
 #
 # === Configuration defaults ===
 #
-
 runtime=
 sleeptime=
 iterations=unbounded
 rpcAdversaryKeypair=
 attackTarget=
+testplan=public-testnet.sh
 invalidatorClient=solana-invalidator-client
 
 usage() {
@@ -66,6 +66,11 @@ Arguments:
     specifying another validator in the network that will be attacked.
 
     Default: <empty>
+
+  --testplan <testplan path>  File in the testplan/ directory containing the test
+    plan to run.
+
+    Default: public-testnet.sh
 
   --invalidator-client <solana-invalidator-client path>  Path to a binary that
     is the invalidator client.  Either absolute or from PATH.  Executed as
@@ -184,6 +189,14 @@ while [[ $# -gt 0 ]]; do
       requires_arg $# "$1" attackTarget "attack-target" "attack name"
       shift
       ;;
+    --testplan)
+      requires_arg $# "$1" \
+        testplan "testplan" "testplan path"
+      [[ ! -r "${here}/testplan/${testplan}" ]] && \
+        die "--testplan must point to a testplan file in the testplan/ folder." \
+          "Got: $testplan"
+      shift
+      ;;
     --invalidator-client)
       requires_arg $# "$1" invalidatorClient "invalidator-client" \
         "path to binary"
@@ -221,124 +234,12 @@ if [[ -n "$attackTarget" ]]; then
   repairShArgs+=("--attack-target" "$attackTarget")
 fi
 
+# shellcheck source=adversary/scripts/invalidator-tests.sh
+source "${here}/invalidator-tests.sh"
+
 #
 # === Execution ===
 #
-#
-# == Attacks categories and individual attacks ==
-#
-
-attack_invalidateLeaderBlock() {
-  local kind=$1
-  shift
-  [[ $# -ne 0 ]] && die "attack_invalidateLeaderBlock takes 1 argument"
-
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-invalidate-leader-block --invalidation-kind "$kind"
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-invalidate-leader-block
-  sleep "$sleeptime"
-}
-
-attack_dropTurbineVotes() {
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-drop-turbine-votes --drop true
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-drop-turbine-votes --drop false
-  sleep "$sleeptime"
-}
-
-attack_repairTests() {
-  local test=$1
-  shift
-  local -a extraConfig=( "$@" )
-
-  "${here}/repair-tests.sh" "${repairShArgs[@]}" --invalidator-client "$invalidatorClient" --test "$test" \
-    "${extraConfig[@]}"
-  sleep "$runtime"
-  "${here}/repair-tests.sh" "${repairShArgs[@]}" --invalidator-client "$invalidatorClient" --test disable
-  sleep "$sleeptime"
-}
-
-attack_gossipPacketFlood() {
-  local strategy=$1
-  shift
-  local -a extraConfig=( "$@" )
-
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-gossip-packet-flood --flood-strategy "$strategy" \
-    "${extraConfig[@]}"
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-gossip-packet-flood
-  sleep "$sleeptime"
-}
-
-attack_replayStage() {
-  local attack=$1
-  shift
-  [[ $# -ne 0 ]] && die "attack_replayStage takes 1 argument"
-
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-replay-stage-attack --selected-attack "$attack"
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-replay-stage-attack
-  sleep "$sleeptime"
-}
-
-attack_delayBroadcast() {
-  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
-    --turbine-send-delay-ms 1600
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
-  sleep "$sleeptime"
-}
-
-attack_sendDuplicateBlocks() {
-  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
-    --new-entry-index-from-end 0 \
-    --num-duplicate-validators 1 \
-    --send-original-after-ms 0
-  sleep "$runtime"
-  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
-  sleep "$sleeptime"
-}
-
-#
-# == main ==
-#
-
-run_attacks_all() {
-  attack_invalidateLeaderBlock invalidFeePayer
-  attack_invalidateLeaderBlock invalidSignature
-
-  attack_dropTurbineVotes
-
-  attack_repairTests minimal_packets
-  attack_repairTests ping_cache_overflow
-  attack_repairTests unavailable_slots
-  attack_repairTests ping_overflow_with_orphan
-  # attack_repairTests fake_future_leader_slots \
-  #  --iteration-delay-us 10000000 \
-  #  --packets-per-iteration 20
-
-  attack_gossipPacketFlood pingCacheOverflow \
-    --iteration-delay-us 1000000 \
-    --packets-per-peer-per-iteration 10000
-
-  attack_replayStage transferRandom
-  attack_replayStage createNonceAccounts
-  attack_replayStage allocateRandomLarge
-  attack_replayStage allocateRandomSmall
-  attack_replayStage chainTransactions
-
-  attack_delayBroadcast
-
-  attack_sendDuplicateBlocks
-}
 
 main() {
   # If RUST_LOG is unset, default to info.
@@ -347,9 +248,9 @@ main() {
   # TODO Do we still want this set?
   export RUST_BACKTRACE=1
 
-  # Reduce ancestor hash sample size for smaller cluster size
-  "$invalidatorClient" "${commonArgs[@]}" \
-    configure-repair-parameters --ancestor-hash-repair-sample-size 2
+  # shellcheck source=adversary/scripts/testplan/public-testnet.sh
+  source "${here}/testplan/${testplan}"
+  run_config
 
   local iter=0
   while true; do
