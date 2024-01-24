@@ -22,7 +22,7 @@ pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
     let Attack::ReadProgram(attack) = attack else {
         panic!("Unexpected Attack passed into `read_program::verify`: {attack:?}",);
     };
-    replay_attack_program::verify(accounts, attack.clone())
+    replay_attack_program::verify_replay_program_execution_attack(accounts, *attack)
 }
 
 pub(super) fn generator(
@@ -107,7 +107,7 @@ mod tests {
             transaction_cu_budget: 5000,
             use_failed_transaction_hotpath: false,
         };
-        let mut tx_generator = generator(accounts, num_workers, config.clone());
+        let mut tx_generator = generator(accounts, num_workers, config);
 
         let bank = create_test_bank();
 

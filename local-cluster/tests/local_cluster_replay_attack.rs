@@ -15,7 +15,7 @@ use {
     solana_gossip::gossip_service::discover_validators,
     solana_keypair::Keypair,
     solana_local_cluster::{
-        cluster::Cluster as _,
+        cluster::Cluster,
         integration_tests::{DEFAULT_NODE_STAKE, RUST_LOG_FILTER},
         local_cluster::{ClusterConfig, LocalCluster, DEFAULT_MINT_LAMPORTS},
         validator_configs::*,
@@ -168,7 +168,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     let cluster_nodes = discover_validators(
         &cluster.entry_point_info.gossip().unwrap(),
         num_nodes,
-        0,
+        cluster.entry_point_info.shred_version(),
         SocketAddrSpace::Unspecified,
     )
     .unwrap();
@@ -333,8 +333,9 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     let test_duration = Duration::from_secs(30);
     let num_max_size_accounts =
         attack_config.transaction_batch_size * attack_config.num_accounts_per_tx;
+    let num_replay_threads = 4;
     // To avoid AccountInUse, each transaction has it's own payer
-    let num_payers_accounts = attack_config.transaction_batch_size;
+    let num_payers_accounts = attack_config.transaction_batch_size * num_replay_threads;
     let num_program_accounts = 1;
     let lamports_per_account = 1_000_000_000_000;
 
@@ -404,7 +405,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     let cluster_nodes = discover_validators(
         &cluster.entry_point_info.gossip().unwrap(),
         num_nodes,
-        0,
+        cluster.entry_point_info.shred_version(),
         SocketAddrSpace::Unspecified,
     )
     .unwrap();
@@ -447,4 +448,123 @@ fn test_mainnet_beta_cluster_type_program_generator() {
         // Value for the first byte of the account is passed to the program in test_generator.
         assert_eq!(account_data[0], 128u8);
     }
+}
+
+#[test]
+#[serial]
+fn test_mainnet_beta_cluster_type_program_cache_generator() {
+    solana_logger::setup_with_default(RUST_LOG_FILTER);
+    let _ = TestSetup;
+
+    let attack_config = replay_stage_attack::AttackProgramConfig {
+        transaction_batch_size: 1,
+        transaction_cu_budget: 10000,
+        use_failed_transaction_hotpath: true,
+        ..Default::default()
+    };
+
+    let num_nodes = 2;
+    let test_duration = Duration::from_secs(30);
+    let num_replay_threads = 4;
+    // To avoid AccountInUse, each transaction has it's own payer
+    let num_payers_accounts = attack_config.transaction_batch_size * num_replay_threads;
+    let num_program_accounts = num_payers_accounts; // so each tx calls its own program
+    let lamports_per_account = 1_000_000_000_000;
+
+    // Create a bunch of accounts to use as starting accounts for the generator.
+    // the layout of this array is the following:
+    // [payers_begin_index..program_begin_index] -- payers accounts,
+    // [program_begin_index..program_end_index] -- program accounts
+    let payers_begin_index = 0usize;
+    let program_begin_index = payers_begin_index + num_payers_accounts;
+    let program_end_index = program_begin_index + num_program_accounts;
+    let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
+        iter::repeat_with(Keypair::new)
+            .take(num_payers_accounts + num_program_accounts)
+            .collect(),
+    );
+
+    // add program account
+    let test_program_keypairs = &starting_keypairs[program_begin_index..program_end_index];
+    let test_program_ids: Vec<Pubkey> = test_program_keypairs.iter().map(|k| k.pubkey()).collect();
+    let payers_accounts = &starting_keypairs[payers_begin_index..program_begin_index];
+    let accounts_file = Arc::new(AccountsFile::with_payers_and_programs(
+        payers_accounts,
+        &test_program_ids,
+    ));
+
+    // Create a validator config with a generator account config.
+    let mut validator_config = ValidatorConfig::default_for_test();
+    validator_config.invalidator_config.rpc_adversary_id = None;
+    validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
+        accounts: BlockGeneratorAccountsSource::Genesis(accounts_file),
+    });
+
+    // Setup starting accounts
+    let mut starting_accounts: Vec<(Pubkey, AccountSharedData)> =
+        Vec::with_capacity(starting_keypairs.len());
+    for account_keypair in payers_accounts {
+        starting_accounts.push((
+            account_keypair.pubkey(),
+            AccountSharedData::new(lamports_per_account, 0, &system_program::id()),
+        ));
+    }
+    // just use the same program
+    let program_data = compile_test_program();
+    for program_id in &test_program_ids {
+        let account_data = AccountSharedData::from(Account {
+            lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+            data: program_data.to_vec(),
+            owner: bpf_loader::id(),
+            executable: true,
+            rent_epoch: Epoch::MAX,
+        });
+        starting_accounts.push((*program_id, account_data));
+    }
+
+    // Create a cluster config with the generator validator config.
+    let mut config = ClusterConfig {
+        cluster_type: ClusterType::MainnetBeta,
+        node_stakes: vec![DEFAULT_NODE_STAKE; num_nodes],
+        mint_lamports: DEFAULT_MINT_LAMPORTS,
+        validator_configs: make_identical_validator_configs(&validator_config, num_nodes),
+        additional_accounts: starting_accounts,
+        ..ClusterConfig::default()
+    };
+
+    // Create the cluster.
+    let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
+    let cluster_nodes = discover_validators(
+        &cluster.entry_point_info.gossip().unwrap(),
+        num_nodes,
+        cluster.entry_point_info.shred_version(),
+        SocketAddrSpace::Unspecified,
+    )
+    .unwrap();
+    assert_eq!(cluster_nodes.len(), num_nodes);
+
+    let tpu_client = cluster
+        .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
+        .unwrap();
+    let rpc_client = tpu_client.rpc_client();
+
+    // check the program has been deployed
+    for program_id in test_program_ids {
+        assert!(rpc_client
+            .get_account_with_commitment(&program_id, CommitmentConfig::processed())
+            .unwrap()
+            .value
+            .is_some());
+    }
+    sleep(Duration::from_millis(800));
+    assert!(call_configure_replay_stage_attack(
+        Some(replay_stage_attack::Attack::ColdProgramCache(attack_config)),
+        &get_rpc_url(&cluster)
+    )
+    .is_ok());
+
+    // Let the cluster run for some period of time generating transactions.
+    std::thread::sleep(test_duration);
+
+    // No observable side effects of this attack except for metrics
 }

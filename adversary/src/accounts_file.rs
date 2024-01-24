@@ -5,6 +5,7 @@ pub struct AccountsFile {
     pub owner_program_id: Option<Pubkey>,
     pub payers: Vec<Keypair>,
     pub max_size: Vec<Keypair>,
+    pub program_ids_jit_attack: Vec<Pubkey>,
 }
 
 impl AccountsFile {
@@ -18,6 +19,7 @@ impl AccountsFile {
             ..Default::default()
         }
     }
+
     pub fn with_payers_and_max_size(
         owner_program_id: &Pubkey,
         payers_accounts: &[Keypair],
@@ -35,6 +37,19 @@ impl AccountsFile {
             owner_program_id: Some(*owner_program_id),
             payers,
             max_size,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_payers_and_programs(payers_accounts: &[Keypair], program_ids: &[Pubkey]) -> Self {
+        let payers = payers_accounts
+            .iter()
+            .map(|keypair| keypair.insecure_clone())
+            .collect();
+        Self {
+            program_ids_jit_attack: program_ids.to_vec(),
+            payers,
+            ..Default::default()
         }
     }
 }
@@ -45,6 +60,7 @@ impl From<AccountsFileRaw> for AccountsFile {
             owner_program_id,
             payers,
             max_size,
+            program_ids,
         } = raw;
 
         let payers = payers.into_iter().map(Into::into).collect();
@@ -56,6 +72,10 @@ impl From<AccountsFileRaw> for AccountsFile {
             }),
             payers,
             max_size,
+            program_ids_jit_attack: program_ids
+                .iter()
+                .map(|x| Pubkey::from_str(x).expect("Failed to parse owner program's publickey"))
+                .collect(),
         }
     }
 }
@@ -68,6 +88,8 @@ pub struct AccountsFileRaw {
     payers: Vec<KeypairRaw>,
     #[serde(default)]
     max_size: Vec<KeypairRaw>,
+    #[serde(default)]
+    program_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]

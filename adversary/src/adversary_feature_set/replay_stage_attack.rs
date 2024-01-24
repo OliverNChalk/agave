@@ -28,7 +28,7 @@ use {
 pub const ID: &str = "replay_stage_attack";
 adversarial_feature_impl!(ReplayStageAttack);
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AttackProgramConfig {
     /// Max value is 64. In some parts of the code it is called "entry size".
     pub transaction_batch_size: usize,
@@ -80,6 +80,7 @@ pub enum Attack {
     WriteMaxAccounts,
     ReadProgram(AttackProgramConfig),
     RecursiveProgram(AttackProgramConfig),
+    ColdProgramCache(AttackProgramConfig),
 }
 
 pub type AttackConfigVerifier =

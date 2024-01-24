@@ -601,4 +601,25 @@ mod tests {
             }),
         );
     }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_cold_program_cache_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "coldProgramCache",
+                "--transaction-batch-size",
+                "2",
+                "--num-accounts-per-tx",
+                "2",
+                "--transaction-cu-budget",
+                "100",
+            ],
+            Attack::ColdProgramCache(AttackProgramConfig {
+                transaction_batch_size: 2,
+                num_accounts_per_tx: 2,
+                transaction_cu_budget: 100,
+                use_failed_transaction_hotpath: false,
+            }),
+        );
+    }
 }

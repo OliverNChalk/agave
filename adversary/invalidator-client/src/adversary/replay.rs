@@ -49,7 +49,8 @@ pub fn parse_replay_stage_attack_args(
     match &mut selected_attack {
         Attack::WriteProgram(config)
         | Attack::ReadProgram(config)
-        | Attack::RecursiveProgram(config) => {
+        | Attack::RecursiveProgram(config)
+        | Attack::ColdProgramCache(config) => {
             config.use_failed_transaction_hotpath =
                 sub_matches.is_present("use_failed_transaction_hotpath");
             config.transaction_batch_size = value_t!(sub_matches, "transaction_batch_size", usize)

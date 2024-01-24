@@ -1,6 +1,6 @@
 //! A common implementation for transaction generators that execute accounts access programs
-
 use {
+    crate::banking_stage::BankingStage,
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::AttackProgramConfig,
@@ -16,7 +16,46 @@ use {
     std::sync::Arc,
 };
 
-pub(crate) fn verify(accounts: &AccountsFile, attack: AttackProgramConfig) -> Result<(), String> {
+/// Verify that batch size, cu_budget and number of payers
+/// are setup correctly for the replay attacks.
+pub(crate) fn verify_common(
+    transaction_batch_size: usize,
+    transaction_cu_budget: u32,
+    payers_len: usize,
+) -> Result<(), String> {
+    if transaction_batch_size == 0 || transaction_batch_size > 64 {
+        return Err(format!(
+            "`transaction_batch_size` ({transaction_batch_size}) must be in range [1, 64]",
+        ));
+    }
+
+    // To avoid having AccountsInUse error, we need to use a different payer
+    // for all the transactions that can be executed concurrently.
+    let num_workers = BankingStage::default_num_workers().get();
+    let max_num_independent_transactions = transaction_batch_size * num_workers;
+    if payers_len < max_num_independent_transactions {
+        return Err(format!(
+            "Not enough \"payer\" accounts: need at least \
+             {max_num_independent_transactions}\n\"payer\" accounts: {payers_len} to avoid having \
+             AccountsInUse errors"
+        ));
+    }
+
+    if transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
+        return Err(format!(
+            "`transaction_cu_budget` ({transaction_cu_budget}) is greater than max value \
+             ({MAX_COMPUTE_UNIT_LIMIT})",
+        ));
+    }
+    Ok(())
+}
+
+/// Verify that attack parameters, including number of max_size accounts used for replay attacks
+/// involving program execution, are setup correctly.
+pub(crate) fn verify_replay_program_execution_attack(
+    accounts: &AccountsFile,
+    attack: AttackProgramConfig,
+) -> Result<(), String> {
     let AttackProgramConfig {
         transaction_batch_size,
         num_accounts_per_tx,
@@ -24,17 +63,14 @@ pub(crate) fn verify(accounts: &AccountsFile, attack: AttackProgramConfig) -> Re
         ..
     } = attack;
 
-    let accounts_batch_size = transaction_batch_size * num_accounts_per_tx;
-
-    let payers_len = accounts.payers.len();
-    if payers_len < accounts_batch_size {
-        return Err(format!(
-            "Not enough \"payer\" accounts: need at least {accounts_batch_size}\n\"payer\" \
-             accounts: {payers_len}"
-        ));
-    }
+    verify_common(
+        transaction_batch_size,
+        transaction_cu_budget,
+        accounts.payers.len(),
+    )?;
 
     let num_max_size_accounts = accounts.max_size.len();
+    let accounts_batch_size = transaction_batch_size * num_accounts_per_tx;
     if num_max_size_accounts < accounts_batch_size {
         return Err(format!(
             "Accounts batch size (`transaction_batch_size` * `num_accounts_per_tx`) must be less \
@@ -43,23 +79,11 @@ pub(crate) fn verify(accounts: &AccountsFile, attack: AttackProgramConfig) -> Re
         ));
     }
 
-    if transaction_batch_size == 0 || transaction_batch_size > 64 {
-        return Err(format!(
-            "`transaction_batch_size` ({transaction_batch_size}) must be in range [1, 64]",
-        ));
-    }
     if num_accounts_per_tx == 0 || num_accounts_per_tx > 48 {
         return Err(format!(
             "`num_accounts_per_tx` ({num_accounts_per_tx}) must be in range [1, 48]",
         ));
     }
-    if transaction_cu_budget > MAX_COMPUTE_UNIT_LIMIT {
-        return Err(format!(
-            "`transaction_cu_budget` ({transaction_cu_budget}) is greater than max value \
-             ({MAX_COMPUTE_UNIT_LIMIT})",
-        ));
-    }
-
     Ok(())
 }
 

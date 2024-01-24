@@ -54,6 +54,7 @@ pub(crate) fn register_attack_config_verifiers() {
     verify_accounts!("writeMaxAccounts", write_max_accounts);
     verify_accounts_and_attack_config!("readProgram", read_program);
     verify_accounts_and_attack_config!("recursiveProgram", recursive_program);
+    verify_accounts_and_attack_config!("coldProgramCache", cold_program_cache);
 
     Attack::end_verifier_registration().expect("All config verifiers are registered");
 }
@@ -141,6 +142,7 @@ mod test_helpers {
                 owner_program_id: Some(program_id.pubkey()),
                 payers,
                 max_size,
+                ..Default::default()
             }
         }
     }

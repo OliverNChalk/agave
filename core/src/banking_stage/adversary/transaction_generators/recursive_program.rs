@@ -29,7 +29,7 @@ pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
     if accounts.owner_program_id.is_none() {
         return Err("`owner_program_id` must be set.".to_string());
     }
-    replay_attack_program::verify(accounts, attack.clone())
+    replay_attack_program::verify_replay_program_execution_attack(accounts, *attack)
 }
 
 pub(super) fn generator(
@@ -123,7 +123,7 @@ mod tests {
             transaction_cu_budget: 5000,
             use_failed_transaction_hotpath: false,
         };
-        let mut tx_generator = generator(accounts, num_workers, config.clone());
+        let mut tx_generator = generator(accounts, num_workers, config);
 
         let bank = create_test_bank();
 
