@@ -132,16 +132,6 @@ requires_re_arg() {
   printf -v "$name" %s "$value"
 }
 
-if ! command -v "$invalidatorClient" &>/dev/null; then
-  cat <<EOM
-
-Unable to find solana invalidator client.
-Specified path: $invalidatorClient
-Check the script header at: $me
-EOM
-  exit 1
-fi
-
 error() {
   local error=$1
 
@@ -213,6 +203,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if ! command -v "$invalidatorClient" &>/dev/null; then
+  cat <<EOM
+Unable to find solana invalidator client.
+Specified path: $invalidatorClient
+Check the script header at: $me
+EOM
+  exit 1
+fi
 
 declare -a commonArgs
 declare -a repairShArgs
