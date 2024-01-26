@@ -12,6 +12,7 @@ pub(crate) struct BroadcastShredBatchInfo {
     pub(crate) slot_start_ts: Instant,
     pub(crate) was_interrupted: bool,
     pub(crate) destinations: Option<Arc<Vec<SocketAddr>>>,
+    pub(crate) target_partition: Option<usize>,
 }
 
 #[derive(Default, Clone)]
@@ -252,6 +253,7 @@ mod test {
                 slot_start_ts: start,
                 was_interrupted: false,
                 destinations: None,
+                target_partition: None,
             }),
         );
 
@@ -324,6 +326,7 @@ mod test {
                 slot_start_ts: start,
                 was_interrupted: false,
                 destinations: None,
+                target_partition: None,
             }),
         );
 
@@ -349,6 +352,7 @@ mod test {
                         slot_start_ts: start,
                         was_interrupted: false,
                         destinations: None,
+                        target_partition: None,
                     };
                     if i == round % num_threads {
                         broadcast_batch_info.num_expected_batches = Some(num_threads);

@@ -698,3 +698,8 @@ pub fn new_tpu_quic_client(
         cache.clone(),
     )
 }
+
+pub fn get_rpc_url(cluster: &LocalCluster) -> String {
+    let rpc = cluster.entry_point_info.rpc().unwrap();
+    format!("http://{}:{}", rpc.ip(), rpc.port())
+}

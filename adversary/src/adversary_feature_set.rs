@@ -162,6 +162,8 @@ pub mod send_duplicate_blocks {
         pub turbine_send_delay_ms: u64,
         /// Allow sending original and different duplicate block to different network partitions.
         pub send_destinations: Vec<Arc<Vec<SocketAddr>>>,
+        /// Configuration when delivering shreds directly to turbine leaf nodes.
+        pub leaf_node_partitions: Option<usize>,
     }
 }
 

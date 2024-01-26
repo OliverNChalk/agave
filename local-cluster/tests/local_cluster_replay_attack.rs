@@ -16,6 +16,7 @@ use {
     solana_keypair::Keypair,
     solana_local_cluster::{
         cluster::Cluster,
+        cluster_tests,
         integration_tests::{DEFAULT_NODE_STAKE, RUST_LOG_FILTER},
         local_cluster::{ClusterConfig, LocalCluster, DEFAULT_MINT_LAMPORTS},
         validator_configs::*,
@@ -107,11 +108,6 @@ fn call_configure_replay_stage_attack(
     Ok(())
 }
 
-fn get_rpc_url(cluster: &LocalCluster) -> String {
-    let rpc = cluster.entry_point_info.rpc().unwrap();
-    format!("http://{}:{}", rpc.ip(), rpc.port())
-}
-
 #[test]
 #[serial]
 fn test_mainnet_beta_cluster_type_generator() {
@@ -193,7 +189,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     sleep(Duration::from_millis(800));
     assert!(call_configure_replay_stage_attack(
         Some(replay_stage_attack::Attack::TransferRandom),
-        &get_rpc_url(&cluster)
+        &cluster_tests::get_rpc_url(&cluster)
     )
     .is_ok());
 
@@ -224,7 +220,7 @@ fn test_mainnet_beta_cluster_type_generator() {
     }
     assert_ne!(num_transfer_txs, 0);
     assert_eq!(
-        call_configure_replay_stage_attack(None, &get_rpc_url(&cluster)),
+        call_configure_replay_stage_attack(None, &cluster_tests::get_rpc_url(&cluster)),
         Ok(())
     );
     // Check that the cluster is making progress
@@ -429,7 +425,7 @@ fn test_mainnet_beta_cluster_type_program_generator() {
     assert_eq!(
         call_configure_replay_stage_attack(
             Some(replay_stage_attack::Attack::WriteProgram(attack_config)),
-            &get_rpc_url(&cluster)
+            &cluster_tests::get_rpc_url(&cluster)
         ),
         Ok(())
     );
@@ -559,7 +555,7 @@ fn test_mainnet_beta_cluster_type_program_cache_generator() {
     sleep(Duration::from_millis(800));
     assert!(call_configure_replay_stage_attack(
         Some(replay_stage_attack::Attack::ColdProgramCache(attack_config)),
-        &get_rpc_url(&cluster)
+        &cluster_tests::get_rpc_url(&cluster)
     )
     .is_ok());
 

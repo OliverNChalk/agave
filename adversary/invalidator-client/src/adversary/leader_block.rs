@@ -32,6 +32,7 @@ pub fn configure_send_duplicate_blocks_enable(
             send_original_after_ms: 0,
             turbine_send_delay_ms: 0,
             send_destinations: Vec::new(),
+            leaf_node_partitions: None,
         },
         rpc_adversary_keypair,
     )
@@ -98,6 +99,7 @@ pub fn configure_send_duplicate_blocks_args(
             send_original_after_ms,
             turbine_send_delay_ms,
             send_destinations,
+            leaf_node_partitions: None,
         },
         rpc_adversary_keypair,
     )

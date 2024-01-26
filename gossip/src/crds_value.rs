@@ -112,8 +112,8 @@ impl CrdsValue {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_unsigned(data: CrdsData) -> Self {
+    #[cfg(any(test, feature = "dev-context-only-utils"))]
+    pub fn new_unsigned(data: CrdsData) -> Self {
         let bincode_serialized_data = bincode::serialize(&data).unwrap();
         let signature = Signature::default();
         let hash = solana_sha256_hasher::hashv(&[signature.as_ref(), &bincode_serialized_data]);

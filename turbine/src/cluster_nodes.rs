@@ -53,7 +53,7 @@ pub enum Error {
     Loopback { leader: Pubkey, shred: ShredId },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 enum NodeId {
     // TVU node obtained through gossip (staked or not).
@@ -72,6 +72,7 @@ pub(crate) struct ContactInfo {
     tvu_udp: Option<SocketAddr>,
 }
 
+#[derive(Clone)]
 pub struct Node {
     node: NodeId,
     stake: u64,
@@ -213,6 +214,94 @@ impl ClusterNodes<BroadcastStage> {
         let mut rng = get_seeded_rng(/*leader:*/ &self.pubkey, shred);
         let index = self.weighted_shuffle.first(&mut rng)?;
         self.nodes[index].contact_info()
+    }
+
+    // This is used for testing in which malicious leader tries to partition the cluster.
+    pub fn get_partition_assignments(&self, num_partitions: Option<usize>) -> HashMap<Pubkey, u32> {
+        let mut nodes_copy = self.nodes.clone();
+        // Sort nodes so that the partition assignments remain static across shreds.
+        nodes_copy.sort_by_key(|a| *a.pubkey());
+        let mut assignments = HashMap::new();
+        let mut partition = 0;
+        let num_partitions = num_partitions.unwrap_or(1).max(1);
+        for node in nodes_copy {
+            assignments.insert(*node.pubkey(), partition as u32);
+            partition = (partition + 1) % num_partitions;
+        }
+        assignments
+    }
+
+    fn get_turbine_leaf_nodes(
+        &self,
+        shred: &ShredId,
+        protocol: Protocol,
+        addrs: &mut HashMap<SocketAddr, Pubkey>,
+    ) -> Vec<Node> {
+        // Prepare for creating turbine tree.
+        let shred_seed = shred.seed(&self.pubkey);
+        let mut rng = ChaChaRng::from_seed(shred_seed);
+        let mut weighted_shuffle = self.weighted_shuffle.clone();
+        if let Some(index) = self.index.get(&self.pubkey) {
+            weighted_shuffle.remove_index(*index);
+        }
+
+        // Compute the turbine tree.
+        let nodes: Vec<_> = weighted_shuffle
+            .shuffle(&mut rng)
+            .map(|index| self.nodes[index].clone())
+            .inspect(|node| {
+                if let Some(node) = node.contact_info() {
+                    if let Some(addr) = node.tvu(protocol) {
+                        addrs.entry(addr).or_insert(*node.pubkey());
+                    }
+                }
+            })
+            .collect();
+
+        // Collect the index range for the leaf nodes of this turbine tree.
+        let num_nodes = nodes.len();
+        let mut layer = 0;
+        let mut start = 0;
+        let mut end = 1;
+        while end < num_nodes {
+            layer += 1;
+            start = end;
+            end = std::cmp::min(end + DATA_PLANE_FANOUT.pow(layer), num_nodes);
+        }
+        let leaf_range = start..end;
+
+        nodes
+            .iter()
+            .skip(leaf_range.start)
+            .take(leaf_range.end - leaf_range.start)
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn get_turbine_leaf_nodes_with_valid_address(
+        &self,
+        shred: &ShredId,
+    ) -> Result<Vec<(SocketAddr, Pubkey)>, Error> {
+        let mut addrs = HashMap::<SocketAddr, Pubkey>::with_capacity(self.nodes.len());
+        let protocol = get_broadcast_protocol(shred);
+        let nodes = self.get_turbine_leaf_nodes(shred, protocol, &mut addrs);
+        // Get the turbine receive addresses for the leaf nodes.
+        let leaf_nodes = nodes.into_iter().filter_map(|node| {
+            let x = node.contact_info()?;
+            let tvu = x.tvu(protocol);
+            match tvu {
+                Some(addr) => {
+                    if addrs.get(&addr) == Some(node.pubkey()) {
+                        Some((addr, *node.pubkey()))
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            }
+        });
+
+        Ok(leaf_nodes.collect())
     }
 }
 
@@ -727,6 +816,8 @@ mod tests {
     use {
         super::*,
         itertools::Itertools,
+        solana_hash,
+        solana_ledger::shred::{ProcessShredsStats, ReedSolomonCache, Shredder},
         std::{fmt::Debug, hash::Hash},
         test_case::test_case,
     };
@@ -808,6 +899,78 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn get_cluster_leaf_nodes_for_test(num_nodes: usize) -> (usize, usize) {
+        let mut rng = rand::thread_rng();
+        let (nodes, stakes, cluster_info) = make_test_cluster(&mut rng, num_nodes, None);
+        // ClusterInfo::tvu_peers excludes the node itself.
+        assert_eq!(
+            cluster_info.tvu_peers(GossipContactInfo::clone).len(),
+            nodes.len() - 1
+        );
+        let cluster_nodes =
+            ClusterNodes::<BroadcastStage>::new(&cluster_info, ClusterType::Development, &stakes);
+        // All nodes with contact-info should be in the index.
+        // Excluding this node itself.
+        // Staked nodes with no contact-info should be included.
+        assert!(cluster_nodes.nodes.len() > nodes.len());
+
+        let keypair = Keypair::new();
+        let reed_solomon_cache = ReedSolomonCache::default();
+        let mut stats = ProcessShredsStats::default();
+        let shredder = Shredder::new(1, 0, 0, 42).unwrap();
+        let mut shreds = shredder
+            .make_shreds_from_data_slice(
+                &keypair,
+                &[],
+                true,
+                solana_hash::Hash::default(),
+                0,
+                0,
+                &reed_solomon_cache,
+                &mut stats,
+            )
+            .unwrap();
+        let test_shred = shreds.next().unwrap();
+        let mut addrs = HashMap::<SocketAddr, Pubkey>::with_capacity(cluster_nodes.nodes.len());
+        let protocol = get_broadcast_protocol(&test_shred.id());
+        let leaf_nodes =
+            cluster_nodes.get_turbine_leaf_nodes(&test_shred.id(), protocol, &mut addrs);
+        (cluster_nodes.nodes.len(), leaf_nodes.len())
+    }
+
+    #[test]
+    fn test_cluster_leaf_nodes_1layer() {
+        // 50 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we only have 1 layer after root
+        let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(50);
+        let non_leaf_nodes =
+            /* leader */    1
+            /* root */    + 1;
+        assert_eq!(num_leaf_nodes, num_cluster_nodes - non_leaf_nodes);
+    }
+
+    #[test]
+    fn test_cluster_leaf_nodes_2layer() {
+        // 1000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we have 2 layers after root
+        let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(1_000);
+        let non_leaf_nodes =
+            /* leader */    1
+            /* root */    + 1
+            /* layer 1 */ + DATA_PLANE_FANOUT;
+        assert_eq!(num_leaf_nodes, num_cluster_nodes - non_leaf_nodes);
+    }
+
+    #[test]
+    fn test_cluster_leaf_nodes_3layer() {
+        // 50,000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we have 3 layers after root
+        let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(50_000);
+        let non_leaf_nodes =
+            /* leader */    1
+            /* root */    + 1
+            /* layer 1 */ + DATA_PLANE_FANOUT
+            /* layer 2 */ + DATA_PLANE_FANOUT * DATA_PLANE_FANOUT;
+        assert_eq!(num_leaf_nodes, num_cluster_nodes - non_leaf_nodes);
     }
 
     // Checks (1) computed retransmit children against expected children and

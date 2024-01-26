@@ -21,6 +21,7 @@ path = "src/main.rs"
 bench = false
 
 [features]
+dev-context-only-utils = []
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",

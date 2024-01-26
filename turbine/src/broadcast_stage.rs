@@ -16,7 +16,7 @@ use {
     crossbeam_channel::{unbounded, Receiver, RecvError, RecvTimeoutError, Sender},
     itertools::Itertools,
     rand::Rng,
-    solana_adversary::adversary_feature_set,
+    solana_adversary::adversary_feature_set::{self, send_duplicate_blocks},
     solana_clock::Slot,
     solana_gossip::{
         cluster_info::{ClusterInfo, ClusterInfoError},
@@ -497,9 +497,10 @@ pub fn broadcast_shreds(
     socket_addr_space: &SocketAddrSpace,
     quic_endpoint_sender: &AsyncSender<(SocketAddr, Bytes)>,
     destinations: Option<&[SocketAddr]>,
+    target_partition: Option<usize>,
 ) -> Result<()> {
-    let adv_packet_drop_config =
-        solana_adversary::adversary_feature_set::packet_drop_parameters::get_config();
+    let adv_packet_drop_config = adversary_feature_set::packet_drop_parameters::get_config();
+    let adv_dup_block_config = send_duplicate_blocks::get_config();
 
     let mut result = Ok(());
     // Compute destinations & transmission protocols for each of the shreds to be sent
@@ -529,6 +530,7 @@ pub fn broadcast_shreds(
             }
         }
 
+        // Case where we're configured to send to specific destinations.
         if let Some(destinations) = destinations {
             for shred in shreds {
                 for destination in destinations.iter() {
@@ -540,6 +542,49 @@ pub fn broadcast_shreds(
             break 'packets (udp_packets, quic_packets);
         }
 
+        // Case where we're configured to send to a specific partition.
+        if let Some(target_partition) = target_partition {
+            for (slot, shreds) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
+                let cluster_nodes =
+                    cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
+                update_peer_stats(&cluster_nodes, last_datapoint_submit);
+
+                for shred in shreds {
+                    if let Ok(leaf_nodes) =
+                        cluster_nodes.get_turbine_leaf_nodes_with_valid_address(&shred.id())
+                    {
+                        debug!(" found {} leaf nodes w/ valid addr", leaf_nodes.len());
+                        let partition_assignment = cluster_nodes
+                            .get_partition_assignments(adv_dup_block_config.leaf_node_partitions);
+                        for (leaf_node_addr, leaf_node_pubkey) in leaf_nodes {
+                            let partition_id =
+                                *partition_assignment.get(&leaf_node_pubkey).unwrap();
+                            if partition_id == target_partition as u32 {
+                                // This node is in the partition we're targeting.
+                                trace!(
+                                    " sending shred {:?} - {:?} - iteration {:?} to {:?}",
+                                    shred.id(),
+                                    shred.merkle_root(),
+                                    target_partition,
+                                    leaf_node_pubkey
+                                );
+                                add_shred_payload(
+                                    &mut udp_packets,
+                                    &mut quic_packets,
+                                    shred,
+                                    leaf_node_addr,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // In this attack we ignore all the original receivers, normally computed below.
+            break 'packets (udp_packets, quic_packets);
+        }
+
+        // Case where we send all shreds to a shred forwarder.
         if let Some(attack_target) =
             adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
         {
@@ -550,6 +595,7 @@ pub fn broadcast_shreds(
             // In this attack we still want to send to all the original receivers.
         }
 
+        // This is the "normal" case.
         for (slot, shreds) in shreds.iter().group_by(|&shred| shred.slot()).into_iter() {
             let cluster_nodes =
                 cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
