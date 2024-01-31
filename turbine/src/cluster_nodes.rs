@@ -218,14 +218,16 @@ impl ClusterNodes<BroadcastStage> {
 
     // This is used for testing in which malicious leader tries to partition the cluster.
     pub fn get_partition_assignments(&self, num_partitions: Option<usize>) -> HashMap<Pubkey, u32> {
-        let mut nodes_copy = self.nodes.clone();
+        let mut node_pubkeys = self.nodes.iter().map(Node::pubkey).collect::<Vec<_>>();
         // Sort nodes so that the partition assignments remain static across shreds.
-        nodes_copy.sort_by_key(|a| *a.pubkey());
+        node_pubkeys.sort_unstable();
         let mut assignments = HashMap::new();
         let mut partition = 0;
-        let num_partitions = num_partitions.unwrap_or(1).max(1);
-        for node in nodes_copy {
-            assignments.insert(*node.pubkey(), partition as u32);
+        let num_partitions = u32::try_from(num_partitions.unwrap_or(1))
+            .unwrap_or(u32::MAX)
+            .max(1);
+        for pubkey in node_pubkeys {
+            assignments.insert(*pubkey, partition);
             partition = (partition + 1) % num_partitions;
         }
         assignments
@@ -246,7 +248,7 @@ impl ClusterNodes<BroadcastStage> {
         }
 
         // Compute the turbine tree.
-        let nodes: Vec<_> = weighted_shuffle
+        let mut nodes: Vec<_> = weighted_shuffle
             .shuffle(&mut rng)
             .map(|index| self.nodes[index].clone())
             .inspect(|node| {
@@ -258,24 +260,28 @@ impl ClusterNodes<BroadcastStage> {
             })
             .collect();
 
-        // Collect the index range for the leaf nodes of this turbine tree.
+        // Collect the index range for the last level of this turbine tree.
         let num_nodes = nodes.len();
-        let mut layer = 0;
-        let mut start = 0;
-        let mut end = 1;
-        while end < num_nodes {
-            layer += 1;
-            start = end;
-            end = std::cmp::min(end + DATA_PLANE_FANOUT.pow(layer), num_nodes);
+        // Look for an index of the first leaf node.
+        let mut leaf_start: usize = 0;
+        for level in 0.. {
+            let level_len = DATA_PLANE_FANOUT.pow(level);
+            if leaf_start.saturating_add(level_len) >= num_nodes {
+                // We have identified the lowest level of the tree.
+                if level > 0 {
+                    // We want to include all nodes from the previous layer that
+                    // do not have any children.
+                    let prev_layer_nodes = DATA_PLANE_FANOUT.pow(level - 1);
+                    let last_layer_nodes = num_nodes - leaf_start;
+                    let non_leaf_nodes_in_prev_layer =
+                        prev_layer_nodes.saturating_sub(last_layer_nodes);
+                    leaf_start -= non_leaf_nodes_in_prev_layer;
+                }
+                break;
+            }
+            leaf_start += level_len;
         }
-        let leaf_range = start..end;
-
-        nodes
-            .iter()
-            .skip(leaf_range.start)
-            .take(leaf_range.end - leaf_range.start)
-            .cloned()
-            .collect()
+        nodes.split_off(leaf_start)
     }
 
     pub(crate) fn get_turbine_leaf_nodes_with_valid_address(
@@ -942,7 +948,8 @@ mod tests {
 
     #[test]
     fn test_cluster_leaf_nodes_1layer() {
-        // 50 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we only have 1 layer after root
+        // 50 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we
+        // only have 1 layer after root.
         let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(50);
         let non_leaf_nodes =
             /* leader */    1
@@ -952,7 +959,8 @@ mod tests {
 
     #[test]
     fn test_cluster_leaf_nodes_2layer() {
-        // 1000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we have 2 layers after root
+        // 1000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we
+        // have 2 layers after root.
         let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(1_000);
         let non_leaf_nodes =
             /* leader */    1
@@ -963,14 +971,26 @@ mod tests {
 
     #[test]
     fn test_cluster_leaf_nodes_3layer() {
-        // 50,000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we have 3 layers after root
-        let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(50_000);
+        // 100,000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure
+        // we have 3 layers after root.
+        let (num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(100_000);
         let non_leaf_nodes =
             /* leader */    1
             /* root */    + 1
             /* layer 1 */ + DATA_PLANE_FANOUT
             /* layer 2 */ + DATA_PLANE_FANOUT * DATA_PLANE_FANOUT;
         assert_eq!(num_leaf_nodes, num_cluster_nodes - non_leaf_nodes);
+    }
+
+    #[test]
+    fn test_cluster_leaf_nodes_3layer_partial() {
+        // 50,000 nodes was selected based on DATA_PLANE_FANOUT=200 to ensure we
+        // have a partial 3rd layer (not all layer 2 nodes have children).
+        let (_num_cluster_nodes, num_leaf_nodes) = get_cluster_leaf_nodes_for_test(50_000);
+        // Every layer 2 node is either a leaf node itself or has a single child
+        // leaf node.
+        let expected_leaf_nodes = DATA_PLANE_FANOUT.pow(2);
+        assert_eq!(num_leaf_nodes, expected_leaf_nodes);
     }
 
     // Checks (1) computed retransmit children against expected children and

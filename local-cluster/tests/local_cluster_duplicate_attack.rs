@@ -1,4 +1,7 @@
 use {
+    assert_matches::assert_matches,
+    reqwest::blocking::Client,
+    serde::{Deserialize, Serialize},
     serial_test::serial,
     solana_adversary::adversary_feature_set::send_duplicate_blocks,
     solana_cluster_type::ClusterType,
@@ -16,10 +19,6 @@ use {
 };
 
 fn configure_duplicate_block(url: &str) -> Result<(), String> {
-    use {
-        reqwest::blocking::Client,
-        serde::{Deserialize, Serialize},
-    };
     #[derive(Debug, Serialize, Deserialize)]
     struct RpcRequest {
         jsonrpc: String,
@@ -86,11 +85,12 @@ fn test_mainnet_beta_cluster_type_duplicate_block() {
     // Wait for node stakes to activate.
     let client = RpcClient::new_socket(cluster.entry_point_info.rpc().unwrap());
     let start_time = std::time::Instant::now();
+    let stake_activated_slot = MINIMUM_SLOTS_PER_EPOCH * 6;
     loop {
         let slot = client
             .get_slot_with_commitment(CommitmentConfig::default())
             .unwrap();
-        if slot > MINIMUM_SLOTS_PER_EPOCH * 6 {
+        if slot > stake_activated_slot {
             // Stake is activated.
             break;
         }
@@ -101,7 +101,8 @@ fn test_mainnet_beta_cluster_type_duplicate_block() {
     }
 
     // Enable duplicate block attack where leader directly sends to turbine leaf nodes.
-    assert!(configure_duplicate_block(&cluster_tests::get_rpc_url(&cluster)).is_ok());
+    let configure_result = configure_duplicate_block(&cluster_tests::get_rpc_url(&cluster));
+    assert_matches!(configure_result, Ok(()));
 
     // Sleep for 1 minute to monitor if network partition occurs.
     sleep(Duration::from_secs(60));
@@ -116,5 +117,9 @@ fn test_mainnet_beta_cluster_type_duplicate_block() {
     // partitioning occur around slot 200. Slot 265 was chosen to provide
     // healthy margin on either side.
     log::info!("Finalized slot: {slot}");
-    assert!(slot > 265);
+    assert!(
+        slot > stake_activated_slot + 73,
+        "Cluster did not finalize minimum number of slots in 1 minute.\nHighest finalized slot: \
+         {slot}"
+    );
 }
