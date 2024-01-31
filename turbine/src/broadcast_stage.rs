@@ -31,7 +31,10 @@ use {
     solana_metrics::{inc_new_counter_error, inc_new_counter_info},
     solana_poh::poh_recorder::WorkingBankEntry,
     solana_pubkey::Pubkey,
-    solana_runtime::{bank::MAX_LEADER_SCHEDULE_STAKES, bank_forks::BankForks},
+    solana_runtime::{
+        bank::{Bank, MAX_LEADER_SCHEDULE_STAKES},
+        bank_forks::BankForks,
+    },
     solana_streamer::{
         sendmmsg::{batch_send, SendPktsError},
         socket::SocketAddrSpace,
@@ -483,6 +486,85 @@ pub enum BroadcastSocket<'a> {
     Xdp(&'a XdpSender),
 }
 
+// It would be nice to use a closure instead of an explicit trait and an implementation for one.
+// But it is impossible with the current Rust.
+//
+// Essentially, we need to create a closure that can add values to storage it holds references to.
+// We are still pretty far away from the necessary support, as of 2025:
+// https://github.com/rust-lang/rfcs/pull/3216
+// https://github.com/rust-lang/rust/pull/98705
+// https://github.com/rust-lang/rust/issues/97362
+//
+// Another alternative would be if we could at least use the `FnMut` trait and implement it manually
+// for an adder object.  But that is also not stable, see `fn_traits`:
+//
+// https://github.com/rust-lang/rust/issues/29625
+trait AddShredPayload<'payload> {
+    fn add_shred_payload(&mut self, shred: &'payload Shred, address: SocketAddr);
+}
+
+fn broadcast_shreds_attacks<'payload>(
+    shreds: &'payload [Shred],
+    cluster_nodes_cache: &ClusterNodesCache<BroadcastStage>,
+    last_datapoint_submit: &AtomicInterval,
+    cluster_info: &ClusterInfo,
+    root_bank: &Bank,
+    working_bank: &Bank,
+    destinations: Option<&[SocketAddr]>,
+    target_partition: Option<usize>,
+    packets: &mut impl AddShredPayload<'payload>,
+) -> bool /* Don't send to original receivers */ {
+    let adv_dup_block_config = send_duplicate_blocks::get_config();
+
+    if let Some(destinations) = destinations {
+        for shred in shreds.iter() {
+            for destination in destinations.iter() {
+                packets.add_shred_payload(shred, *destination);
+            }
+        }
+        return true;
+    } else if let Some(target_partition) = target_partition {
+        for (slot, shreds_group) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
+            let cluster_nodes =
+                cluster_nodes_cache.get(slot, root_bank, working_bank, cluster_info);
+            update_peer_stats(&cluster_nodes, last_datapoint_submit);
+
+            for shred in shreds_group {
+                if let Ok(leaf_nodes) =
+                    cluster_nodes.get_turbine_leaf_nodes_with_valid_address(&shred.id())
+                {
+                    debug!(" found {} leaf nodes w/ valid addr", leaf_nodes.len());
+                    let partition_assignment = cluster_nodes
+                        .get_partition_assignments(adv_dup_block_config.leaf_node_partitions);
+                    for (leaf_node_addr, leaf_node_pubkey) in leaf_nodes {
+                        let partition_id = *partition_assignment.get(&leaf_node_pubkey).unwrap();
+                        if partition_id == target_partition as u32 {
+                            // This node is in the partition we're targeting.
+                            trace!(
+                                " sending shred {:?} - {:?} - iteration {:?} to {:?}",
+                                shred.id(),
+                                shred.merkle_root(),
+                                target_partition,
+                                leaf_node_pubkey
+                            );
+                            packets.add_shred_payload(shred, leaf_node_addr);
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    } else if let Some(attack_target) =
+        adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
+    {
+        for shred in shreds.iter() {
+            packets.add_shred_payload(shred, attack_target);
+        }
+    };
+
+    false
+}
+
 /// Broadcasts shreds from the leader (i.e. this node) to the root of the
 /// turbine retransmit tree for each shred.
 #[allow(clippy::too_many_arguments)]
@@ -500,7 +582,6 @@ pub fn broadcast_shreds(
     target_partition: Option<usize>,
 ) -> Result<()> {
     let adv_packet_drop_config = adversary_feature_set::packet_drop_parameters::get_config();
-    let adv_dup_block_config = send_duplicate_blocks::get_config();
 
     let mut result = Ok(());
     // Compute destinations & transmission protocols for each of the shreds to be sent
@@ -512,96 +593,45 @@ pub fn broadcast_shreds(
     let (udp_packets, quic_packets) = 'packets: {
         let mut udp_packets = vec![];
         let mut quic_packets = vec![];
-        // It would be nice to use a closure here, but Rust does not allow us to explicitly specify
-        // lifetimes.  And we need it if we want to keep using references to the payload.
-        // We are still pretty far away from the necessary support, as of 2025:
-        // https://github.com/rust-lang/rfcs/pull/3216
-        // https://github.com/rust-lang/rust/pull/98705
-        // https://github.com/rust-lang/rust/issues/97362
-        fn add_shred_payload<'packets, 'shred>(
-            udp_packets: &'packets mut Vec<(&'shred Payload, SocketAddr)>,
-            quic_packets: &'packets mut Vec<(&'shred Payload, SocketAddr)>,
-            shred: &'shred Shred,
-            address: SocketAddr,
+
+        struct AddToPackets<'packets, 'payload> {
+            pub udp_packets: &'packets mut Vec<(&'payload Payload, SocketAddr)>,
+            pub quic_packets: &'packets mut Vec<(&'payload Payload, SocketAddr)>,
+        }
+
+        impl<'payload> AddShredPayload<'payload> for AddToPackets<'_, 'payload> {
+            fn add_shred_payload(&mut self, shred: &'payload Shred, address: SocketAddr) {
+                match cluster_nodes::get_broadcast_protocol(&shred.id()) {
+                    Protocol::UDP => self.udp_packets.push((shred.payload(), address)),
+                    Protocol::QUIC => self.quic_packets.push((shred.payload(), address)),
+                }
+            }
+        }
+
+        let mut combined_packets = AddToPackets {
+            udp_packets: &mut udp_packets,
+            quic_packets: &mut quic_packets,
+        };
+        if broadcast_shreds_attacks(
+            shreds,
+            cluster_nodes_cache,
+            last_datapoint_submit,
+            cluster_info,
+            &root_bank,
+            &working_bank,
+            destinations,
+            target_partition,
+            &mut combined_packets,
         ) {
-            match cluster_nodes::get_broadcast_protocol(&shred.id()) {
-                Protocol::UDP => udp_packets.push((shred.payload(), address)),
-                Protocol::QUIC => quic_packets.push((shred.payload(), address)),
-            }
-        }
-
-        // Case where we're configured to send to specific destinations.
-        if let Some(destinations) = destinations {
-            for shred in shreds {
-                for destination in destinations.iter() {
-                    add_shred_payload(&mut udp_packets, &mut quic_packets, shred, *destination);
-                }
-            }
-
-            // In this attack we ignore all the original receivers, normally computed below.
             break 'packets (udp_packets, quic_packets);
         }
 
-        // Case where we're configured to send to a specific partition.
-        if let Some(target_partition) = target_partition {
-            for (slot, shreds) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
-                let cluster_nodes =
-                    cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
-                update_peer_stats(&cluster_nodes, last_datapoint_submit);
-
-                for shred in shreds {
-                    if let Ok(leaf_nodes) =
-                        cluster_nodes.get_turbine_leaf_nodes_with_valid_address(&shred.id())
-                    {
-                        debug!(" found {} leaf nodes w/ valid addr", leaf_nodes.len());
-                        let partition_assignment = cluster_nodes
-                            .get_partition_assignments(adv_dup_block_config.leaf_node_partitions);
-                        for (leaf_node_addr, leaf_node_pubkey) in leaf_nodes {
-                            let partition_id =
-                                *partition_assignment.get(&leaf_node_pubkey).unwrap();
-                            if partition_id == target_partition as u32 {
-                                // This node is in the partition we're targeting.
-                                trace!(
-                                    " sending shred {:?} - {:?} - iteration {:?} to {:?}",
-                                    shred.id(),
-                                    shred.merkle_root(),
-                                    target_partition,
-                                    leaf_node_pubkey
-                                );
-                                add_shred_payload(
-                                    &mut udp_packets,
-                                    &mut quic_packets,
-                                    shred,
-                                    leaf_node_addr,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            // In this attack we ignore all the original receivers, normally computed below.
-            break 'packets (udp_packets, quic_packets);
-        }
-
-        // Case where we send all shreds to a shred forwarder.
-        if let Some(attack_target) =
-            adversary_feature_set::shred_receiver_address::get_config().shred_receiver_address
-        {
-            for shred in shreds {
-                add_shred_payload(&mut udp_packets, &mut quic_packets, shred, attack_target);
-            }
-
-            // In this attack we still want to send to all the original receivers.
-        }
-
-        // This is the "normal" case.
-        for (slot, shreds) in shreds.iter().group_by(|&shred| shred.slot()).into_iter() {
+        for (slot, shreds_group) in shreds.iter().group_by(|shred| shred.slot()).into_iter() {
             let cluster_nodes =
                 cluster_nodes_cache.get(slot, &root_bank, &working_bank, cluster_info);
             update_peer_stats(&cluster_nodes, last_datapoint_submit);
 
-            for shred in shreds {
+            for shred in shreds_group {
                 if let Some(drop_percent) = adv_packet_drop_config.broadcast_packet_drop_percent {
                     if rand::thread_rng().gen_range(0..100) < drop_percent {
                         continue;
@@ -616,7 +646,7 @@ pub fn broadcast_shreds(
                     .and_then(|peer| peer.tvu(protocol))
                 {
                     if socket_addr_space.check(&peer) {
-                        add_shred_payload(&mut udp_packets, &mut quic_packets, shred, peer);
+                        combined_packets.add_shred_payload(shred, peer);
                     }
                 }
             }
