@@ -199,11 +199,11 @@ run_cargo_check() {
   local where=.
   [[ $# -gt 0 ]] && where=$1
 
-  if ! ( cd "$where" && "$cargo" check --tests ); then
+  if ! ( cd "$where" && "$cargo" check --all ); then
     if [[ "$where" = "." ]]; then
-      echo "Failed: $cargo check --tests"
+      echo "Failed: $cargo check --all"
     else
-      echo "Failed: cd \"$where\" && $cargo check --tests"
+      echo "Failed: cd \"$where\" && $cargo check --all"
     fi
     cat >&2 <<EOM
   Do:
