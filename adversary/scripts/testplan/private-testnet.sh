@@ -53,4 +53,5 @@ run_attacks_all() {
   attack_delayBroadcast
 
   attack_sendDuplicateBlocks
+  attack_sendDuplicateLeafNodes
 }

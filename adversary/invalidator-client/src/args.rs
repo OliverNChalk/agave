@@ -212,6 +212,14 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         .takes_value(true)
                         .value_name("SOCKET ADDRESSES")
                         .help("CSV of peer addresses to target with duplicate block"),
+                )
+                .arg(
+                    Arg::with_name("leaf_node_partitions")
+                        .long("leaf-node-partitions")
+                        .takes_value(true)
+                        .value_name("PARTITIONS")
+                        .validator(|arg| input_validators::is_within_range(arg, 1..))
+                        .help("How many duplicates and leaf node partitions to create"),
                 ),
         )
         .subcommand(

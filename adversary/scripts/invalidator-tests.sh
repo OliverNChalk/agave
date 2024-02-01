@@ -101,3 +101,13 @@ attack_sendDuplicateBlocks() {
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
   sleep "$sleeptime"
 }
+
+attack_sendDuplicateLeafNodes() {
+  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
+    --new-entry-index-from-end 2 \
+    --send-original-after-ms 0 \
+    --leaf_node_partitions 2
+  sleep "$runtime"
+  "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
+  sleep "$sleeptime"
+}

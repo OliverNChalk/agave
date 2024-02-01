@@ -216,6 +216,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
 
     let mut repair_packet_flood = false;
     let mut send_duplicate_blocks = false;
+    let mut send_duplicate_leaf_nodes = false;
     let mut broadcast_delay = false;
     let mut drop_turbine_votes = false;
     let mut invalidate_leader_block = false;
@@ -237,6 +238,10 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
 
                 if config.turbine_send_delay_ms > 0 {
                     broadcast_delay = true;
+                }
+
+                if config.leaf_node_partitions.is_some() {
+                    send_duplicate_leaf_nodes = true;
                 }
             }
             AdversaryFeatureConfig::DropTurbineVotes(config) => {
@@ -273,6 +278,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         "adversary",
         ("repair_packet_flood", repair_packet_flood, i64),
         ("send_duplicate_blocks", send_duplicate_blocks, i64),
+        ("send_duplicate_leaf_nodes", send_duplicate_leaf_nodes, i64),
         ("broadcast_delay", broadcast_delay, i64),
         ("drop_turbine_votes", drop_turbine_votes, i64),
         ("invalidate_leader_block", invalidate_leader_block, i64),

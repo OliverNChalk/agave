@@ -90,6 +90,9 @@ pub fn configure_send_duplicate_blocks_args(
             .collect()
         })
         .unwrap_or_default();
+    let leaf_node_partitions = sub_matches
+        .value_of("leaf_node_partitions")
+        .map(|s| s.parse::<usize>().unwrap());
 
     configure_send_duplicate_blocks(
         rpc_endpoint_url,
@@ -99,7 +102,7 @@ pub fn configure_send_duplicate_blocks_args(
             send_original_after_ms,
             turbine_send_delay_ms,
             send_destinations,
-            leaf_node_partitions: None,
+            leaf_node_partitions,
         },
         rpc_adversary_keypair,
     )
