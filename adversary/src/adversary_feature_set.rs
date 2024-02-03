@@ -88,9 +88,32 @@ pub mod repair_packet_flood {
         /// Signed repair request packets for slots which should not not be available.
         UnavailableSlots,
     }
+
+    #[derive(Default)]
+    pub struct FloodStrategySubtypeStatsId(i64);
+
+    impl From<FloodStrategySubtypeStatsId> for i64 {
+        fn from(stats_id: FloodStrategySubtypeStatsId) -> i64 {
+            stats_id.0
+        }
+    }
+
     impl FloodStrategy {
         pub const fn cli_names() -> &'static [&'static str] {
             Self::VARIANTS
+        }
+
+        pub fn stats_id(&self) -> FloodStrategySubtypeStatsId {
+            let id = match self {
+                FloodStrategy::MinimalPackets => 1,
+                FloodStrategy::SignedPackets => 2,
+                FloodStrategy::PingCacheOverflow => 3,
+                FloodStrategy::Orphan => 4,
+                FloodStrategy::FakeFutureLeaderSlots => 5,
+                FloodStrategy::UnavailableSlots => 6,
+            };
+
+            FloodStrategySubtypeStatsId(id)
         }
     }
 
@@ -221,9 +244,28 @@ pub mod invalidate_leader_block {
         /// Invalidates the block by recording a transaction with an invalid signature.
         InvalidSignature,
     }
+
+    #[derive(Default)]
+    pub struct InvalidationKindSubtypeStatsId(i64);
+
+    impl From<InvalidationKindSubtypeStatsId> for i64 {
+        fn from(stats_id: InvalidationKindSubtypeStatsId) -> i64 {
+            stats_id.0
+        }
+    }
+
     impl InvalidationKind {
         pub const fn cli_names() -> &'static [&'static str] {
             Self::VARIANTS
+        }
+
+        pub fn stats_id(&self) -> InvalidationKindSubtypeStatsId {
+            let id = match self {
+                InvalidationKind::InvalidFeePayer => 1,
+                InvalidationKind::InvalidSignature => 2,
+            };
+
+            InvalidationKindSubtypeStatsId(id)
         }
     }
 

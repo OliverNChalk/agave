@@ -214,21 +214,24 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         }
     }
 
-    let mut repair_packet_flood = false;
+    let mut repair_packet_flood = repair_packet_flood::FloodStrategySubtypeStatsId::default();
     let mut send_duplicate_blocks = false;
     let mut send_duplicate_leaf_nodes = false;
     let mut broadcast_delay = false;
+    let mut broadcast_packet_drop_percent = 0;
+    let mut retransmit_packet_drop_percent = 0;
     let mut drop_turbine_votes = false;
-    let mut invalidate_leader_block = false;
-    let mut replay_stage_attack = false;
+    let mut invalidate_leader_block =
+        invalidate_leader_block::InvalidationKindSubtypeStatsId::default();
+    let mut replay_stage_attack = replay_stage_attack::AttackSubtypeStatsId::default();
     let mut gossip_packet_flood = false;
     let mut delay_votes = false;
 
     for adversary_feature_config in adversary_feature_configs {
         match adversary_feature_config {
             AdversaryFeatureConfig::RepairPacketFlood(config) => {
-                if !config.configs.is_empty() {
-                    repair_packet_flood = true;
+                if let Some(config) = config.configs.first() {
+                    repair_packet_flood = config.flood_strategy.stats_id();
                 }
             }
             AdversaryFeatureConfig::SendDuplicateBlocks(config) => {
@@ -250,12 +253,14 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                 }
             }
             AdversaryFeatureConfig::InvalidateLeaderBlock(config) => {
-                if config.invalidation_kind.is_some() {
-                    invalidate_leader_block = true;
+                if let Some(invalidation_kind) = config.invalidation_kind {
+                    invalidate_leader_block = invalidation_kind.stats_id();
                 }
             }
             AdversaryFeatureConfig::ReplayStageAttack(config) => {
-                replay_stage_attack = config.selected_attack.is_some();
+                if let Some(attack) = config.selected_attack {
+                    replay_stage_attack = attack.stats_id();
+                }
             }
             AdversaryFeatureConfig::GossipPacketFlood(config) => {
                 if !config.configs.is_empty() {
@@ -267,8 +272,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                     delay_votes = true;
                 }
             }
+            AdversaryFeatureConfig::PacketDropParameters(config) => {
+                broadcast_packet_drop_percent = config.broadcast_packet_drop_percent.unwrap_or(0);
+                retransmit_packet_drop_percent = config.retransmit_packet_drop_percent.unwrap_or(0);
+            }
             AdversaryFeatureConfig::Example(_)
-            | AdversaryFeatureConfig::PacketDropParameters(_)
             | AdversaryFeatureConfig::RepairParameters(_)
             | AdversaryFeatureConfig::ShredReceiverAddress(_) => {}
         }
@@ -276,13 +284,27 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
 
     datapoint_info!(
         "adversary",
-        ("repair_packet_flood", repair_packet_flood, i64),
+        ("repair_packet_flood", i64::from(repair_packet_flood), i64),
         ("send_duplicate_blocks", send_duplicate_blocks, i64),
         ("send_duplicate_leaf_nodes", send_duplicate_leaf_nodes, i64),
         ("broadcast_delay", broadcast_delay, i64),
+        (
+            "broadcast_packet_drop_percent",
+            broadcast_packet_drop_percent,
+            i64
+        ),
+        (
+            "retransmit_packet_drop_percent",
+            retransmit_packet_drop_percent,
+            i64
+        ),
         ("drop_turbine_votes", drop_turbine_votes, i64),
-        ("invalidate_leader_block", invalidate_leader_block, i64),
-        ("replay_stage_attack", replay_stage_attack, i64),
+        (
+            "invalidate_leader_block",
+            i64::from(invalidate_leader_block),
+            i64
+        ),
+        ("replay_stage_attack", i64::from(replay_stage_attack), i64),
         ("gossip_packet_flood", gossip_packet_flood, i64),
         ("delay_votes", delay_votes, i64),
     );

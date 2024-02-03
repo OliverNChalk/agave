@@ -83,6 +83,15 @@ pub enum Attack {
     ColdProgramCache(AttackProgramConfig),
 }
 
+#[derive(Default)]
+pub struct AttackSubtypeStatsId(i64);
+
+impl From<AttackSubtypeStatsId> for i64 {
+    fn from(stats_id: AttackSubtypeStatsId) -> i64 {
+        stats_id.0
+    }
+}
+
 pub type AttackConfigVerifier =
     Box<dyn Fn(&AccountsFile, &Attack) -> Result<(), String> + Send + 'static>;
 
@@ -202,6 +211,24 @@ impl Attack {
         };
 
         verifier(accounts, self)
+    }
+
+    pub fn stats_id(&self) -> AttackSubtypeStatsId {
+        let id = match self {
+            Attack::TransferRandom => 1,
+            Attack::CreateNonceAccounts => 2,
+            Attack::AllocateRandomLarge => 3,
+            Attack::AllocateRandomSmall => 4,
+            Attack::ChainTransactions => 5,
+            Attack::WriteProgram(_) => 6,
+            Attack::ReadMaxAccounts => 7,
+            Attack::WriteMaxAccounts => 8,
+            Attack::ReadProgram(_) => 9,
+            Attack::RecursiveProgram(_) => 10,
+            Attack::ColdProgramCache(_) => 11,
+        };
+
+        AttackSubtypeStatsId(id)
     }
 }
 
