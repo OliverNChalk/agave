@@ -196,14 +196,19 @@ EOM
 }
 
 run_cargo_check() {
-  local where=.
-  [[ $# -gt 0 ]] && where=$1
+  [[ $# -eq 0 ]] && die "run_cargo_check needs at least one argument"
 
-  if ! ( cd "$where" && "$cargo" check --all ); then
+  local where=$1
+  shift
+
+  local -a check_args
+  check_args=( "$@" )
+
+  if ! ( cd "$where" && "$cargo" check "${check_args[@]}" ); then
     if [[ "$where" = "." ]]; then
-      echo "Failed: $cargo check --all"
+      echo "Failed: $cargo check" "${check_args[@]}"
     else
-      echo "Failed: cd \"$where\" && $cargo check --all"
+      echo "Failed: cd \"$where\" && $cargo check" "${check_args[@]}"
     fi
     cat >&2 <<EOM
   Do:
@@ -286,9 +291,10 @@ EOM
 }
 
 run_all_checks() {
-  run_cargo_check
+  run_cargo_check . --lib --bins --tests
   run_fmt
-  run_cargo_check programs/sbf
+  # There are no libraries in `programs/sbf`, so `--lib` is absent.
+  run_cargo_check programs/sbf --bins --tests
   run_fmt programs/sbf
   if [[ -n "$runTests" ]]; then
     run_tests
