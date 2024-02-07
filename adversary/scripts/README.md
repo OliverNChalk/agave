@@ -8,6 +8,7 @@ the main entry point that parses params and kicks off appropriate downstream tes
 
 ## invalidator-tests.sh
 Contains the individual attack definitions.
+Documentation on the implemented attacks might be found [elsewhere](../../docs/invalidator-attacks/README.md)
 
 ## testplan/
 Collections of attacks to run.
@@ -16,7 +17,7 @@ Collections of attacks to run.
 Essentially all of the attacks that have been developed.
 
 ### private-testnet-no-accounts.sh
-All of the attacks exccept the ones that require prior account/program state setup.
+All of the attacks except the ones that require prior account/program state setup.
 
 ### public-testnet.sh
 All of the attacks not expected to bring down testnet.
