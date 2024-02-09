@@ -74,10 +74,11 @@ attack_gossipPacketFlood() {
 attack_replayStage() {
   local attack=$1
   shift
-  [[ $# -ne 0 ]] && die "attack_replayStage takes 1 argument"
+  local -a extraConfig=( "$@" )
 
   "$invalidatorClient" "${commonArgs[@]}" \
-    configure-replay-stage-attack --selected-attack "$attack"
+    configure-replay-stage-attack --selected-attack "$attack" \
+    "${extraConfig[@]}"
   sleep "$runtime"
   "$invalidatorClient" "${commonArgs[@]}" \
     configure-replay-stage-attack

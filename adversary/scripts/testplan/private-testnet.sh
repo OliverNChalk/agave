@@ -44,11 +44,34 @@ run_attacks_all() {
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10000
 
+  # attacks that use only fee payer accounts
   attack_replayStage transferRandom
   attack_replayStage createNonceAccounts
   attack_replayStage allocateRandomLarge
   attack_replayStage allocateRandomSmall
   attack_replayStage chainTransactions
+  # attacks that use max accounts
+  attack_replayStage readMaxAccounts
+  attack_replayStage writeMaxAccounts
+  # attacks that execute deployed program
+  attack_replayStage writeProgram \
+   --transaction-batch-size 1 \
+   --num-accounts-per-tx 1 \
+   --transaction-cu-budget 1000 \
+   --use-failed-transaction-hotpath
+  # 6 comes from one tx can load up to 64MB
+  attack_replayStage readProgram \
+   --transaction-batch-size 64 \
+   --num-accounts-per-tx 6 \
+   --transaction-cu-budget 100 \
+   --use-failed-transaction-hotpath
+  # for txs to succeed we need at least 176k CU
+  # for use-failed-transaction-hotpath txs must not succeed
+  attack_replayStage recursiveProgram \
+   --transaction-batch-size 64 \
+   --num-accounts-per-tx 1 \
+   --transaction-cu-budget 100000 \
+   --use-failed-transaction-hotpath
 
   attack_delayBroadcast
 
