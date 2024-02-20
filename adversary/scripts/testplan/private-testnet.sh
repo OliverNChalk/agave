@@ -72,6 +72,13 @@ run_attacks_all() {
    --num-accounts-per-tx 1 \
    --transaction-cu-budget 100000 \
    --use-failed-transaction-hotpath
+  # attack that executes numerous deployed programs
+  # which triggers recompilations
+  attack_replayStage coldProgramCache \
+   --transaction-batch-size 64 \
+   --num-accounts-per-tx 1 \
+   --transaction-cu-budget 20000 \
+   --use-failed-transaction-hotpath
 
   attack_delayBroadcast
 
