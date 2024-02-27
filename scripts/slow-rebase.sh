@@ -144,6 +144,38 @@ EOM
   fi
 }
 
+print_fixup_and_restart_commands() {
+  local extraArgs=
+  [[ $# -gt 0 ]] && extraArgs=$1
+
+cat >&2 <<EOM
+    2. And changes into the staging area:
+
+git add --update
+
+    3.a. Use "git absorb" to augment the right changes in the history.
+       Install by running "cargo install git-absorb".
+       Details: https://github.com/tummychow/git-absorb
+
+git absorb --force --base "sync/${branch}-upstream"
+git rebase --interactive "\$( git merge-base sync/${branch}-upstream HEAD )"
+
+    3.b. If you do not want to use "git absorb", add changes into a commit that
+      will be dissoled later.  You will need to run "git rebase" later to find
+      the right spot for this change.
+
+git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
+        git show --oneline --no-patch "$( \
+            git merge-base "sync/${branch}-upstream" HEAD \
+        )" \
+    )\\""
+
+    4. Restart the rebase by running:
+
+EOM
+    print_restart_command --pre-check
+}
+
 print_restart_command() {
   local extraArgs=
   [[ $# -gt 0 ]] && extraArgs=$1
@@ -213,19 +245,9 @@ run_cargo_check() {
     cat >&2 <<EOM
   Do:
     1. Fix compilation errors.
-    2. Add changes into a commit that will be dissoled later:
-
-git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
-        git show --oneline --no-patch "$( \
-            git merge-base "sync/${branch}-upstream" HEAD \
-        )" \
-    )\\""
-
-    3. Restart the rebase by running:
 
 EOM
-    print_restart_command --pre-check
+    print_fixup_and_restart_commands --pre-check
     exit 1
   fi
 }
@@ -249,20 +271,9 @@ run_fmt() {
     fi
     cat >&2 <<EOM
   Do:
-    1. If formatting is fine, add changes into a commit that will be dissoled
-       later:
-
-git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
-        git show --oneline --no-patch "$( \
-            git merge-base "sync/${branch}-upstream" HEAD \
-        )" \
-    )\\""
-
-    2. Restart the rebase by running:
-
+    1. Check if the formatting is now fine.
 EOM
-    print_restart_command --pre-check
+    print_fixup_and_restart_commands --pre-check
     exit 1
   fi
 }
@@ -273,19 +284,8 @@ run_tests() {
     cat >&2 <<EOM
   Do:
     1. Fix tests.
-    2. Update the last commit with
-
-git add -u
-git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
-        git show --oneline --no-patch "$( \
-            git merge-base "sync/${branch}-upstream" HEAD \
-        )" \
-    )\\""
-
-    3. Restart the rebase by running:
-
 EOM
-    print_restart_command --pre-check
+    print_fixup_and_restart_commands --pre-check
     exit 1
   fi
 }
