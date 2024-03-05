@@ -54,6 +54,24 @@ impl AccountsFile {
     }
 }
 
+impl Clone for AccountsFile {
+    fn clone(&self) -> Self {
+        let Self {
+            owner_program_id,
+            payers,
+            max_size,
+            program_ids_jit_attack,
+        } = self;
+
+        Self {
+            owner_program_id: *owner_program_id,
+            payers: payers.iter().map(Keypair::insecure_clone).collect(),
+            max_size: max_size.iter().map(Keypair::insecure_clone).collect(),
+            program_ids_jit_attack: program_ids_jit_attack.clone(),
+        }
+    }
+}
+
 impl From<AccountsFileRaw> for AccountsFile {
     fn from(raw: AccountsFileRaw) -> Self {
         let AccountsFileRaw {
