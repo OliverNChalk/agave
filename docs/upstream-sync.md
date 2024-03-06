@@ -8,10 +8,10 @@ We need to merge changes from the upstream repository into this repository
 regularly, in order to reduce merge conflicts and to stay up to date.
 
 For now, we are going to track only the `master` branch of the upstream
-repository.  That would be `master` in `https://github.com/solana-labs/solana`.
+repository.  That would be `master` in `https://github.com/anza-xyz/agave`.
 
 `invalidator` will use the following branches to track state relative to the
-upstream Solana repo.  Note that all branches with the `sync/` prefix are
+upstream Anza repo.  Note that all branches with the `sync/` prefix are
 created and/or updated only during the synchronization process.
 
  * `sync/master/upstream/[date]`<br/>
@@ -58,10 +58,10 @@ synchronization.  With remote names that would reduce this kind of push.  You
 can create this setup as follows:
 
 ```sh
-git clone --origin invalidator git@github.com:solana-labs/invalidator.git
+git clone --origin invalidator git@github.com:anza-xyz/invalidator.git
 cd invalidator
-git remote add upstream https://github.com/solana-labs/solana.git
-git remote set-url --push upstream do-not-push-from-invalidator-to-solana
+git remote add upstream https://github.com/anza-xyz/agave.git
+git remote set-url --push upstream do-not-push-from-invalidator-to-agave
 ```
 
 Commands below assume `invalidator` and `upstream` remotes, setup as specified
@@ -69,10 +69,10 @@ above.
 
 ```text
 $ git remote -v
-invalidator     git@github.com:solana-labs/invalidator.git (fetch)
-invalidator     git@github.com:solana-labs/invalidator.git (push)
-upstream        https://github.com/solana-labs/solana.git (fetch)
-upstream        do-not-push-from-invalidator-to-solana (push)
+invalidator     git@github.com:anza-xyz/invalidator.git (fetch)
+invalidator     git@github.com:anza-xyz/invalidator.git (push)
+upstream        https://github.com/anza-xyz/agave.git (fetch)
+upstream        do-not-push-from-invalidator-to-agave (push)
 ```
 
 ### 1.1. Record update date.
@@ -117,10 +117,10 @@ than for the whole duration of the synchronization process.
 
 ### 1.4. Create a new sync point, and `master-next`.
 
-We want to use a commit from `solana/master` that is the last change before
+We want to use a commit from `agave/master` that is the last change before
 00:00 UTC on Monday.  Hopefully that would be a rather low activity point.
 
-Fetch the latest state of the `https://github.com/solana-labs/solana` `master`,
+Fetch the latest state of the `https://github.com/anza-xyz/agave` `master`,
 and point `sync/master/upstream/$SYNC_DATE` at the commit just before Monday
 starts in UTC:
 
@@ -383,10 +383,10 @@ in a loop.  `run_one_rebase()` runs the following rebase operation, with the
 It looks at all changes that are in `sync/master-upstream` that are not in
 `master-next` yet and takes the oldest of these changes.  It then rebases
 `master-next` on top of this change.  Which bringing in the oldest commit from
-`solana/master` into `master-next` that was not part of `master-next` yet.
+`agave/master` into `master-next` that was not part of `master-next` yet.
 
 If there are any merge conflicts between commits in `master-next` and
-`solana/master`, this conflict will be presented in the smallest possible scope,
+`agave/master`, this conflict will be presented in the smallest possible scope,
 making conflict resolution easier.
 
 `slow-rebase.sh` will compile, format and run a few more checks after this
