@@ -9104,6 +9104,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-invalidator-inimica"
+version = "3.1.0"
+dependencies = [
+ "bincode",
+ "clap 4.5.31",
+ "futures 0.3.31",
+ "humantime",
+ "log",
+ "parking_lot 0.12.3",
+ "serde",
+ "serde_json",
+ "solana-account",
+ "solana-adversary",
+ "solana-clap-v3-utils",
+ "solana-clock",
+ "solana-commitment-config",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-loader-v3-interface",
+ "solana-logger",
+ "solana-pubkey",
+ "solana-rent",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-sdk-ids",
+ "solana-signer",
+ "solana-test-validator",
+ "solana-transaction",
+ "strum_macros",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "solana-keccak-hasher"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

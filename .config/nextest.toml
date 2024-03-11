@@ -135,3 +135,7 @@ threads-required = "num-cpus"
 [[profile.ci.overrides]]
 filter = "package(solana-accounts-cluster-bench)"
 threads-required = "num-cpus"
+
+[[profile.ci.overrides]]
+filter = 'package(solana-invalidator-inimica) & test(/^attacks::program_runtime::program_cache::unloaded_program_invocation::loader_v3::tests::simple_attack/)'
+slow-timeout = { period = "60s", terminate-after = 3 }
