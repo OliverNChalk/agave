@@ -55,11 +55,13 @@ run_attacks_all() {
   attack_replayStage writeMaxAccounts
   # attacks that execute deployed program
   # 6 comes from one tx can load up to 64MB
-  attack_replayStage writeProgram \
-   --transaction-batch-size 64 \
-   --num-accounts-per-tx 6 \
-   --transaction-cu-budget 100 \
-   --use-failed-transaction-hotpath
+  # Temporarily disabled because this causes multiple minute slot times until we
+  # start constraining max account load size
+  # attack_replayStage writeProgram \
+  # --transaction-batch-size 64 \
+  # --num-accounts-per-tx 6 \
+  # --transaction-cu-budget 100 \
+  # --use-failed-transaction-hotpath
   attack_replayStage readProgram \
    --transaction-batch-size 64 \
    --num-accounts-per-tx 6 \
