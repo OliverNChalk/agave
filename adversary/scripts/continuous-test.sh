@@ -23,6 +23,8 @@ rpcAdversaryKeypair=
 attackTarget=
 testplan=public-testnet.sh
 invalidatorClient=solana-invalidator-client
+inimica=solana-invalidator-inimica
+accounts=accounts.json
 
 usage() {
   cat <<EOM
@@ -77,6 +79,17 @@ Arguments:
     specified.
 
     Default: solana-invalidator-client
+
+  --inimica <solana-invalidator-inimica path>  Path to a binary that
+    is the inimica client.  Either absolute or from PATH.  Executed as
+    specified.
+
+    Default: solana-invalidator-inimica
+
+  --accounts <accounts JSON file path>  Path to a JSON file that
+    contains fee payer account keypairs.  Either absolute or from PATH.
+
+    Default: accounts.json
 EOM
 }
 
@@ -192,6 +205,16 @@ while [[ $# -gt 0 ]]; do
         "path to binary"
       shift
       ;;
+    --inimica)
+      requires_arg $# "$1" inimica "inimica" \
+        "path to binary"
+      shift
+      ;;
+    --accounts)
+      requires_arg $# "$1" accounts "accounts" \
+        "path to accounts JSON file"
+      shift
+      ;;
     -h|-\?|--help)
       usage
       exit
@@ -213,6 +236,15 @@ EOM
   exit 1
 fi
 
+if ! command -v "$inimica" &>/dev/null; then
+  cat <<EOM
+Unable to find solana inimica client.
+Specified path: $inimica
+Check the script header at: $me
+EOM
+  exit 1
+fi
+
 declare -a commonArgs
 declare -a repairShArgs
 
@@ -222,6 +254,10 @@ fi
 
 if [[ -z "$sleeptime" || "$sleeptime" -eq 0 ]]; then
   die "--sleeptime argument is required and must be above zero"
+fi
+
+if [[ -z "$accounts" ]]; then
+  die "--accounts argument is required"
 fi
 
 if [[ -n "$rpcAdversaryKeypair" ]]; then

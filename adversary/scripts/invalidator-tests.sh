@@ -8,7 +8,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-for requiredVar in commonArgs repairShArgs runtime sleeptime invalidatorClient; do
+for requiredVar in commonArgs repairShArgs runtime sleeptime invalidatorClient inimica accounts; do
   if ! declare -p "$requiredVar" >/dev/null; then
     cat <<EOM
 invalidator-tests expects $requiredVar to be set.  Functions defined in this
@@ -110,5 +110,15 @@ attack_sendDuplicateLeafNodes() {
     --leaf-node-partitions 2
   sleep "$runtime"
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
+  sleep "$sleeptime"
+}
+
+attack_unloadProgramInvocation() {
+  # shellcheck disable=SC2154
+  "$inimica" --json-rpc-url l attack program-runtime \
+    program-cache unloaded-program-invocation \
+    --accounts "$accounts" \
+    --total-duration "$runtime"s \
+    --skip-program-cleanup
   sleep "$sleeptime"
 }
