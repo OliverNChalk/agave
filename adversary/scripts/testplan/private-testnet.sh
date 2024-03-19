@@ -90,4 +90,6 @@ run_attacks_all() {
   # Temporarily disabled because this test will fail consistently until we have
   # retransmit signatures
   # attack_sendDuplicateLeafNodes
+
+  attack_unloadProgramInvocation
 }
