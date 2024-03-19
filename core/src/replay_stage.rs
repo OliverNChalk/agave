@@ -2966,6 +2966,7 @@ impl ReplayStage {
         log_messages_bytes_limit: Option<usize>,
         active_bank_slots: &[Slot],
         prioritization_fee_cache: &PrioritizationFeeCache,
+        purged_slots: &HashSet<Slot>,
     ) -> Vec<ReplaySlotFromBlockstore> {
         // Make mutable shared structures thread safe.
         let progress = RwLock::new(progress);
@@ -3033,24 +3034,27 @@ impl ReplayStage {
                     let replay_progress = bank_progress.replay_progress.clone();
                     drop(progress_lock);
 
-                    let mut replay_blockstore_time = Measure::start("replay_blockstore_into_bank");
-                    let blockstore_result = Self::replay_blockstore_into_bank(
-                        &bank,
-                        blockstore,
-                        replay_tx_thread_pool,
-                        &replay_stats,
-                        &replay_progress,
-                        transaction_status_sender,
-                        entry_notification_sender,
-                        &replay_vote_sender.clone(),
-                        &verify_recyclers.clone(),
-                        log_messages_bytes_limit,
-                        prioritization_fee_cache,
-                    );
-                    replay_blockstore_time.stop();
-                    replay_result.replay_result = Some(blockstore_result);
-                    longest_replay_time_us
-                        .fetch_max(replay_blockstore_time.as_us(), Ordering::Relaxed);
+                    if purged_slots.contains(&bank_slot) || bank.collector_id() != my_pubkey {
+                        let mut replay_blockstore_time =
+                            Measure::start("replay_blockstore_into_bank");
+                        let blockstore_result = Self::replay_blockstore_into_bank(
+                            &bank,
+                            blockstore,
+                            replay_tx_thread_pool,
+                            &replay_stats,
+                            &replay_progress,
+                            transaction_status_sender,
+                            entry_notification_sender,
+                            &replay_vote_sender.clone(),
+                            &verify_recyclers.clone(),
+                            log_messages_bytes_limit,
+                            prioritization_fee_cache,
+                        );
+                        replay_blockstore_time.stop();
+                        replay_result.replay_result = Some(blockstore_result);
+                        longest_replay_time_us
+                            .fetch_max(replay_blockstore_time.as_us(), Ordering::Relaxed);
+                    }
                     replay_result
                 })
                 .collect()
@@ -3538,6 +3542,7 @@ impl ReplayStage {
                     log_messages_bytes_limit,
                     &active_bank_slots,
                     prioritization_fee_cache,
+                    purged_slots,
                 )
             }
             ForkReplayMode::Serial | ForkReplayMode::Parallel(_) => active_bank_slots
