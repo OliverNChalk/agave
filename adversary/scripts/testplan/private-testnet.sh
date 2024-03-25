@@ -54,34 +54,40 @@ run_attacks_all() {
   attack_replayStage readMaxAccounts
   attack_replayStage writeMaxAccounts
   # attacks that execute deployed program
-  # 6 comes from one tx can load up to 64MB
+  # how many transactions can be processes in parallel by one replay thread.
+  local BATCH_SIZE=64
+  # One tx can load up to 64MB, each account is 10MB.
+  # Hence, 6 is max value we can use.
+  local NUM_ACCOUNTS_PER_TX=6
+  # Transaction budget to prevent transaction from being successful.
+  # Required because `use-failed-transaction-hotpath` txs must not succeed.
+  local INSUFFICIENT_CU_BUDGET=100
   # Temporarily disabled because this causes multiple minute slot times until we
   # start constraining max account load size
   # attack_replayStage writeProgram \
-  # --transaction-batch-size 64 \
-  # --num-accounts-per-tx 6 \
-  # --transaction-cu-budget 100 \
+  # --transaction-batch-size ${BATCH_SIZE} \
+  # --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+  # --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
   # --use-failed-transaction-hotpath
   # Temporarily disabled because this causes multiple minute slot times until we
   # start constraining max account load size
   # attack_replayStage readProgram \
-  # --transaction-batch-size 64 \
-  # --num-accounts-per-tx 6 \
-  # --transaction-cu-budget 100 \
+  # --transaction-batch-size ${BATCH_SIZE} \
+  # --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+  # --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
   # --use-failed-transaction-hotpath
   # for txs to succeed we need at least 176k CU
-  # for use-failed-transaction-hotpath txs must not succeed
   attack_replayStage recursiveProgram \
-   --transaction-batch-size 64 \
-   --num-accounts-per-tx 1 \
-   --transaction-cu-budget 100000 \
+   --transaction-batch-size ${BATCH_SIZE} \
+   --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+   --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
    --use-failed-transaction-hotpath
   # attack that executes numerous deployed programs
   # which triggers recompilations
   attack_replayStage coldProgramCache \
-   --transaction-batch-size 64 \
-   --num-accounts-per-tx 1 \
-   --transaction-cu-budget 20000 \
+   --transaction-batch-size ${BATCH_SIZE} \
+   --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+   --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
    --use-failed-transaction-hotpath
 
   attack_delayBroadcast
