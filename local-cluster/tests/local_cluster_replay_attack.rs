@@ -1,14 +1,17 @@
 use {
     agave_reserved_account_keys::ReservedAccountKeys,
+    crossbeam_channel::Receiver,
+    log::debug,
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
     solana_adversary::{
         accounts_file::AccountsFile,
-        adversary_feature_set::replay_stage_attack,
+        adversary_feature_set::replay_stage_attack::{self, Attack},
         block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         send_request_verified,
     },
     solana_bincode::limited_deserialize,
+    solana_client::{pubsub_client::PubsubClientSubscription, rpc_response::RpcBlockUpdate},
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
     solana_core::validator::{InvalidatorConfig, ValidatorConfig},
@@ -27,7 +30,7 @@ use {
     solana_rent::Rent,
     solana_rpc_client_api::{
         config::{RpcBlockSubscribeConfig, RpcBlockSubscribeFilter},
-        response::RpcBlockUpdateError,
+        response::{Response, RpcBlockUpdateError},
     },
     solana_sdk_ids::{bpf_loader, system_program},
     solana_signer::Signer,
@@ -98,106 +101,342 @@ impl TestVersionedTransaction for VersionedTransaction {
         false
     }
 }
+mod setup {
+    use super::*;
 
-fn call_configure_replay_stage_attack(
-    selected_attack: Option<replay_stage_attack::Attack>,
-    url: &str,
-) -> Result<(), String> {
-    let params = serde_json::json!([replay_stage_attack::AdversarialConfig { selected_attack }]);
-    send_request_verified(url, "configureReplayStageAttack", params, None)?;
-    Ok(())
+    pub fn create_cluster(
+        num_nodes: usize,
+        accounts_file: Arc<AccountsFile>,
+        starting_accounts: Vec<(Pubkey, AccountSharedData)>,
+    ) -> LocalCluster {
+        // Create a validator config configured for block generation.
+        let mut validator_config = ValidatorConfig {
+            invalidator_config: InvalidatorConfig {
+                block_generator_config: Some(BlockGeneratorConfig {
+                    accounts: BlockGeneratorAccountsSource::Genesis(accounts_file),
+                }),
+                rpc_adversary_id: None,
+            },
+            ..ValidatorConfig::default_for_test()
+        };
+        validator_config.enable_default_rpc_block_subscribe();
+
+        // Create a cluster config with the generator validator config.
+        let mut config = ClusterConfig {
+            cluster_type: ClusterType::Development,
+            node_stakes: vec![DEFAULT_NODE_STAKE; num_nodes],
+            mint_lamports: DEFAULT_MINT_LAMPORTS,
+            validator_configs: make_identical_validator_configs(&validator_config, num_nodes),
+            additional_accounts: starting_accounts,
+            ..ClusterConfig::default()
+        };
+
+        // Create the cluster.
+        let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
+        let cluster_nodes = discover_validators(
+            &cluster.entry_point_info.gossip().unwrap(),
+            num_nodes,
+            cluster.entry_point_info.shred_version(),
+            SocketAddrSpace::Unspecified,
+        )
+        .unwrap();
+        assert_eq!(cluster_nodes.len(), num_nodes);
+
+        cluster
+    }
+
+    pub fn block_subscriber(
+        cluster: &LocalCluster,
+    ) -> (
+        PubsubClientSubscription<Response<RpcBlockUpdate>>,
+        Receiver<Response<RpcBlockUpdate>>,
+    ) {
+        PubsubClient::block_subscribe(
+            format!(
+                "ws://{}",
+                &cluster.entry_point_info.rpc_pubsub().unwrap().to_string()
+            ),
+            RpcBlockSubscribeFilter::All,
+            Some(RpcBlockSubscribeConfig {
+                commitment: Some(CommitmentConfig::confirmed()),
+                encoding: None,
+                transaction_details: None,
+                show_rewards: None,
+                max_supported_transaction_version: None,
+            }),
+        )
+        .unwrap()
+    }
+
+    pub fn simple_replay_attack(
+        attack: Attack,
+        num_nodes: usize,
+    ) -> (
+        LocalCluster,
+        PubsubClientSubscription<Response<RpcBlockUpdate>>,
+        Receiver<Response<RpcBlockUpdate>>,
+    ) {
+        let (accounts_file, starting_accounts) = account::all_accounts(attack, None);
+        let cluster = create_cluster(num_nodes, accounts_file, starting_accounts);
+        let (block_subscribe_client, receiver) = setup::block_subscriber(&cluster);
+        sleep(Duration::from_millis(800));
+
+        (cluster, block_subscribe_client, receiver)
+    }
+
+    pub mod account {
+        use super::*;
+
+        pub fn simple_accounts(
+            num_starting_accounts: usize,
+            lamports_per_account: u64,
+            space: usize,
+            owner: &Pubkey,
+        ) -> (Arc<Vec<Keypair>>, Vec<(Pubkey, AccountSharedData)>) {
+            // Create a bunch of accounts to use as starting accounts for the generator.
+            let keypairs: Arc<Vec<Keypair>> = Arc::new(
+                iter::repeat_with(Keypair::new)
+                    .take(num_starting_accounts)
+                    .collect(),
+            );
+            let accounts: Vec<(Pubkey, AccountSharedData)> = keypairs
+                .iter()
+                .map(|k| {
+                    (
+                        k.pubkey(),
+                        AccountSharedData::new(lamports_per_account, space, owner),
+                    )
+                })
+                .collect();
+
+            (keypairs, accounts)
+        }
+
+        /// Compiles block-generator-stress-test-program in the temporary directory and
+        /// returns content of the generated so file.
+        /// Specifically, it runs the following:
+        /// cargo run --bin cargo-build-sbf --
+        ///  --sbf-sdk "sdk/sbf"
+        ///  --sbf-out-dir local-cluster/tests/program/
+        ///  --manifest-path programs/block-generator-stress-test/Cargo.toml
+        fn compile_test_program() -> Vec<u8> {
+            // create a directory inside of std::env::temp_dir(), removed when goes out of scope
+            let target_directory = tempdir().expect("temporary folder should be created");
+
+            let manifest_directory = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+            let source_directory = manifest_directory.join("..");
+
+            let mut binding = std::process::Command::new(std::env!("CARGO"));
+            let command = binding.current_dir(&source_directory).arg("run");
+
+            if !cfg!(debug_assertions) {
+                command.arg("--release");
+            };
+
+            command.args([
+                "--bin",
+                "cargo-build-sbf",
+                "--",
+                "--sbf-sdk",
+                "sdk/sbf",
+                "--sbf-out-dir",
+                target_directory.path().to_str().unwrap(),
+                "--manifest-path",
+                "programs/block-generator-stress-test/Cargo.toml",
+            ]);
+
+            let _output = command
+                .output()
+                .expect("block-generator-stress-test program should be successfully compiled");
+
+            let target_file_name = "block_generator_stress_test.so";
+            let target_path_name = target_directory.path().join(target_file_name);
+            std::fs::read(target_path_name)
+                .expect("Failed to read the program file.\nPath: {target_file_name}")
+        }
+
+        fn programs(num_programs: usize) -> (Arc<Vec<Pubkey>>, Vec<(Pubkey, AccountSharedData)>) {
+            // Create a bunch of accounts to use as starting accounts for the generator.
+            let pubkeys: Arc<Vec<Pubkey>> = Arc::new(
+                iter::repeat_with(Keypair::new)
+                    .take(num_programs)
+                    .map(|k| k.pubkey())
+                    .collect(),
+            );
+            // just use the same program repeatedly
+            let program_data = compile_test_program();
+            let accounts: Vec<(Pubkey, AccountSharedData)> = pubkeys
+                .iter()
+                .map(|k| {
+                    (
+                        *k,
+                        AccountSharedData::from(Account {
+                            lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+                            data: program_data.to_vec(),
+                            owner: bpf_loader::id(),
+                            executable: true,
+                            rent_epoch: Epoch::MAX,
+                        }),
+                    )
+                })
+                .collect();
+
+            (pubkeys, accounts)
+        }
+
+        pub fn all_accounts(
+            attack: Attack,
+            max_account_size: Option<usize>,
+        ) -> (Arc<AccountsFile>, Vec<(Pubkey, AccountSharedData)>) {
+            // 1. Determine num accounts of each type to create based on attack.
+            let num_replay_threads = 4;
+            let (num_payers_accounts, num_max_size_accounts, num_program_accounts) = match attack {
+                Attack::TransferRandom | Attack::ChainTransactions => {
+                    // Empirically chosen to have enough accounts to generate
+                    // non-conflicting transactions most of the time.
+                    let num_payers_accounts = 3_000;
+                    let num_max_size_accounts = 0;
+                    let num_program_accounts = 0;
+                    (
+                        num_payers_accounts,
+                        num_max_size_accounts,
+                        num_program_accounts,
+                    )
+                }
+                Attack::WriteProgram(attack_config) => {
+                    let num_payers_accounts = attack_config
+                        .transaction_batch_size
+                        .saturating_mul(num_replay_threads);
+                    let num_max_size_accounts = attack_config
+                        .transaction_batch_size
+                        .saturating_mul(attack_config.num_accounts_per_tx);
+                    let num_program_accounts = 1;
+                    (
+                        num_payers_accounts,
+                        num_max_size_accounts,
+                        num_program_accounts,
+                    )
+                }
+                Attack::ColdProgramCache(attack_config) => {
+                    let num_payers_accounts = attack_config
+                        .transaction_batch_size
+                        .saturating_mul(num_replay_threads);
+                    let num_max_size_accounts = 0;
+                    let num_program_accounts = num_payers_accounts;
+                    (
+                        num_payers_accounts,
+                        num_max_size_accounts,
+                        num_program_accounts,
+                    )
+                }
+                _ => unimplemented!(),
+            };
+
+            // 2. Create the accounts.
+            let lamports_per_account = 1_000_000_000_000;
+            let (program_pubkeys, program_accounts) = programs(num_program_accounts);
+            let stress_test_program_id = *program_pubkeys.first().unwrap_or(&Pubkey::new_unique());
+            let (payers_keypairs, payers_accounts) = simple_accounts(
+                num_payers_accounts,
+                lamports_per_account,
+                0,
+                &system_program::id(),
+            );
+            let (max_size_keypairs, max_size_accounts) =
+                if let Some(max_account_size) = max_account_size {
+                    simple_accounts(
+                        num_max_size_accounts,
+                        lamports_per_account,
+                        max_account_size,
+                        &stress_test_program_id,
+                    )
+                } else {
+                    // No max size accounts need to be created.
+                    (Arc::new(Vec::new()), Vec::new())
+                };
+
+            // 3. Concatenate accounts of each type into a single vector.
+            let mut starting_accounts = Vec::new();
+            starting_accounts.extend(payers_accounts.iter().cloned());
+            starting_accounts.extend(max_size_accounts.iter().cloned());
+            starting_accounts.extend(program_accounts.iter().cloned());
+
+            // 4. Create an accounts file based on the attack.
+            let accounts_file = match attack {
+                Attack::TransferRandom | Attack::ChainTransactions => {
+                    Arc::new(AccountsFile::with_payers(&payers_keypairs))
+                }
+                Attack::WriteProgram(_) => Arc::new(AccountsFile::with_payers_and_max_size(
+                    &stress_test_program_id,
+                    &payers_keypairs,
+                    &max_size_keypairs,
+                )),
+                Attack::ColdProgramCache(_) => Arc::new(AccountsFile::with_payers_and_programs(
+                    &payers_keypairs,
+                    &program_pubkeys,
+                )),
+                _ => unimplemented!(),
+            };
+
+            (accounts_file, starting_accounts)
+        }
+    }
 }
 
-#[test]
-#[serial]
-fn test_mainnet_beta_cluster_type_generator() {
-    solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
+mod verify {
+    use {super::*, solana_client::rpc_client::RpcClient};
 
-    let num_nodes = 2;
-    let test_duration = Duration::from_secs(20);
-    let num_starting_accounts = 10_000;
-    let lamports_per_account = 1_000_000_000_000;
+    pub fn attack_transactions_are_landing(
+        receiver: &Receiver<Response<RpcBlockUpdate>>,
+        test_duration: Duration,
+        num_response_check_iterations: u32,
+    ) {
+        let check_sleep_duration = test_duration
+            .checked_div(num_response_check_iterations)
+            .expect("check iterations must be greater than zero");
+        let mut num_transfer_txs: i32 = 0;
+        for _ in 0..num_response_check_iterations {
+            receiver.try_iter().for_each(|response| {
+                if let Some(err) = response.value.err {
+                    // sometimes block is not ready, see issues/33462
+                    assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
+                }
+                if let Some(block) = response.value.block {
+                    if let Some(encoded_transactions) = block.transactions {
+                        for encoded_tx in encoded_transactions {
+                            let tx = encoded_tx.transaction.decode();
+                            if let Some(tx) = tx {
+                                if tx.is_transfer() {
+                                    num_transfer_txs = num_transfer_txs.saturating_add(1);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            sleep(check_sleep_duration);
+        }
+        debug!("total num_transfer_txs: {num_transfer_txs}");
+        assert_ne!(num_transfer_txs, 0);
+    }
 
-    // Create a bunch of accounts to use as starting accounts for the generator.
-    let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
-        iter::repeat_with(Keypair::new)
-            .take(num_starting_accounts)
-            .collect(),
-    );
-    let starting_accounts: Vec<(Pubkey, AccountSharedData)> = starting_keypairs
-        .iter()
-        .map(|k| {
-            (
-                k.pubkey(),
-                AccountSharedData::new(lamports_per_account, 0, &system_program::id()),
-            )
-        })
-        .collect();
+    pub fn cluster_and_cleanup(
+        receiver: Receiver<Response<RpcBlockUpdate>>,
+        cluster: LocalCluster,
+        block_subscribe_client: &mut PubsubClientSubscription<Response<RpcBlockUpdate>>,
+    ) {
+        // Check that the cluster is making progress
+        cluster.check_for_new_roots(
+            8,
+            "local_cluster_replay_attack_test",
+            SocketAddrSpace::Unspecified,
+        );
 
-    // Create a validator config configured for block generation.
-    let mut validator_config = ValidatorConfig {
-        invalidator_config: InvalidatorConfig {
-            block_generator_config: Some(BlockGeneratorConfig {
-                accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
-                    AccountsFile::with_payers(&starting_keypairs),
-                )),
-            }),
-            rpc_adversary_id: None,
-        },
-        ..ValidatorConfig::default_for_test()
-    };
-    validator_config.enable_default_rpc_block_subscribe();
-
-    // Create a cluster config with the generator validator config.
-    let mut config = ClusterConfig {
-        cluster_type: ClusterType::MainnetBeta,
-        node_stakes: vec![DEFAULT_NODE_STAKE; num_nodes],
-        mint_lamports: DEFAULT_MINT_LAMPORTS,
-        validator_configs: make_identical_validator_configs(&validator_config, num_nodes),
-        additional_accounts: starting_accounts,
-        ..ClusterConfig::default()
-    };
-
-    // Create the cluster.
-    let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
-    let cluster_nodes = discover_validators(
-        &cluster.entry_point_info.gossip().unwrap(),
-        num_nodes,
-        cluster.entry_point_info.shred_version(),
-        SocketAddrSpace::Unspecified,
-    )
-    .unwrap();
-    assert_eq!(cluster_nodes.len(), num_nodes);
-
-    let (mut block_subscribe_client, receiver) = PubsubClient::block_subscribe(
-        format!(
-            "ws://{}",
-            &cluster.entry_point_info.rpc_pubsub().unwrap().to_string()
-        ),
-        RpcBlockSubscribeFilter::All,
-        Some(RpcBlockSubscribeConfig {
-            commitment: Some(CommitmentConfig::confirmed()),
-            encoding: None,
-            transaction_details: None,
-            show_rewards: None,
-            max_supported_transaction_version: None,
-        }),
-    )
-    .unwrap();
-
-    sleep(Duration::from_millis(800));
-    assert!(call_configure_replay_stage_attack(
-        Some(replay_stage_attack::Attack::TransferRandom),
-        &cluster_tests::get_rpc_url(&cluster)
-    )
-    .is_ok());
-
-    // check that the leader generated transactions that call transfer system instruction
-    let num_response_check_iterations = 5;
-    let check_sleep_duration = test_duration / num_response_check_iterations;
-    let mut num_transfer_txs = 0;
-    for _ in 0..num_response_check_iterations {
+        // clean the receiver
+        receiver.try_iter().for_each(drop);
+        // verify that there are no new transfer transactions
+        // wait for a while to have some vote transactions
+        sleep(Duration::from_secs(1));
         receiver.try_iter().for_each(|response| {
             if let Some(err) = response.value.err {
                 // sometimes block is not ready, see issues/33462
@@ -208,359 +447,174 @@ fn test_mainnet_beta_cluster_type_generator() {
                     for encoded_tx in encoded_transactions {
                         let tx = encoded_tx.transaction.decode();
                         if let Some(tx) = tx {
-                            if tx.is_transfer() {
-                                num_transfer_txs += 1;
-                            }
+                            assert!(tx.is_simple_vote());
                         }
                     }
                 }
             }
         });
-        sleep(check_sleep_duration);
+
+        // If we don't drop the cluster, the blocking web socket service
+        // won't return, and the `block_subscribe_client` won't shut down
+        drop(cluster);
+        block_subscribe_client.shutdown().unwrap();
     }
-    assert_ne!(num_transfer_txs, 0);
-    assert_eq!(
-        call_configure_replay_stage_attack(None, &cluster_tests::get_rpc_url(&cluster)),
-        Ok(())
-    );
-    // Check that the cluster is making progress
-    cluster.check_for_new_roots(
-        16,
-        "test_mainnet_beta_cluster_type_generator",
-        SocketAddrSpace::Unspecified,
-    );
 
-    // clean the receiver
-    receiver.try_iter().for_each(drop);
-    // verify that there are no new transfer transactions
-    // wait for a while to have some vote transactions
-    sleep(Duration::from_secs(1));
-    receiver.try_iter().for_each(|response| {
-        if let Some(err) = response.value.err {
-            // sometimes block is not ready, see issues/33462
-            assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
+    pub fn program_was_deployed(client: &RpcClient, program_id: &Pubkey) {
+        assert_ne!(
+            client
+                .get_account_with_commitment(program_id, CommitmentConfig::processed())
+                .unwrap()
+                .value,
+            None
+        );
+    }
+
+    pub fn accounts_were_written_and_cluster_advancing(
+        cluster: &LocalCluster,
+        client: &RpcClient,
+        max_size_accounts_keypairs: &Vec<Keypair>,
+        account_size: usize,
+    ) {
+        for account in max_size_accounts_keypairs {
+            let account_data = client
+                .get_account_data(&account.pubkey())
+                .expect("Account is present");
+
+            assert_eq!(account_data.len(), account_size);
+            // Value for the first byte of the account is passed to the program in test_generator.
+            assert_eq!(account_data[0], 128u8);
         }
-        if let Some(block) = response.value.block {
-            if let Some(encoded_transactions) = block.transactions {
-                for encoded_tx in encoded_transactions {
-                    let tx = encoded_tx.transaction.decode();
-                    if let Some(tx) = tx {
-                        assert!(tx.is_simple_vote());
-                    }
-                }
-            }
-        }
-    });
 
-    // If we don't drop the cluster, the blocking web socket service
-    // won't return, and the `block_subscribe_client` won't shut down
-    drop(cluster);
-    block_subscribe_client.shutdown().unwrap();
+        // Check that the cluster is making progress
+        cluster.check_for_new_roots(8, "test_program_generator", SocketAddrSpace::Unspecified);
+    }
 }
 
-/// Compiles block-generator-stress-test-program in the temporary directory and
-/// returns content of the generated so file.
-/// Specifically, it runs the following:
-/// cargo run --bin cargo-build-sbf --
-///  --sbf-sdk "sdk/sbf"
-///  --sbf-out-dir local-cluster/tests/program/
-///  --manifest-path programs/block-generator-stress-test/Cargo.toml
-fn compile_test_program() -> Vec<u8> {
-    // create a directory inside of std::env::temp_dir(), removed when goes out of scope
-    let target_directory = tempdir().expect("temporary folder should be created");
-
-    let manifest_directory = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
-    let source_directory = manifest_directory.join("..");
-
-    let mut binding = std::process::Command::new(std::env!("CARGO"));
-    let command = binding.current_dir(&source_directory).arg("run");
-
-    if !cfg!(debug_assertions) {
-        command.arg("--release");
-    };
-
-    command.args([
-        "--bin",
-        "cargo-build-sbf",
-        "--",
-        "--sbf-sdk",
-        "sdk/sbf",
-        "--sbf-out-dir",
-        target_directory.path().to_str().unwrap(),
-        "--manifest-path",
-        "programs/block-generator-stress-test/Cargo.toml",
-    ]);
-
-    let _output = command
-        .output()
-        .expect("block-generator-stress-test program should be successfully compiled");
-
-    let target_file_name = "block_generator_stress_test.so";
-    let target_path_name = target_directory.path().join(target_file_name);
-    std::fs::read(target_path_name)
-        .expect("Failed to read the program file.\nPath: {target_file_name}")
+fn call_configure_replay_stage_attack(
+    cluster: &LocalCluster,
+    selected_attack: Option<replay_stage_attack::Attack>,
+) -> Result<(), String> {
+    let url = &cluster_tests::get_rpc_url(cluster);
+    let params = serde_json::json!([replay_stage_attack::AdversarialConfig { selected_attack }]);
+    send_request_verified(url, "configureReplayStageAttack", params, None)?;
+    Ok(())
 }
 
-fn program_account() -> AccountSharedData {
-    let program_data = compile_test_program();
-    AccountSharedData::from(Account {
-        lamports: Rent::default().minimum_balance(program_data.len()).min(1),
-        data: program_data.to_vec(),
-        owner: bpf_loader::id(),
-        executable: true,
-        rent_epoch: Epoch::MAX,
-    })
+fn start_replay_attack(
+    cluster: &LocalCluster,
+    attack: replay_stage_attack::Attack,
+) -> Result<(), String> {
+    call_configure_replay_stage_attack(cluster, Some(attack))
 }
 
-#[test]
-#[serial]
-fn test_mainnet_beta_cluster_type_program_generator() {
+fn stop_replay_attack(cluster: &LocalCluster) -> Result<(), String> {
+    call_configure_replay_stage_attack(cluster, None)
+}
+
+fn run_simple_replay_attack(attack: replay_stage_attack::Attack) {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
     let _ = TestSetup;
-
-    let attack_config = replay_stage_attack::AttackProgramConfig::default();
-    // For the sake of this test, check with smaller than
-    // `solana_system_interface::MAX_PERMITTED_DATA_LENGTH` accounts to avoid too large
-    // archive problem due to ledger genesis archive size limit (see
-    // MAX_GENESIS_ARCHIVE_UNPACKED_SIZE).
-    let account_size = 4 * 1024;
 
     let num_nodes = 2;
-    let test_duration = Duration::from_secs(30);
-    let num_max_size_accounts =
-        attack_config.transaction_batch_size * attack_config.num_accounts_per_tx;
-    let num_replay_threads = 4;
-    // To avoid AccountInUse, each transaction has it's own payer
-    let num_payers_accounts = attack_config.transaction_batch_size * num_replay_threads;
-    let num_program_accounts = 1;
-    let lamports_per_account = 1_000_000_000_000;
+    let (cluster, mut block_subscribe_client, receiver) =
+        setup::simple_replay_attack(attack.clone(), num_nodes);
 
-    // Create a bunch of accounts to use as starting accounts for the generator.
-    // the layout of this array is the following:
-    // [payers_start_index..max_account_start_index] -- payers accounts,
-    // [max_account_start_index..program_index] -- large accounts
-    // [program_index] -- program account
-    let payers_start_index = 0usize;
-    let max_account_start_index = num_payers_accounts;
-    let program_index = max_account_start_index + num_max_size_accounts;
-    let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
-        iter::repeat_with(Keypair::new)
-            .take(num_payers_accounts + num_max_size_accounts + num_program_accounts)
-            .collect(),
+    assert_eq!(start_replay_attack(&cluster, attack), Ok(()));
+
+    let test_duration = Duration::from_secs(20);
+    let num_response_check_iterations = 5;
+    verify::attack_transactions_are_landing(
+        &receiver,
+        test_duration,
+        num_response_check_iterations,
     );
 
-    // add program account
-    let stress_test_program_keypair = &starting_keypairs[program_index];
-    let stress_test_program_id = stress_test_program_keypair.pubkey();
+    assert_eq!(stop_replay_attack(&cluster), Ok(()));
 
-    let payers_accounts = &starting_keypairs[payers_start_index..max_account_start_index];
-    let max_size_accounts = &starting_keypairs[max_account_start_index..program_index];
-    let accounts_file = Arc::new(AccountsFile::with_payers_and_max_size(
-        &stress_test_program_id,
-        payers_accounts,
-        max_size_accounts,
-    ));
-
-    // Create a validator config with a generator account config.
-    let mut validator_config = ValidatorConfig::default_for_test();
-    validator_config.invalidator_config.rpc_adversary_id = None;
-    validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
-        accounts: BlockGeneratorAccountsSource::Genesis(accounts_file),
-    });
-
-    // Setup starting accounts
-    let mut starting_accounts: Vec<(Pubkey, AccountSharedData)> =
-        Vec::with_capacity(starting_keypairs.len());
-    for account_keypair in payers_accounts {
-        starting_accounts.push((
-            account_keypair.pubkey(),
-            AccountSharedData::new(lamports_per_account, 0, &system_program::id()),
-        ));
-    }
-    for account_keypair in max_size_accounts {
-        starting_accounts.push((
-            account_keypair.pubkey(),
-            AccountSharedData::new(lamports_per_account, account_size, &stress_test_program_id),
-        ));
-    }
-
-    starting_accounts.push((stress_test_program_id, program_account()));
-
-    // Create a cluster config with the generator validator config.
-    let mut config = ClusterConfig {
-        cluster_type: ClusterType::MainnetBeta,
-        node_stakes: vec![DEFAULT_NODE_STAKE; num_nodes],
-        mint_lamports: DEFAULT_MINT_LAMPORTS,
-        validator_configs: make_identical_validator_configs(&validator_config, num_nodes),
-        additional_accounts: starting_accounts,
-        ..ClusterConfig::default()
-    };
-
-    // Create the cluster.
-    let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
-    let cluster_nodes = discover_validators(
-        &cluster.entry_point_info.gossip().unwrap(),
-        num_nodes,
-        cluster.entry_point_info.shred_version(),
-        SocketAddrSpace::Unspecified,
-    )
-    .unwrap();
-    assert_eq!(cluster_nodes.len(), num_nodes);
-
-    let tpu_client = cluster
-        .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
-        .unwrap();
-    let rpc_client = tpu_client.rpc_client();
-
-    // Make sure the program account is part of the blockchain.
-    assert_ne!(
-        rpc_client
-            .get_account_with_commitment(&stress_test_program_id, CommitmentConfig::processed())
-            .unwrap()
-            .value,
-        None
-    );
-
-    sleep(Duration::from_millis(800));
-    assert_eq!(
-        call_configure_replay_stage_attack(
-            Some(replay_stage_attack::Attack::WriteProgram(attack_config)),
-            &cluster_tests::get_rpc_url(&cluster)
-        ),
-        Ok(())
-    );
-
-    // Let the cluster run for some period of time generating transactions.
-    std::thread::sleep(test_duration);
-
-    // Check that accounts has been modified which means that programs have been executed at least
-    // once.
-    for account in max_size_accounts {
-        let account_data = rpc_client
-            .get_account_data(&account.pubkey())
-            .expect("Account is present");
-
-        assert_eq!(account_data.len(), account_size);
-        // Value for the first byte of the account is passed to the program in test_generator.
-        assert_eq!(account_data[0], 128u8);
-    }
+    verify::cluster_and_cleanup(receiver, cluster, &mut block_subscribe_client);
 }
 
 #[test]
 #[serial]
-fn test_mainnet_beta_cluster_type_program_cache_generator() {
+fn test_transfer_random_generator() {
+    run_simple_replay_attack(replay_stage_attack::Attack::TransferRandom);
+}
+
+#[test]
+#[serial]
+fn test_chained_transactions_generator() {
+    run_simple_replay_attack(replay_stage_attack::Attack::ChainTransactions);
+}
+
+fn run_program_replay_attack(attack: replay_stage_attack::Attack) {
+    let max_account_size = match attack {
+        replay_stage_attack::Attack::WriteProgram(_) => Some(4 * 1024),
+        replay_stage_attack::Attack::ColdProgramCache(_) => None,
+        _ => unimplemented!(),
+    };
+    let (accounts_file, starting_accounts) =
+        setup::account::all_accounts(attack.clone(), max_account_size);
+
+    let num_nodes = 2;
+    let cluster = setup::create_cluster(num_nodes, accounts_file.clone(), starting_accounts);
+    let client = cluster
+        .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
+        .unwrap();
+    let rpc_client = client.rpc_client();
+
+    // check the program has been deployed
+    for program_id in &accounts_file.program_ids_jit_attack {
+        verify::program_was_deployed(rpc_client, program_id);
+    }
+    sleep(Duration::from_millis(800));
+
+    assert_eq!(start_replay_attack(&cluster, attack.clone()), Ok(()));
+
+    // Let the cluster run for some period of time generating transactions.
+    let test_duration = Duration::from_secs(30);
+    std::thread::sleep(test_duration);
+
+    assert_eq!(stop_replay_attack(&cluster), Ok(()));
+
+    // Perform attack verification
+    match attack {
+        replay_stage_attack::Attack::WriteProgram(_) => {
+            verify::accounts_were_written_and_cluster_advancing(
+                &cluster,
+                rpc_client,
+                &accounts_file.max_size,
+                max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
+            );
+        }
+        replay_stage_attack::Attack::ColdProgramCache(_) => {
+            // No observable side effects of this attack except for metrics
+        }
+        _ => unimplemented!(),
+    };
+}
+
+#[test]
+#[serial]
+fn test_write_program_generator() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
     let _ = TestSetup;
+    let attack_config = replay_stage_attack::AttackProgramConfig::default();
+    let attack = replay_stage_attack::Attack::WriteProgram(attack_config);
+    run_program_replay_attack(attack);
+}
 
+#[test]
+#[serial]
+fn test_cold_program_cache_generator() {
+    solana_logger::setup_with_default(RUST_LOG_FILTER);
+    let _ = TestSetup;
     let attack_config = replay_stage_attack::AttackProgramConfig {
         transaction_batch_size: 1,
         transaction_cu_budget: 10000,
         use_failed_transaction_hotpath: true,
         ..Default::default()
     };
-
-    let num_nodes = 2;
-    let test_duration = Duration::from_secs(30);
-    let num_replay_threads = 4;
-    // To avoid AccountInUse, each transaction has it's own payer
-    let num_payers_accounts = attack_config.transaction_batch_size * num_replay_threads;
-    let num_program_accounts = num_payers_accounts; // so each tx calls its own program
-    let lamports_per_account = 1_000_000_000_000;
-
-    // Create a bunch of accounts to use as starting accounts for the generator.
-    // the layout of this array is the following:
-    // [payers_begin_index..program_begin_index] -- payers accounts,
-    // [program_begin_index..program_end_index] -- program accounts
-    let payers_begin_index = 0usize;
-    let program_begin_index = payers_begin_index + num_payers_accounts;
-    let program_end_index = program_begin_index + num_program_accounts;
-    let starting_keypairs: Arc<Vec<Keypair>> = Arc::new(
-        iter::repeat_with(Keypair::new)
-            .take(num_payers_accounts + num_program_accounts)
-            .collect(),
-    );
-
-    // add program account
-    let test_program_keypairs = &starting_keypairs[program_begin_index..program_end_index];
-    let test_program_ids: Vec<Pubkey> = test_program_keypairs.iter().map(|k| k.pubkey()).collect();
-    let payers_accounts = &starting_keypairs[payers_begin_index..program_begin_index];
-    let accounts_file = Arc::new(AccountsFile::with_payers_and_programs(
-        payers_accounts,
-        &test_program_ids,
-    ));
-
-    // Create a validator config with a generator account config.
-    let mut validator_config = ValidatorConfig::default_for_test();
-    validator_config.invalidator_config.rpc_adversary_id = None;
-    validator_config.invalidator_config.block_generator_config = Some(BlockGeneratorConfig {
-        accounts: BlockGeneratorAccountsSource::Genesis(accounts_file),
-    });
-
-    // Setup starting accounts
-    let mut starting_accounts: Vec<(Pubkey, AccountSharedData)> =
-        Vec::with_capacity(starting_keypairs.len());
-    for account_keypair in payers_accounts {
-        starting_accounts.push((
-            account_keypair.pubkey(),
-            AccountSharedData::new(lamports_per_account, 0, &system_program::id()),
-        ));
-    }
-    // just use the same program
-    let program_data = compile_test_program();
-    for program_id in &test_program_ids {
-        let account_data = AccountSharedData::from(Account {
-            lamports: Rent::default().minimum_balance(program_data.len()).min(1),
-            data: program_data.to_vec(),
-            owner: bpf_loader::id(),
-            executable: true,
-            rent_epoch: Epoch::MAX,
-        });
-        starting_accounts.push((*program_id, account_data));
-    }
-
-    // Create a cluster config with the generator validator config.
-    let mut config = ClusterConfig {
-        cluster_type: ClusterType::MainnetBeta,
-        node_stakes: vec![DEFAULT_NODE_STAKE; num_nodes],
-        mint_lamports: DEFAULT_MINT_LAMPORTS,
-        validator_configs: make_identical_validator_configs(&validator_config, num_nodes),
-        additional_accounts: starting_accounts,
-        ..ClusterConfig::default()
-    };
-
-    // Create the cluster.
-    let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
-    let cluster_nodes = discover_validators(
-        &cluster.entry_point_info.gossip().unwrap(),
-        num_nodes,
-        cluster.entry_point_info.shred_version(),
-        SocketAddrSpace::Unspecified,
-    )
-    .unwrap();
-    assert_eq!(cluster_nodes.len(), num_nodes);
-
-    let tpu_client = cluster
-        .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
-        .unwrap();
-    let rpc_client = tpu_client.rpc_client();
-
-    // check the program has been deployed
-    for program_id in test_program_ids {
-        assert!(rpc_client
-            .get_account_with_commitment(&program_id, CommitmentConfig::processed())
-            .unwrap()
-            .value
-            .is_some());
-    }
-    sleep(Duration::from_millis(800));
-    assert!(call_configure_replay_stage_attack(
-        Some(replay_stage_attack::Attack::ColdProgramCache(attack_config)),
-        &cluster_tests::get_rpc_url(&cluster)
-    )
-    .is_ok());
-
-    // Let the cluster run for some period of time generating transactions.
-    std::thread::sleep(test_duration);
-
-    // No observable side effects of this attack except for metrics
+    let attack = replay_stage_attack::Attack::ColdProgramCache(attack_config);
+    run_program_replay_attack(attack);
 }
