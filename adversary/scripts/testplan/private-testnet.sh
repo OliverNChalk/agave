@@ -58,24 +58,22 @@ run_attacks_all() {
   local BATCH_SIZE=64
   # One tx can load up to 64MB, each account is 10MB.
   # Hence, 6 is max value we can use.
-  local NUM_ACCOUNTS_PER_TX=6
+  # Temporarily reducing value to 1 because slot replay times currently explode
+  # to minutes with 6.
+  local NUM_ACCOUNTS_PER_TX=1
   # Transaction budget to prevent transaction from being successful.
   # Required because `use-failed-transaction-hotpath` txs must not succeed.
   local INSUFFICIENT_CU_BUDGET=100
-  # Temporarily disabled because this causes multiple minute slot times until we
-  # start constraining max account load size
-  # attack_replayStage writeProgram \
-  # --transaction-batch-size ${BATCH_SIZE} \
-  # --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
-  # --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
-  # --use-failed-transaction-hotpath
-  # Temporarily disabled because this causes multiple minute slot times until we
-  # start constraining max account load size
-  # attack_replayStage readProgram \
-  # --transaction-batch-size ${BATCH_SIZE} \
-  # --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
-  # --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
-  # --use-failed-transaction-hotpath
+  attack_replayStage writeProgram \
+   --transaction-batch-size ${BATCH_SIZE} \
+   --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+   --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
+   --use-failed-transaction-hotpath
+  attack_replayStage readProgram \
+   --transaction-batch-size ${BATCH_SIZE} \
+   --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+   --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
+   --use-failed-transaction-hotpath
   # for txs to succeed we need at least 176k CU
   attack_replayStage recursiveProgram \
    --transaction-batch-size ${BATCH_SIZE} \
