@@ -3,6 +3,7 @@
 use {
     super::TransactionGenerator,
     crate::banking_stage::consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
+    rand::Rng,
     solana_adversary::accounts_file::AccountsFile,
     solana_runtime::bank::Bank,
     solana_signer::Signer,
@@ -26,14 +27,17 @@ pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
 }
 
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    const TRANSFER_AMOUNT: u64 = 1;
-
     // Splits all the accounts into set of batches, which are evenly distributed among workers.
     let num_batches = accounts.payers.len() / BATCH_SIZE;
     let mut batch_index = 0;
 
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();
+
+        // Extra entropy into each transaction to avoid getting already
+        // processed errors, but don't let the maximum amount be too high in
+        // order to avoid some accounts quickly running out of funds.
+        let transfer_amount = rand::thread_rng().gen_range(1..=1000);
 
         let worker_index = batch_index % num_workers;
 
@@ -55,7 +59,7 @@ pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> Tran
                 system_transaction::transfer(
                     source,
                     &destination.pubkey(),
-                    TRANSFER_AMOUNT,
+                    transfer_amount,
                     blockhash,
                 )
             })

@@ -318,7 +318,7 @@ mod setup {
                 | Attack::AllocateRandomLarge => {
                     // Empirically chosen to have enough accounts to generate
                     // non-conflicting transactions most of the time.
-                    let num_payers_accounts = 3_000;
+                    let num_payers_accounts = 1_000;
                     let num_max_size_accounts = 0;
                     let num_program_accounts = 0;
                     (
