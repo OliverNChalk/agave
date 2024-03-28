@@ -62,6 +62,7 @@ impl Drop for TestSetup {
 trait TestVersionedTransaction {
     fn is_simple_vote(&self) -> bool;
     fn is_transfer(&self) -> bool;
+    fn is_allocate(&self) -> bool;
 }
 
 impl TestVersionedTransaction for VersionedTransaction {
@@ -96,6 +97,26 @@ impl TestVersionedTransaction for VersionedTransaction {
                 .map(|instruction| {
                     matches!(instruction, SystemInstruction::Transfer { lamports: _ })
                 })
+                .unwrap_or_default();
+        }
+        false
+    }
+
+    // Return true if transaction contains single Allocate instruction
+    fn is_allocate(&self) -> bool {
+        let message = &self.message;
+        let account_keys = message.static_account_keys();
+
+        let program_ids: Vec<_> = message
+            .instructions()
+            .iter()
+            .map(|ix| ix.program_id(account_keys))
+            .collect();
+
+        if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
+            let data = &message.instructions()[0].data;
+            return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
+                .map(|instruction| matches!(instruction, SystemInstruction::Allocate { space: _ }))
                 .unwrap_or_default();
         }
         false
@@ -291,7 +312,10 @@ mod setup {
             // 1. Determine num accounts of each type to create based on attack.
             let num_replay_threads = 4;
             let (num_payers_accounts, num_max_size_accounts, num_program_accounts) = match attack {
-                Attack::TransferRandom | Attack::ChainTransactions => {
+                Attack::TransferRandom
+                | Attack::ChainTransactions
+                | Attack::AllocateRandomSmall
+                | Attack::AllocateRandomLarge => {
                     // Empirically chosen to have enough accounts to generate
                     // non-conflicting transactions most of the time.
                     let num_payers_accounts = 3_000;
@@ -363,7 +387,10 @@ mod setup {
 
             // 4. Create an accounts file based on the attack.
             let accounts_file = match attack {
-                Attack::TransferRandom | Attack::ChainTransactions => {
+                Attack::TransferRandom
+                | Attack::ChainTransactions
+                | Attack::AllocateRandomSmall
+                | Attack::AllocateRandomLarge => {
                     Arc::new(AccountsFile::with_payers(&payers_keypairs))
                 }
                 Attack::WriteProgram(_) => Arc::new(AccountsFile::with_payers_and_max_size(
@@ -390,11 +417,12 @@ mod verify {
         receiver: &Receiver<Response<RpcBlockUpdate>>,
         test_duration: Duration,
         num_response_check_iterations: u32,
+        valid_transaction_check: impl Fn(&VersionedTransaction) -> bool,
     ) {
         let check_sleep_duration = test_duration
             .checked_div(num_response_check_iterations)
             .expect("check iterations must be greater than zero");
-        let mut num_transfer_txs: i32 = 0;
+        let mut num_valid_txs: i32 = 0;
         for _ in 0..num_response_check_iterations {
             receiver.try_iter().for_each(|response| {
                 if let Some(err) = response.value.err {
@@ -406,8 +434,8 @@ mod verify {
                         for encoded_tx in encoded_transactions {
                             let tx = encoded_tx.transaction.decode();
                             if let Some(tx) = tx {
-                                if tx.is_transfer() {
-                                    num_transfer_txs = num_transfer_txs.saturating_add(1);
+                                if valid_transaction_check(&tx) {
+                                    num_valid_txs = num_valid_txs.saturating_add(1);
                                 }
                             }
                         }
@@ -416,8 +444,8 @@ mod verify {
             });
             sleep(check_sleep_duration);
         }
-        debug!("total num_transfer_txs: {num_transfer_txs}");
-        assert_ne!(num_transfer_txs, 0);
+        debug!("total num_transfer_txs: {num_valid_txs}");
+        assert_ne!(num_valid_txs, 0);
     }
 
     pub fn cluster_and_cleanup(
@@ -520,14 +548,22 @@ fn run_simple_replay_attack(attack: replay_stage_attack::Attack) {
     let (cluster, mut block_subscribe_client, receiver) =
         setup::simple_replay_attack(attack.clone(), num_nodes);
 
-    assert_eq!(start_replay_attack(&cluster, attack), Ok(()));
+    assert_eq!(start_replay_attack(&cluster, attack.clone()), Ok(()));
 
     let test_duration = Duration::from_secs(20);
     let num_response_check_iterations = 5;
+    let valid_transaction_check = match attack {
+        replay_stage_attack::Attack::TransferRandom
+        | replay_stage_attack::Attack::ChainTransactions => VersionedTransaction::is_transfer,
+        replay_stage_attack::Attack::AllocateRandomSmall
+        | replay_stage_attack::Attack::AllocateRandomLarge => VersionedTransaction::is_allocate,
+        _ => unimplemented!(),
+    };
     verify::attack_transactions_are_landing(
         &receiver,
         test_duration,
         num_response_check_iterations,
+        valid_transaction_check,
     );
 
     assert_eq!(stop_replay_attack(&cluster), Ok(()));
@@ -545,6 +581,18 @@ fn test_transfer_random_generator() {
 #[serial]
 fn test_chained_transactions_generator() {
     run_simple_replay_attack(replay_stage_attack::Attack::ChainTransactions);
+}
+
+#[test]
+#[serial]
+fn test_allocate_random_small_generator() {
+    run_simple_replay_attack(replay_stage_attack::Attack::AllocateRandomSmall);
+}
+
+#[test]
+#[serial]
+fn test_allocate_random_large_generator() {
+    run_simple_replay_attack(replay_stage_attack::Attack::AllocateRandomLarge);
 }
 
 fn run_program_replay_attack(attack: replay_stage_attack::Attack) {
