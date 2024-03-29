@@ -323,3 +323,21 @@ SELECT mean("execute_batches_us") AS "mean_execute_batches_us", mean("execute_de
 ```
 
 * From `create_executor_trace` metric (requirece `TRACE` log level), programs are added to cache not uniformly, time to compile has a very long tail of distribution and is not normal.
+
+## Large Nop attack
+
+Creates blocks full of maximum sized transactions (or optionally, smaller) that invoke a simple program that does nothing.
+These transactions cost very few CUs, and so blocks can be packed with a very high number of these large transactions.
+
+### Objective
+
+Investigate replay and cluster performance under max possible transaction size load.
+
+### Accounts setup
+
+Requires at least 256 payer accounts with sufficient funds.
+
+### Observations
+
+Can confirm via metrics that leader blocks are being produced with large number of transactions after this attack is armed.
+Can observe slot replay times for the cluster to see how they are handling the large amount of transaction data.

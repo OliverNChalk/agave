@@ -341,6 +341,19 @@ mod setup {
                         num_program_accounts,
                     )
                 }
+                Attack::LargeNop(attack_config) => {
+                    let num_payers_accounts = attack_config
+                        .common
+                        .transaction_batch_size
+                        .saturating_mul(num_replay_threads);
+                    let num_max_size_accounts = 0;
+                    let num_program_accounts = 1;
+                    (
+                        num_payers_accounts,
+                        num_max_size_accounts,
+                        num_program_accounts,
+                    )
+                }
                 Attack::ColdProgramCache(attack_config) => {
                     let num_payers_accounts = attack_config
                         .transaction_batch_size
@@ -393,11 +406,13 @@ mod setup {
                 | Attack::AllocateRandomLarge => {
                     Arc::new(AccountsFile::with_payers(&payers_keypairs))
                 }
-                Attack::WriteProgram(_) => Arc::new(AccountsFile::with_payers_and_max_size(
-                    &stress_test_program_id,
-                    &payers_keypairs,
-                    &max_size_keypairs,
-                )),
+                Attack::WriteProgram(_) | Attack::LargeNop(_) => {
+                    Arc::new(AccountsFile::with_payers_and_max_size(
+                        &stress_test_program_id,
+                        &payers_keypairs,
+                        &max_size_keypairs,
+                    ))
+                }
                 Attack::ColdProgramCache(_) => Arc::new(AccountsFile::with_payers_and_programs(
                     &payers_keypairs,
                     &program_pubkeys,
@@ -598,7 +613,8 @@ fn test_allocate_random_large_generator() {
 fn run_program_replay_attack(attack: replay_stage_attack::Attack) {
     let max_account_size = match attack {
         replay_stage_attack::Attack::WriteProgram(_) => Some(4 * 1024),
-        replay_stage_attack::Attack::ColdProgramCache(_) => None,
+        replay_stage_attack::Attack::ColdProgramCache(_)
+        | replay_stage_attack::Attack::LargeNop(_) => None,
         _ => unimplemented!(),
     };
     let (accounts_file, starting_accounts) =
@@ -635,7 +651,8 @@ fn run_program_replay_attack(attack: replay_stage_attack::Attack) {
                 max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
             );
         }
-        replay_stage_attack::Attack::ColdProgramCache(_) => {
+        replay_stage_attack::Attack::ColdProgramCache(_)
+        | replay_stage_attack::Attack::LargeNop(_) => {
             // No observable side effects of this attack except for metrics
         }
         _ => unimplemented!(),
@@ -649,6 +666,16 @@ fn test_write_program_generator() {
     let _ = TestSetup;
     let attack_config = replay_stage_attack::AttackProgramConfig::default();
     let attack = replay_stage_attack::Attack::WriteProgram(attack_config);
+    run_program_replay_attack(attack);
+}
+
+#[test]
+#[serial]
+fn test_large_nop_generator() {
+    solana_logger::setup_with_default(RUST_LOG_FILTER);
+    let _ = TestSetup;
+    let attack_config = replay_stage_attack::LargeNopAttackConfig::default();
+    let attack = replay_stage_attack::Attack::LargeNop(attack_config);
     run_program_replay_attack(attack);
 }
 

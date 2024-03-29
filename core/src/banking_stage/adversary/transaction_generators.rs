@@ -15,6 +15,7 @@ pub(super) mod allocate_random_small;
 pub(super) mod chain_transactions;
 pub(super) mod cold_program_cache;
 pub(super) mod create_nonce_accounts;
+pub(super) mod large_nop;
 pub(super) mod read_max_accounts;
 pub(super) mod read_program;
 pub(super) mod recursive_program;
@@ -92,6 +93,10 @@ impl ActiveGenerator {
             ColdProgramCache(cold_program_cache_config) => (
                 cold_program_cache::generator(accounts, num_workers, cold_program_cache_config),
                 1,
+            ),
+            LargeNop(large_nop_program_config) => (
+                large_nop::generator(accounts, num_workers, large_nop_program_config),
+                10,
             ),
         }
     }

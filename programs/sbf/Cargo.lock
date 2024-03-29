@@ -5925,6 +5925,7 @@ dependencies = [
  "solana-pubkey",
  "solana-rayon-threadlimit",
  "solana-runtime",
+ "solana-sbf-block-generator-stress-test",
  "solana-signature",
  "solana-signer",
  "solana-streamer",

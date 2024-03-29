@@ -15,6 +15,9 @@ use {
     std::ptr::read_volatile,
     thiserror::Error,
 };
+// Size of the random data in the Nop instruction in order to generate the
+// largest valid transaction (currently 1232B).
+pub const LARGE_NOP_DATA_SIZE: usize = 1017;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
 pub enum Error {
@@ -47,6 +50,9 @@ pub enum BlockGeneratorStressTestInstruction {
         // this is random number to avoid having duplicate transactions errors
         random: u64,
     },
+    Nop {
+        random_data: Box<[u8]>,
+    },
 }
 
 entrypoint!(process_instruction);
@@ -70,6 +76,7 @@ pub fn process_instruction(
         BlockGeneratorStressTestInstruction::Recurse { depth, random } => {
             recurse(program_id, depth, random, accounts)
         }
+        BlockGeneratorStressTestInstruction::Nop { random_data: _ } => Ok(()),
     }
 }
 

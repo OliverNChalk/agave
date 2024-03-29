@@ -15,6 +15,7 @@
 
 use {
     crate::accounts_file::AccountsFile,
+    block_generator_stress_test::LARGE_NOP_DATA_SIZE,
     itertools::Itertools,
     std::{
         collections::{hash_map, HashMap},
@@ -55,6 +56,21 @@ impl Default for AttackProgramConfig {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LargeNopAttackConfig {
+    pub common: AttackProgramConfig,
+    pub tx_data_size: usize,
+}
+
+impl Default for LargeNopAttackConfig {
+    fn default() -> Self {
+        Self {
+            common: AttackProgramConfig::default(),
+            tx_data_size: LARGE_NOP_DATA_SIZE,
+        }
+    }
+}
+
 #[derive(
     Clone,
     Debug,
@@ -81,6 +97,7 @@ pub enum Attack {
     ReadProgram(AttackProgramConfig),
     RecursiveProgram(AttackProgramConfig),
     ColdProgramCache(AttackProgramConfig),
+    LargeNop(LargeNopAttackConfig),
 }
 
 #[derive(Default)]
@@ -226,6 +243,7 @@ impl Attack {
             Attack::ReadProgram(_) => 9,
             Attack::RecursiveProgram(_) => 10,
             Attack::ColdProgramCache(_) => 11,
+            Attack::LargeNop(_) => 12,
         };
 
         AttackSubtypeStatsId(id)

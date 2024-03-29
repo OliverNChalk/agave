@@ -46,6 +46,9 @@ solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rayon-threadlimit = { workspace = true }
 solana-runtime = { workspace = true }
+solana-sbf-block-generator-stress-test = { path = "../programs/block-generator-stress-test", features = [
+    "no-entrypoint",
+] }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-streamer = { workspace = true }
