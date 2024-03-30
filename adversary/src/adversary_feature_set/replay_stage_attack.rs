@@ -98,6 +98,7 @@ pub enum Attack {
     RecursiveProgram(AttackProgramConfig),
     ColdProgramCache(AttackProgramConfig),
     LargeNop(LargeNopAttackConfig),
+    TransferRandomWithMemo,
 }
 
 #[derive(Default)]
@@ -244,6 +245,7 @@ impl Attack {
             Attack::RecursiveProgram(_) => 10,
             Attack::ColdProgramCache(_) => 11,
             Attack::LargeNop(_) => 12,
+            Attack::TransferRandomWithMemo => 13,
         };
 
         AttackSubtypeStatsId(id)

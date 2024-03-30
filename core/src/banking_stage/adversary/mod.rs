@@ -45,6 +45,7 @@ pub(crate) fn register_attack_config_verifiers() {
     }
 
     verify_accounts!("transferRandom", transfer_random);
+    verify_accounts!("transferRandomWithMemo", transfer_random_with_memo);
     verify_accounts!("createNonceAccounts", create_nonce_accounts);
     verify_accounts!("allocateRandomLarge", allocate_random_large);
     verify_accounts!("allocateRandomSmall", allocate_random_small);

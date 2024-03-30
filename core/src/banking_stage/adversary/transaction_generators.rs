@@ -20,6 +20,7 @@ pub(super) mod read_max_accounts;
 pub(super) mod read_program;
 pub(super) mod recursive_program;
 pub(super) mod transfer_random;
+pub(super) mod transfer_random_with_memo;
 pub(super) mod write_max_accounts;
 pub(super) mod write_program;
 
@@ -96,6 +97,10 @@ impl ActiveGenerator {
             ),
             LargeNop(large_nop_program_config) => (
                 large_nop::generator(accounts, num_workers, large_nop_program_config),
+                10,
+            ),
+            TransferRandomWithMemo => (
+                transfer_random_with_memo::generator(accounts, num_workers),
                 10,
             ),
         }

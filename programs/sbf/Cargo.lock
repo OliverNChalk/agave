@@ -6595,6 +6595,7 @@ dependencies = [
  "solana-vote",
  "solana-vote-program",
  "solana-wen-restart",
+ "spl-memo-interface",
  "static_assertions",
  "strum",
  "strum_macros",
