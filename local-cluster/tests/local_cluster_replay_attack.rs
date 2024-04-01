@@ -6,7 +6,9 @@ use {
     solana_account::{Account, AccountSharedData},
     solana_adversary::{
         accounts_file::AccountsFile,
-        adversary_feature_set::replay_stage_attack::{self, Attack, AttackProgramConfig},
+        adversary_feature_set::replay_stage_attack::{
+            self, Attack, AttackProgramConfig, LargeNopAttackConfig,
+        },
         block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         send_request_verified,
     },
@@ -46,20 +48,6 @@ use {
 };
 
 const STRESS_TEST_PROGRAM_ID: Pubkey = Pubkey::new_from_array([7u8; 32]);
-
-// Adversary tests are using global state config
-// This struct is used to reset the state of AdversarialConfig
-struct TestSetup;
-
-impl Drop for TestSetup {
-    fn drop(&mut self) {
-        solana_adversary::adversary_feature_set::replay_stage_attack::set_config(
-            replay_stage_attack::AdversarialConfig {
-                selected_attack: None,
-            },
-        );
-    }
-}
 
 trait TestVersionedTransaction {
     fn is_simple_vote(&self) -> bool;
@@ -226,22 +214,6 @@ mod setup {
             }),
         )
         .unwrap()
-    }
-
-    pub fn simple_replay_attack(
-        attack: &Attack,
-        num_nodes: usize,
-    ) -> (
-        LocalCluster,
-        PubsubClientSubscription<Response<RpcBlockUpdate>>,
-        Receiver<Response<RpcBlockUpdate>>,
-    ) {
-        let (accounts_file, starting_accounts) = account::all_accounts(attack, None);
-        let cluster = create_cluster(num_nodes, accounts_file, starting_accounts);
-        let (block_subscribe_client, receiver) = setup::block_subscriber(&cluster);
-        sleep(Duration::from_millis(800));
-
-        (cluster, block_subscribe_client, receiver)
     }
 
     pub mod account {
@@ -582,66 +554,18 @@ fn stop_replay_attack(cluster: &LocalCluster) -> Result<(), String> {
     call_configure_replay_stage_attack(cluster, None)
 }
 
-fn run_simple_replay_attack(attack: Attack) {
+fn run_replay_attack(attack: Attack) {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
 
-    let num_nodes = 2;
-    let (cluster, mut block_subscribe_client, receiver) =
-        setup::simple_replay_attack(&attack, num_nodes);
-
-    assert_eq!(start_replay_attack(&cluster, attack.clone()), Ok(()));
-
-    let test_duration = Duration::from_secs(20);
-    let num_response_check_iterations = 5;
-    let valid_transaction_check = match attack {
-        Attack::TransferRandom | Attack::ChainTransactions => VersionedTransaction::is_transfer,
-        Attack::AllocateRandomSmall | Attack::AllocateRandomLarge => {
-            VersionedTransaction::is_allocate
-        }
-        _ => unimplemented!(),
-    };
-    verify::attack_transactions_are_landing(
-        &receiver,
-        test_duration,
-        num_response_check_iterations,
-        valid_transaction_check,
-    );
-
-    assert_eq!(stop_replay_attack(&cluster), Ok(()));
-
-    verify::cluster_and_cleanup(receiver, cluster, &mut block_subscribe_client);
-}
-
-#[test]
-#[serial]
-fn test_transfer_random_generator() {
-    run_simple_replay_attack(Attack::TransferRandom);
-}
-
-#[test]
-#[serial]
-fn test_chained_transactions_generator() {
-    run_simple_replay_attack(Attack::ChainTransactions);
-}
-
-#[test]
-#[serial]
-fn test_allocate_random_small_generator() {
-    run_simple_replay_attack(Attack::AllocateRandomSmall);
-}
-
-#[test]
-#[serial]
-fn test_allocate_random_large_generator() {
-    run_simple_replay_attack(Attack::AllocateRandomLarge);
-}
-
-fn run_program_replay_attack(attack: Attack) {
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
         Attack::WriteProgram(_) | Attack::ReadProgram(_) => Some(4 * 1024),
-        Attack::ColdProgramCache(_) | Attack::LargeNop(_) => None,
+        Attack::TransferRandom
+        | Attack::ChainTransactions
+        | Attack::AllocateRandomLarge
+        | Attack::AllocateRandomSmall
+        | Attack::ColdProgramCache(_)
+        | Attack::LargeNop(_) => None,
         _ => unimplemented!(),
     };
     let (accounts_file, starting_accounts) =
@@ -665,9 +589,13 @@ fn run_program_replay_attack(attack: Attack) {
     assert_eq!(start_replay_attack(&cluster, attack.clone()), Ok(()));
 
     // Let the cluster run for some period of time generating transactions.
-    let test_duration = Duration::from_secs(30);
+    let test_duration = Duration::from_secs(15);
     let num_response_check_iterations = 5;
     let valid_transaction_check = match attack {
+        Attack::TransferRandom | Attack::ChainTransactions => VersionedTransaction::is_transfer,
+        Attack::AllocateRandomLarge | Attack::AllocateRandomSmall => {
+            VersionedTransaction::is_allocate
+        }
         Attack::WriteProgram(_) | Attack::ReadProgram(_) | Attack::LargeNop(_) => {
             VersionedTransaction::is_calling_stress_test_program
         }
@@ -686,56 +614,60 @@ fn run_program_replay_attack(attack: Attack) {
     assert_eq!(stop_replay_attack(&cluster), Ok(()));
 
     // Perform post-attack verification and cleanup.
-    match attack {
-        Attack::WriteProgram(_) => {
-            verify::accounts_were_written(
-                rpc_client,
-                &accounts_file.max_size,
-                max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
-            );
-        }
-        Attack::ReadProgram(_) | Attack::ColdProgramCache(_) | Attack::LargeNop(_) => (),
-        _ => unimplemented!(),
+    if let Attack::WriteProgram(_) = attack {
+        verify::accounts_were_written(
+            rpc_client,
+            &accounts_file.max_size,
+            max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
+        );
     };
     verify::cluster_and_cleanup(receiver, cluster, &mut block_subscribe_client);
 }
 
 #[test]
 #[serial]
+fn test_transfer_random_generator() {
+    run_replay_attack(Attack::TransferRandom);
+}
+
+#[test]
+#[serial]
+fn test_chained_transactions_generator() {
+    run_replay_attack(Attack::ChainTransactions);
+}
+
+#[test]
+#[serial]
+fn test_allocate_random_small_generator() {
+    run_replay_attack(Attack::AllocateRandomSmall);
+}
+
+#[test]
+#[serial]
+fn test_allocate_random_large_generator() {
+    run_replay_attack(Attack::AllocateRandomLarge);
+}
+
+#[test]
+#[serial]
 fn test_write_program_generator() {
-    solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
-    let attack_config = AttackProgramConfig::default();
-    let attack = Attack::WriteProgram(attack_config);
-    run_program_replay_attack(attack);
+    run_replay_attack(Attack::WriteProgram(AttackProgramConfig::default()));
 }
 
 #[test]
 #[serial]
 fn test_read_program_generator() {
-    solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
-    let attack_config = AttackProgramConfig::default();
-    let attack = Attack::ReadProgram(attack_config);
-    run_program_replay_attack(attack);
+    run_replay_attack(Attack::ReadProgram(AttackProgramConfig::default()));
 }
 
 #[test]
 #[serial]
 fn test_cold_program_cache_generator() {
-    solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
-    let attack_config = AttackProgramConfig::default();
-    let attack = Attack::ColdProgramCache(attack_config);
-    run_program_replay_attack(attack);
+    run_replay_attack(Attack::ColdProgramCache(AttackProgramConfig::default()));
 }
 
 #[test]
 #[serial]
 fn test_large_nop_generator() {
-    solana_logger::setup_with_default(RUST_LOG_FILTER);
-    let _ = TestSetup;
-    let attack_config = replay_stage_attack::LargeNopAttackConfig::default();
-    let attack = Attack::LargeNop(attack_config);
-    run_program_replay_attack(attack);
+    run_replay_attack(Attack::LargeNop(LargeNopAttackConfig::default()));
 }
