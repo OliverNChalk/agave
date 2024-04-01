@@ -448,6 +448,10 @@ mod setup {
 mod verify {
     use {super::*, solana_client::rpc_client::RpcClient};
 
+    // This number must be large enough to allow ample time for attack
+    // transactions to drain out.
+    const NUM_NEW_ROOTS_TO_WAIT_FOR: usize = 16;
+
     pub fn attack_transactions_are_landing(
         receiver: &Receiver<Response<RpcBlockUpdate>>,
         test_duration: Duration,
@@ -483,9 +487,10 @@ mod verify {
         assert_ne!(num_valid_txs, 0);
     }
 
+    // Verify the cluster is still making roots.
     fn cluster_advancing(cluster: &LocalCluster) {
         cluster.check_for_new_roots(
-            8,
+            NUM_NEW_ROOTS_TO_WAIT_FOR,
             "local_cluster_replay_attack",
             SocketAddrSpace::Unspecified,
         );
@@ -496,13 +501,16 @@ mod verify {
         cluster: LocalCluster,
         block_subscribe_client: &mut PubsubClientSubscription<Response<RpcBlockUpdate>>,
     ) {
+        // This also provides time for attack transactions to drain out.
         cluster_advancing(&cluster);
 
-        // clean the receiver
+        // Clean the receiver.
         receiver.try_iter().for_each(drop);
-        // verify that there are no new transfer transactions
-        // wait for a while to have some vote transactions
+
+        // Wait a bit so there are new block updates.
         sleep(Duration::from_secs(1));
+
+        // Verify that there are no new attack transactions.
         receiver.try_iter().for_each(|response| {
             if let Some(err) = response.value.err {
                 // sometimes block is not ready, see issues/33462
@@ -513,6 +521,9 @@ mod verify {
                     for encoded_tx in encoded_transactions {
                         let tx = encoded_tx.transaction.decode();
                         if let Some(tx) = tx {
+                            // Only expect to see votes because we allowed other
+                            // transactions to drain out while checking the
+                            // cluster was advancing.
                             assert!(tx.is_simple_vote());
                         }
                     }
