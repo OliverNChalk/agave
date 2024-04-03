@@ -1,5 +1,6 @@
 use {
     crate::common::STDIN_TOKEN,
+    block_generator_stress_test::LARGE_NOP_DATA_SIZE,
     clap::{value_t_or_exit, App, AppSettings, Arg, SubCommand},
     const_format::formatcp,
     solana_adversary::adversary_feature_set::{
@@ -14,10 +15,13 @@ use {
         *,
     },
     solana_cli_config::ConfigInput,
-    std::time::Duration,
+    std::{sync::LazyLock, time::Duration},
 };
 
 const RPC_ENDPOINT_URL: &str = "http://localhost:8899";
+
+static LARGE_NOP_DATA_SIZE_STR: LazyLock<String> =
+    LazyLock::new(|| LARGE_NOP_DATA_SIZE.to_string());
 
 fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
     // to fix error inside formatcp macro
@@ -380,6 +384,17 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                             "Enable hotpath to skip the execution on the invalidator node. This \
                              requires invalid transactions which can be achieved by using too \
                              small CU budget.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("tx_data_size")
+                        .long("tx-data-size")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<usize>)
+                        .default_value(&LARGE_NOP_DATA_SIZE_STR)
+                        .help(
+                            "Amount of padding to add to large nop transactions. Default ensures \
+                             max tx size.",
                         ),
                 ),
         )

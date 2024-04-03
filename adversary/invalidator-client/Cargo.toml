@@ -24,5 +24,9 @@ solana-cli-config = { workspace = true }
 solana-keypair = { workspace = true }
 solana-logger = { workspace = true }
 solana-net-utils = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-sbf-block-generator-stress-test = { path = "../../programs/block-generator-stress-test", features = [
+    "no-entrypoint",
+] }
 solana-signer = { workspace = true }
 toml = { workspace = true }

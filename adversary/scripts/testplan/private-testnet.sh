@@ -46,6 +46,7 @@ run_attacks_all() {
 
   # attacks that use only fee payer accounts
   attack_replayStage transferRandom
+  attack_replayStage transferRandomWithMemo
   attack_replayStage createNonceAccounts
   attack_replayStage allocateRandomLarge
   attack_replayStage allocateRandomSmall
@@ -54,6 +55,7 @@ run_attacks_all() {
   attack_replayStage readMaxAccounts
   attack_replayStage writeMaxAccounts
   # attacks that execute deployed program
+  attack_replayStage largeNop
   # how many transactions can be processes in parallel by one replay thread.
   local BATCH_SIZE=64
   # One tx can load up to 64MB, each account is 10MB.

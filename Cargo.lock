@@ -9100,6 +9100,8 @@ dependencies = [
  "solana-keypair",
  "solana-logger",
  "solana-net-utils",
+ "solana-pubkey",
+ "solana-sbf-block-generator-stress-test",
  "solana-signer",
  "toml 0.8.12",
 ]

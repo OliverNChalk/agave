@@ -2,7 +2,7 @@ use {
     super::Command,
     clap::{value_t, ArgMatches},
     solana_adversary::adversary_feature_set::replay_stage_attack::{
-        AdversarialConfig as ReplayStageAttackConfig, Attack,
+        AdversarialConfig as ReplayStageAttackConfig, Attack, AttackProgramConfig,
     },
     solana_keypair::Keypair,
     std::str::FromStr,
@@ -38,6 +38,21 @@ pub fn configure_replay_stage_attack_disable(
     )
 }
 
+fn set_common_config(
+    config: &mut AttackProgramConfig,
+    sub_matches: &ArgMatches<'_>,
+) -> Result<(), String> {
+    config.use_failed_transaction_hotpath =
+        sub_matches.is_present("use_failed_transaction_hotpath");
+    config.transaction_batch_size =
+        value_t!(sub_matches, "transaction_batch_size", usize).map_err(|e| e.to_string())?;
+    config.num_accounts_per_tx =
+        value_t!(sub_matches, "num_accounts_per_tx", usize).map_err(|e| e.to_string())?;
+    config.transaction_cu_budget =
+        value_t!(sub_matches, "transaction_cu_budget", u32).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn parse_replay_stage_attack_args(
     sub_matches: &ArgMatches<'_>,
 ) -> Result<Option<Attack>, String> {
@@ -51,14 +66,12 @@ pub fn parse_replay_stage_attack_args(
         | Attack::ReadProgram(config)
         | Attack::RecursiveProgram(config)
         | Attack::ColdProgramCache(config) => {
-            config.use_failed_transaction_hotpath =
-                sub_matches.is_present("use_failed_transaction_hotpath");
-            config.transaction_batch_size = value_t!(sub_matches, "transaction_batch_size", usize)
-                .map_err(|e| e.to_string())?;
-            config.num_accounts_per_tx =
-                value_t!(sub_matches, "num_accounts_per_tx", usize).map_err(|e| e.to_string())?;
-            config.transaction_cu_budget =
-                value_t!(sub_matches, "transaction_cu_budget", u32).map_err(|e| e.to_string())?;
+            set_common_config(config, sub_matches)?;
+        }
+        Attack::LargeNop(config) => {
+            set_common_config(&mut config.common, sub_matches)?;
+            config.tx_data_size =
+                value_t!(sub_matches, "tx_data_size", usize).map_err(|e| e.to_string())?;
         }
         _ => {}
     }
