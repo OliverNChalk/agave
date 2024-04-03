@@ -112,10 +112,11 @@ mod tests {
         let max_size_accounts: Vec<Keypair> = (0..num_max_sized_accounts)
             .map(|_| Keypair::new())
             .collect();
-        let accounts = Arc::new(AccountsFile::with_payers_and_max_size(
-            &owner_program_id,
-            &payers_accounts,
-            &max_size_accounts,
+        let accounts = Arc::new(AccountsFile::new(
+            Some(owner_program_id),
+            Some(&payers_accounts),
+            Some(&max_size_accounts),
+            None,
         ));
         let config = AttackProgramConfig {
             transaction_batch_size: 32,

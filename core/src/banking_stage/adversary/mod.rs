@@ -161,10 +161,13 @@ mod test_helpers {
             max_size,
         } = TestAccounts::new(payers_count, max_size_count);
 
-        *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig {
-            accounts: BlockGeneratorAccountsSource::Genesis(Arc::new(
-                AccountsFile::with_payers_and_max_size(&program_id.pubkey(), &payers, &max_size),
-            )),
-        });
+        let accounts = BlockGeneratorAccountsSource::Genesis(Arc::new(AccountsFile::new(
+            Some(program_id.pubkey()),
+            Some(&payers),
+            Some(&max_size),
+            None,
+        )));
+
+        *(meta.block_generator_config_mut()) = Some(BlockGeneratorConfig { accounts });
     }
 }

@@ -390,27 +390,13 @@ mod setup {
             starting_accounts.extend(max_size_accounts.iter().cloned());
             starting_accounts.extend(program_accounts.iter().cloned());
 
-            // 4. Create an accounts file based on the attack.
-            let accounts_file = match attack {
-                Attack::TransferRandom
-                | Attack::ChainTransactions
-                | Attack::AllocateRandomSmall
-                | Attack::AllocateRandomLarge => {
-                    Arc::new(AccountsFile::with_payers(&payers_keypairs))
-                }
-                Attack::WriteProgram(_) | Attack::ReadProgram(_) | Attack::LargeNop(_) => {
-                    Arc::new(AccountsFile::with_payers_and_max_size(
-                        &max_account_owner,
-                        &payers_keypairs,
-                        &max_size_keypairs,
-                    ))
-                }
-                Attack::ColdProgramCache(_) => Arc::new(AccountsFile::with_payers_and_programs(
-                    &payers_keypairs,
-                    &program_pubkeys,
-                )),
-                _ => unimplemented!(),
-            };
+            // 4. Create struct to access accounts by type
+            let accounts_file = Arc::new(AccountsFile::new(
+                Some(max_account_owner),
+                Some(&payers_keypairs),
+                Some(&max_size_keypairs),
+                Some(&program_pubkeys),
+            ));
 
             (accounts_file, starting_accounts)
         }

@@ -9,47 +9,36 @@ pub struct AccountsFile {
 }
 
 impl AccountsFile {
-    pub fn with_payers(payers: &[Keypair]) -> Self {
-        let payers = payers
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
-        Self {
-            payers,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_payers_and_max_size(
-        owner_program_id: &Pubkey,
-        payers_accounts: &[Keypair],
-        max_size_accounts: &[Keypair],
+    pub fn new(
+        owner_program_id: Option<Pubkey>,
+        payers: Option<&[Keypair]>,
+        max_size: Option<&[Keypair]>,
+        program_ids_jit_attack: Option<&[Pubkey]>,
     ) -> Self {
-        let payers = payers_accounts
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
-        let max_size = max_size_accounts
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
+        let payers: Vec<Keypair> = match payers {
+            Some(payers) => payers
+                .iter()
+                .map(|keypair| keypair.insecure_clone())
+                .collect(),
+            None => Vec::new(),
+        };
+        let max_size: Vec<Keypair> = match max_size {
+            Some(max_size) => max_size
+                .iter()
+                .map(|keypair| keypair.insecure_clone())
+                .collect(),
+            None => Vec::new(),
+        };
+        let program_ids_jit_attack: Vec<Pubkey> = match program_ids_jit_attack {
+            Some(program_ids_jit_attack) => program_ids_jit_attack.to_vec(),
+            None => Vec::new(),
+        };
+
         Self {
-            owner_program_id: Some(*owner_program_id),
+            owner_program_id,
             payers,
             max_size,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_payers_and_programs(payers_accounts: &[Keypair], program_ids: &[Pubkey]) -> Self {
-        let payers = payers_accounts
-            .iter()
-            .map(|keypair| keypair.insecure_clone())
-            .collect();
-        Self {
-            program_ids_jit_attack: program_ids.to_vec(),
-            payers,
-            ..Default::default()
+            program_ids_jit_attack,
         }
     }
 }
