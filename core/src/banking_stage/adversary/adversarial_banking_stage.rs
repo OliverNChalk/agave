@@ -6,7 +6,7 @@ use {
         },
         validator::BlockProductionMethod,
     },
-    crossbeam_channel::{unbounded, Receiver, Sender},
+    crossbeam_channel::{bounded, unbounded, Receiver, Sender},
     solana_adversary::ReplayAttackReceiver,
     solana_ledger::blockstore_processor::TransactionStatusSender,
     solana_poh::{poh_recorder::PohRecorder, transaction_recorder::TransactionRecorder},
@@ -154,7 +154,7 @@ fn spawn_adversarial_scheduler_and_workers(
     // Create channels for communication between scheduler and workers
     let num_workers = num_workers.get();
     let (work_senders, work_receivers): (Vec<Sender<_>>, Vec<Receiver<_>>) =
-        (0..num_workers).map(|_| unbounded()).unzip();
+        (0..num_workers).map(|_| bounded(10)).unzip();
     let (finished_work_sender, finished_work_receiver) = unbounded();
 
     let exit = Arc::new(AtomicBool::new(false));

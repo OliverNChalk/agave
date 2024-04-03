@@ -163,9 +163,13 @@ impl AttackScheduler {
                     use_failed_transaction_hotpath,
                 };
 
-                consume_work_senders[worker_index]
-                    .send(scheduled_work)
-                    .unwrap();
+                match consume_work_senders[worker_index].send(scheduled_work) {
+                    Ok(()) => (),
+                    Err(_) => {
+                        //The channel was disconnected.
+                        return;
+                    }
+                }
             }
         }
     }
