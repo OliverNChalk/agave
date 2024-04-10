@@ -52,9 +52,20 @@ const STRESS_TEST_PROGRAM_ID: Pubkey = Pubkey::new_from_array([7u8; 32]);
 trait TestVersionedTransaction {
     fn is_simple_vote(&self) -> bool;
     fn is_transfer(&self) -> bool;
+    fn is_create_nonce_account(&self) -> bool;
     fn is_allocate(&self) -> bool;
     fn is_calling_stress_test_program(&self) -> bool;
     fn is_calling_user_program(&self) -> bool;
+}
+
+fn get_program_ids_from_transaction(transaction: &VersionedTransaction) -> Vec<&Pubkey> {
+    let message = &transaction.message;
+    let account_keys = message.static_account_keys();
+    message
+        .instructions()
+        .iter()
+        .map(|ix| ix.program_id(account_keys))
+        .collect()
 }
 
 impl TestVersionedTransaction for VersionedTransaction {
@@ -74,17 +85,9 @@ impl TestVersionedTransaction for VersionedTransaction {
 
     // Return true if transaction contains single Transfer instruction
     fn is_transfer(&self) -> bool {
-        let message = &self.message;
-        let account_keys = message.static_account_keys();
-
-        let program_ids: Vec<_> = message
-            .instructions()
-            .iter()
-            .map(|ix| ix.program_id(account_keys))
-            .collect();
-
+        let program_ids = get_program_ids_from_transaction(self);
         if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
-            let data = &message.instructions()[0].data;
+            let data = &self.message.instructions()[0].data;
             return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
                 .map(|instruction| {
                     matches!(instruction, SystemInstruction::Transfer { lamports: _ })
@@ -94,19 +97,43 @@ impl TestVersionedTransaction for VersionedTransaction {
         false
     }
 
+    // Return true if transaction contains create account followed by initialize
+    // nonce account instructions.
+    fn is_create_nonce_account(&self) -> bool {
+        let program_ids = get_program_ids_from_transaction(self);
+        if program_ids.len() != 2
+            || !system_program::check_id(program_ids[0])
+            || !system_program::check_id(program_ids[1])
+        {
+            return false;
+        }
+
+        let ix_data_0 = &self.message.instructions()[0].data;
+        let ix_data_1 = &self.message.instructions()[1].data;
+        limited_deserialize(ix_data_0, solana_packet::PACKET_DATA_SIZE as u64)
+            .map(|instruction| {
+                matches!(
+                    instruction,
+                    SystemInstruction::CreateAccount {
+                        lamports: _,
+                        space: _,
+                        owner: _
+                    }
+                )
+            })
+            .unwrap_or_default()
+            && limited_deserialize(ix_data_1, solana_packet::PACKET_DATA_SIZE as u64)
+                .map(|instruction| {
+                    matches!(instruction, SystemInstruction::InitializeNonceAccount(_))
+                })
+                .unwrap_or_default()
+    }
+
     // Return true if transaction contains single Allocate instruction
     fn is_allocate(&self) -> bool {
-        let message = &self.message;
-        let account_keys = message.static_account_keys();
-
-        let program_ids: Vec<_> = message
-            .instructions()
-            .iter()
-            .map(|ix| ix.program_id(account_keys))
-            .collect();
-
+        let program_ids = get_program_ids_from_transaction(self);
         if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
-            let data = &message.instructions()[0].data;
+            let data = &self.message.instructions()[0].data;
             return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
                 .map(|instruction| matches!(instruction, SystemInstruction::Allocate { space: _ }))
                 .unwrap_or_default();
@@ -114,30 +141,17 @@ impl TestVersionedTransaction for VersionedTransaction {
         false
     }
 
-    // Return true if transaction is calling the stress test program
+    // Return true if transaction contains two instructions and the second one
+    // is calling the stress test program
     fn is_calling_stress_test_program(&self) -> bool {
-        let message = &self.message;
-        let account_keys = message.static_account_keys();
-
-        let program_ids: Vec<_> = message
-            .instructions()
-            .iter()
-            .map(|ix| ix.program_id(account_keys))
-            .collect();
+        let program_ids = get_program_ids_from_transaction(self);
         program_ids.len() == 2 && *program_ids[1] == STRESS_TEST_PROGRAM_ID
     }
 
-    // Return true if transaction is calling a user program that is not the
-    // stress test program.
+    // Return true if transaction contains two instructions and the second one
+    // is calling a user program that is not the stress test program.
     fn is_calling_user_program(&self) -> bool {
-        let message = &self.message;
-        let account_keys = message.static_account_keys();
-
-        let program_ids: Vec<_> = message
-            .instructions()
-            .iter()
-            .map(|ix| ix.program_id(account_keys))
-            .collect();
+        let program_ids = get_program_ids_from_transaction(self);
         if program_ids.len() == 2 {
             match *program_ids[1] {
                 STRESS_TEST_PROGRAM_ID => false,
@@ -324,6 +338,7 @@ mod setup {
             let num_replay_threads = 4;
             match attack {
                 Attack::TransferRandom
+                | Attack::CreateNonceAccounts
                 | Attack::ChainTransactions
                 | Attack::AllocateRandomSmall
                 | Attack::AllocateRandomLarge => (1_000, 0, 0),
@@ -546,13 +561,7 @@ fn run_replay_attack(attack: Attack) {
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
         Attack::WriteProgram(_) | Attack::ReadProgram(_) => Some(4 * 1024),
-        Attack::TransferRandom
-        | Attack::ChainTransactions
-        | Attack::AllocateRandomLarge
-        | Attack::AllocateRandomSmall
-        | Attack::ColdProgramCache(_)
-        | Attack::LargeNop(_) => None,
-        _ => unimplemented!(),
+        _ => None,
     };
     let (accounts_file, starting_accounts) =
         setup::account::all_accounts(&attack, max_account_size);
@@ -579,6 +588,7 @@ fn run_replay_attack(attack: Attack) {
     let num_response_check_iterations = 5;
     let valid_transaction_check = match attack {
         Attack::TransferRandom | Attack::ChainTransactions => VersionedTransaction::is_transfer,
+        Attack::CreateNonceAccounts => VersionedTransaction::is_create_nonce_account,
         Attack::AllocateRandomLarge | Attack::AllocateRandomSmall => {
             VersionedTransaction::is_allocate
         }
@@ -614,6 +624,12 @@ fn run_replay_attack(attack: Attack) {
 #[serial]
 fn test_transfer_random_generator() {
     run_replay_attack(Attack::TransferRandom);
+}
+
+#[test]
+#[serial]
+fn test_create_nonce_accounts_generator() {
+    run_replay_attack(Attack::CreateNonceAccounts);
 }
 
 #[test]
