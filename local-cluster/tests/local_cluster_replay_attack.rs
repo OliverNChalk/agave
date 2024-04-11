@@ -58,14 +58,35 @@ trait TestVersionedTransaction {
     fn is_calling_user_program(&self) -> bool;
 }
 
-fn get_program_ids_from_transaction(transaction: &VersionedTransaction) -> Vec<&Pubkey> {
+fn get_program_ids<const EXPECTED_ID_COUNT: usize>(
+    transaction: &VersionedTransaction,
+) -> Option<[&Pubkey; EXPECTED_ID_COUNT]> {
     let message = &transaction.message;
     let account_keys = message.static_account_keys();
-    message
-        .instructions()
-        .iter()
-        .map(|ix| ix.program_id(account_keys))
-        .collect()
+
+    let instructions = message.instructions();
+    if instructions.len() != EXPECTED_ID_COUNT {
+        return None;
+    }
+
+    let ids = instructions.iter().map(|ix| ix.program_id(account_keys));
+    let ids = array_init::from_iter(ids).expect("`instructions` lengths matches the array length");
+    Some(ids)
+}
+
+// A number of functions in the `TestVersionedTransaction` implementation match instruction data
+// against a pattern.  This macro reduces visual noise in those functions.
+macro_rules! instruction_data_matches {
+    ($instruction:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {
+        limited_deserialize(&$instruction.data, solana_packet::PACKET_DATA_SIZE as u64)
+            .map(|instruction|
+                match instruction {
+                    $pattern $(if $guard)? => true,
+                    _ => false
+                }
+            )
+            .unwrap_or(false)
+    }
 }
 
 impl TestVersionedTransaction for VersionedTransaction {
@@ -85,84 +106,79 @@ impl TestVersionedTransaction for VersionedTransaction {
 
     // Return true if transaction contains single Transfer instruction
     fn is_transfer(&self) -> bool {
-        let program_ids = get_program_ids_from_transaction(self);
-        if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
-            let data = &self.message.instructions()[0].data;
-            return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
-                .map(|instruction| {
-                    matches!(instruction, SystemInstruction::Transfer { lamports: _ })
-                })
-                .unwrap_or_default();
+        let Some([program_1_id]) = get_program_ids(self) else {
+            return false;
+        };
+
+        if !system_program::check_id(program_1_id) {
+            return false;
         }
-        false
+
+        let instructions = self.message.instructions();
+        instruction_data_matches!(instructions[0], SystemInstruction::Transfer { lamports: _ })
     }
 
     // Return true if transaction contains create account followed by initialize
     // nonce account instructions.
     fn is_create_nonce_account(&self) -> bool {
-        let program_ids = get_program_ids_from_transaction(self);
-        if program_ids.len() != 2
-            || !system_program::check_id(program_ids[0])
-            || !system_program::check_id(program_ids[1])
-        {
+        let Some([program_1_id, program_2_id]) = get_program_ids(self) else {
+            return false;
+        };
+        if !system_program::check_id(program_1_id) || !system_program::check_id(program_2_id) {
             return false;
         }
 
-        let ix_data_0 = &self.message.instructions()[0].data;
-        let ix_data_1 = &self.message.instructions()[1].data;
-        limited_deserialize(ix_data_0, solana_packet::PACKET_DATA_SIZE as u64)
-            .map(|instruction| {
-                matches!(
-                    instruction,
-                    SystemInstruction::CreateAccount {
-                        lamports: _,
-                        space: _,
-                        owner: _
-                    }
-                )
-            })
-            .unwrap_or_default()
-            && limited_deserialize(ix_data_1, solana_packet::PACKET_DATA_SIZE as u64)
-                .map(|instruction| {
-                    matches!(instruction, SystemInstruction::InitializeNonceAccount(_))
-                })
-                .unwrap_or_default()
+        let instructions = self.message.instructions();
+        instruction_data_matches!(
+            instructions[0],
+            SystemInstruction::CreateAccount {
+                lamports: _,
+                space: _,
+                owner: _
+            }
+        ) && instruction_data_matches!(
+            instructions[1],
+            SystemInstruction::InitializeNonceAccount(_)
+        )
     }
 
     // Return true if transaction contains single Allocate instruction
     fn is_allocate(&self) -> bool {
-        let program_ids = get_program_ids_from_transaction(self);
-        if program_ids.len() == 1 && system_program::check_id(program_ids[0]) {
-            let data = &self.message.instructions()[0].data;
-            return limited_deserialize(data, solana_packet::PACKET_DATA_SIZE as u64)
-                .map(|instruction| matches!(instruction, SystemInstruction::Allocate { space: _ }))
-                .unwrap_or_default();
+        let Some([program_1_id]) = get_program_ids(self) else {
+            return false;
+        };
+        if !system_program::check_id(program_1_id) {
+            return false;
         }
-        false
+
+        let instructions = self.message.instructions();
+        instruction_data_matches!(instructions[0], SystemInstruction::Allocate { space: _ })
     }
 
     // Return true if transaction contains two instructions and the second one
     // is calling the stress test program
     fn is_calling_stress_test_program(&self) -> bool {
-        let program_ids = get_program_ids_from_transaction(self);
-        program_ids.len() == 2 && *program_ids[1] == STRESS_TEST_PROGRAM_ID
+        let Some([_, program_2_id]) = get_program_ids(self) else {
+            return false;
+        };
+
+        *program_2_id == STRESS_TEST_PROGRAM_ID
     }
 
     // Return true if transaction contains two instructions and the second one
     // is calling a user program that is not the stress test program.
     fn is_calling_user_program(&self) -> bool {
-        let program_ids = get_program_ids_from_transaction(self);
-        if program_ids.len() == 2 {
-            match *program_ids[1] {
-                STRESS_TEST_PROGRAM_ID => false,
-                _ if *program_ids[1] == system_program::id() => false,
-                _ => true,
-            }
-        } else {
-            false
-        }
+        let Some([_, program_2_id]) = get_program_ids(self) else {
+            return false;
+        };
+
+        let is_non_user_program =
+            *program_2_id == STRESS_TEST_PROGRAM_ID || *program_2_id == system_program::id();
+
+        !is_non_user_program
     }
 }
+
 mod setup {
     use super::*;
 

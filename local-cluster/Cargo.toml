@@ -80,6 +80,7 @@ tempfile = { workspace = true }
 trees = { workspace = true }
 
 [dev-dependencies]
+array-init = { workspace = true }
 assert_matches = { workspace = true }
 fs_extra = { workspace = true }
 gag = { workspace = true }
