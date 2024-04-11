@@ -8,12 +8,6 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-run_config() {
-  cat <<EOM
-No special config needed for public testnet
-EOM
-}
-
 run_attacks_all() {
   attack_invalidateLeaderBlock invalidFeePayer
   attack_invalidateLeaderBlock invalidSignature

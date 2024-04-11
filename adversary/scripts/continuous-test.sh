@@ -285,7 +285,6 @@ main() {
 
   # shellcheck source=adversary/scripts/testplan/public-testnet.sh
   source "${here}/testplan/${testplan}"
-  run_config
 
   local iter=0
   while true; do
