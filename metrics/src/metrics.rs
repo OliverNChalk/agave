@@ -51,6 +51,30 @@ impl From<&CounterPoint> for DataPoint {
     }
 }
 
+/// An API to send metrics to a [`MetricsAgent`] or another implementation, for example, for
+/// testing.
+pub trait MetricsSender {
+    /// Sends a single [`DataPoint`] to the InfluxDB.  It may not be actually delivered until an
+    /// aggregation interval is over or [`flush()`] is called.
+    ///
+    /// The data point will also be logged at the specified `level`.  But it will be sent to the DB
+    /// unconditionally.
+    fn submit(&self, point: DataPoint, level: log::Level);
+
+    /// Sends a single [`CounterPoint`] to the InfluxDB.  It will be aggregated with any other
+    /// values for this `(counter, bucket)` pair, submitted within the current aggregation interval,
+    /// or until the next call to [`flush()`].
+    ///
+    /// For the moment, log `level` is ignored.  The counter value is always logged at the debug
+    /// level, as these can be updated very frequently.
+    fn submit_counter(&self, counter: CounterPoint, level: log::Level, bucket: u64);
+
+    /// Forces all accumulated points and counters to be uploaded into the DB.
+    ///
+    /// For [`MetricsAgent`] uploads also happen each 10 seconds.  So this
+    fn flush(&self);
+}
+
 #[derive(Debug)]
 enum MetricsCommand {
     Flush(Arc<Barrier>),
@@ -357,20 +381,22 @@ impl MetricsAgent {
 
         trace!("run: exit");
     }
+}
 
-    pub fn submit(&self, point: DataPoint, level: log::Level) {
+impl MetricsSender for MetricsAgent {
+    fn submit(&self, point: DataPoint, level: log::Level) {
         self.sender
             .send(MetricsCommand::Submit(point, level))
             .unwrap();
     }
 
-    pub fn submit_counter(&self, counter: CounterPoint, level: log::Level, bucket: u64) {
+    fn submit_counter(&self, counter: CounterPoint, level: log::Level, bucket: u64) {
         self.sender
             .send(MetricsCommand::SubmitCounter(counter, level, bucket))
             .unwrap();
     }
 
-    pub fn flush(&self) {
+    fn flush(&self) {
         debug!("Flush");
         let barrier = Arc::new(Barrier::new(2));
         self.sender
@@ -581,6 +607,40 @@ pub mod test_mocks {
                 new_points,
                 self.points_written(),
             );
+        }
+    }
+
+    pub enum MockMetricsSenderEvent {
+        Flush,
+        Submit(DataPoint),
+        SubmitCounter(CounterPoint, u64),
+    }
+
+    #[derive(Default)]
+    pub struct MockMetricsSender {
+        pub events: Arc<Mutex<Vec<MockMetricsSenderEvent>>>,
+    }
+
+    impl MetricsSender for MockMetricsSender {
+        fn submit(&self, point: DataPoint, _level: log::Level) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(MockMetricsSenderEvent::Submit(point));
+        }
+
+        fn submit_counter(&self, counter: CounterPoint, _level: log::Level, bucket: u64) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(MockMetricsSenderEvent::SubmitCounter(counter, bucket));
+        }
+
+        fn flush(&self) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(MockMetricsSenderEvent::Flush);
         }
     }
 }
