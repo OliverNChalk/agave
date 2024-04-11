@@ -3,10 +3,11 @@
 //! For details, see [`docs/invalidator/inimica.md`].
 
 use {
-    crate::{args::AccountsFileArgs, programs::program_elf},
+    crate::{args::AccountsFileArgs, programs::program_elf, report_attack_execution},
     log::info,
     solana_adversary::accounts_file::AccountsFile,
     solana_commitment_config::CommitmentConfig,
+    solana_metrics::metrics::MetricsSender,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
 };
 
@@ -18,7 +19,11 @@ use {
     loader_v3::{attack as attack_v3, Config as AttackV3Config},
 };
 
-pub async fn run(json_rpc_url: &str, args: UnloadedProgramInvocationArgs) -> Result<(), String> {
+pub async fn run(
+    metrics: &impl MetricsSender,
+    json_rpc_url: &str,
+    args: UnloadedProgramInvocationArgs,
+) -> Result<(), String> {
     let UnloadedProgramInvocationArgs {
         accounts: AccountsFileArgs { accounts },
         loader,
@@ -49,19 +54,24 @@ pub async fn run(json_rpc_url: &str, args: UnloadedProgramInvocationArgs) -> Res
     match loader {
         Loader::V2 => panic!("Attack on the loader v2 is not implemented yet"),
         Loader::V3 => {
-            attack_v3(
-                AttackV3Config {
-                    payers: &payers,
-                    program: &elf,
-                    total_duration: total_duration.into(),
-                    execution_delay,
-                    parallel_deployments,
-                    max_deployed_programs,
-                    min_call_iteration_duration: min_call_iteration_duration.into(),
-                    max_calls_per_iteration,
-                    skip_program_cleanup,
-                },
-                &rpc_client,
+            report_attack_execution(
+                metrics,
+                "program_runtime.program_cache.unloaded_program_invocation.loader_v3",
+                attack_v3(
+                    AttackV3Config {
+                        payers: &payers,
+                        program: &elf,
+                        total_duration: total_duration.into(),
+                        execution_delay,
+                        parallel_deployments,
+                        max_deployed_programs,
+                        min_call_iteration_duration: min_call_iteration_duration.into(),
+                        max_calls_per_iteration,
+                        skip_program_cleanup,
+                    },
+                    metrics,
+                    &rpc_client,
+                ),
             )
             .await
         }

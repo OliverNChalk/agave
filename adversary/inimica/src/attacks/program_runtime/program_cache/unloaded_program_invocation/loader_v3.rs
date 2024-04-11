@@ -17,6 +17,7 @@ use {
     solana_hash::Hash,
     solana_instruction::Instruction,
     solana_keypair::Keypair,
+    solana_metrics::metrics::MetricsSender,
     solana_pubkey::Pubkey,
     solana_rent::Rent,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
@@ -55,6 +56,7 @@ pub async fn attack(
         skip_program_cleanup,
         ..
     }: Config<'_, '_>,
+    _metrics: &impl MetricsSender,
     rpc_client: &RpcClient,
 ) -> Result<(), String> {
     let rent = Rent::default();
@@ -656,6 +658,7 @@ mod tests {
         humantime::Duration as HumanDuration,
         log::debug,
         solana_hash::Hash,
+        solana_metrics::metrics::test_mocks::MockMetricsSender,
         solana_pubkey::Pubkey,
         solana_rent::Rent,
         solana_test_validator::TestValidatorGenesis,
@@ -1067,6 +1070,8 @@ mod tests {
         let timeout = sleep(max_runtime).fuse();
         pin_mut!(timeout);
 
+        let metrics_sender = MockMetricsSender::default();
+
         let attack_op = attack(
             Config {
                 payers,
@@ -1079,6 +1084,7 @@ mod tests {
                 max_calls_per_iteration: 10,
                 skip_program_cleanup: false,
             },
+            &metrics_sender,
             &rpc_client,
         )
         .fuse();

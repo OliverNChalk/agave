@@ -9134,6 +9134,7 @@ dependencies = [
  "solana-keypair",
  "solana-loader-v3-interface",
  "solana-logger",
+ "solana-metrics",
  "solana-pubkey",
  "solana-rent",
  "solana-rpc-client",
