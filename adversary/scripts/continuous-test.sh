@@ -22,6 +22,7 @@ iterations=unbounded
 rpcAdversaryKeypair=
 attackTarget=
 testplan=public-testnet.sh
+solanaClient=solana
 invalidatorClient=solana-invalidator-client
 inimica=solana-invalidator-inimica
 accounts=accounts.json
@@ -53,7 +54,9 @@ Arguments:
 
   --iterations <num>  Number of times to go though the whole attack list.  Use
     "unbounded" to mean, run until stopped with Ctrl+C.
-    Optional.  Default: unbounded
+    Optional.
+
+    Default: $iterations
 
   --rpc-adversary-keypair <keypair path>  File holding a private key, that is
     used to sign RPC calls sent to the invalidator.  Public key is passed into
@@ -72,24 +75,29 @@ Arguments:
   --testplan <testplan path>  File in the testplan/ directory containing the test
     plan to run.
 
-    Default: public-testnet.sh
+    Default: $testplan
+
+  --solana-client <solana-client path>  Path to a binary that is the solana client.
+    Either absolute or from PATH.  Executed as specified.
+
+    Default: $solanaClient
 
   --invalidator-client <solana-invalidator-client path>  Path to a binary that
     is the invalidator client.  Either absolute or from PATH.  Executed as
     specified.
 
-    Default: solana-invalidator-client
+    Default: $invalidatorClient
 
   --inimica <solana-invalidator-inimica path>  Path to a binary that
     is the inimica client.  Either absolute or from PATH.  Executed as
     specified.
 
-    Default: solana-invalidator-inimica
+    Default: $inimica
 
   --accounts <accounts JSON file path>  Path to a JSON file that
     contains fee payer account keypairs.  Either absolute or from PATH.
 
-    Default: accounts.json
+    Default: $accounts
 EOM
 }
 
@@ -200,6 +208,11 @@ while [[ $# -gt 0 ]]; do
           "Got: $testplan"
       shift
       ;;
+    --solana-client)
+      requires_arg $# "$1" solanaClient "solana-client" \
+        "path to binary"
+      shift
+      ;;
     --invalidator-client)
       requires_arg $# "$1" invalidatorClient "invalidator-client" \
         "path to binary"
@@ -227,11 +240,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ! command -v "$solanaClient" &>/dev/null; then
+  cat <<EOM
+Unable to find solana client.
+Specified path: $solanaClient
+Specified via --solana-client.
+Default is set in the script header at: $me
+EOM
+  exit 1
+fi
+
 if ! command -v "$invalidatorClient" &>/dev/null; then
   cat <<EOM
 Unable to find solana invalidator client.
 Specified path: $invalidatorClient
-Check the script header at: $me
+Specified via --invalidator-client.
+Default is set in the script header at: $me
 EOM
   exit 1
 fi
@@ -240,7 +264,8 @@ if ! command -v "$inimica" &>/dev/null; then
   cat <<EOM
 Unable to find solana inimica client.
 Specified path: $inimica
-Check the script header at: $me
+Specified via --inimica.
+Default is set in the script header at: $me
 EOM
   exit 1
 fi

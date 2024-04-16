@@ -8,7 +8,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-for requiredVar in commonArgs repairShArgs runtime sleeptime invalidatorClient inimica accounts; do
+for requiredVar in accounts commonArgs here inimica invalidatorClient repairShArgs runtime sleeptime SOLANA_METRICS_CONFIG; do
   if ! declare -p "$requiredVar" >/dev/null; then
     cat <<EOM
 invalidator-tests expects $requiredVar to be set.  Functions defined in this
@@ -18,6 +18,30 @@ EOM
     exit 1
   fi
 done
+
+# Configure metrics database access.
+# shellcheck disable=SC2154
+if [[ -f "${here}/configure-metrics.sh" ]]; then
+  # Expected location for pipeline runs.
+  # shellcheck source=scripts/configure-metrics.sh
+  source "${here}/configure-metrics.sh"
+elif [[ -f "${here}/../../scripts/configure-metrics.sh" ]]; then
+  # Expected location when running from source.
+  # shellcheck source=scripts/configure-metrics.sh
+  source "${here}/../../scripts/configure-metrics.sh"
+else
+  cat >&2 <<EOM
+Error: configure-metrics.sh not found.
+Expected to find it in one of these locations:
+    ${here}/configure-metrics.sh
+    ${here}/../../scripts/configure-metrics.sh
+EOM
+  exit 1
+fi
+
+# shellcheck disable=SC2154
+# shellcheck source=adversary/scripts/ping-test.sh
+source "${here}/ping-test.sh"
 
 attack_invalidateLeaderBlock() {
   local kind=$1
