@@ -135,7 +135,11 @@ use {
     solana_send_transaction_service::send_transaction_service::Config as SendTransactionServiceConfig,
     solana_shred_version::compute_shred_version,
     solana_signer::Signer,
-    solana_streamer::{quic::QuicServerParams, socket::SocketAddrSpace, streamer::StakedNodes},
+    solana_streamer::{
+        quic::{QuicServerParams, DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER},
+        socket::SocketAddrSpace,
+        streamer::StakedNodes,
+    },
     solana_time_utils::timestamp,
     solana_tpu_client::tpu_client::{
         DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_USE_QUIC, DEFAULT_VOTE_USE_QUIC,
@@ -369,6 +373,7 @@ pub struct ValidatorConfig {
     pub wen_restart_proto_path: Option<PathBuf>,
     pub wen_restart_coordinator: Option<Pubkey>,
     pub unified_scheduler_handler_threads: Option<usize>,
+    pub max_connections_per_peer: usize,
     pub ip_echo_server_threads: NonZeroUsize,
     pub rayon_global_threads: NonZeroUsize,
     pub replay_forks_threads: NonZeroUsize,
@@ -452,6 +457,7 @@ impl ValidatorConfig {
             wen_restart_proto_path: None,
             wen_restart_coordinator: None,
             unified_scheduler_handler_threads: None,
+            max_connections_per_peer: DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER,
             ip_echo_server_threads: NonZeroUsize::new(1).expect("1 is non-zero"),
             rayon_global_threads: max_thread_count,
             replay_forks_threads: NonZeroUsize::new(1).expect("1 is non-zero"),

@@ -73,6 +73,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         wen_restart_proto_path: config.wen_restart_proto_path.clone(),
         wen_restart_coordinator: config.wen_restart_coordinator,
         unified_scheduler_handler_threads: config.unified_scheduler_handler_threads,
+        max_connections_per_peer: config.max_connections_per_peer,
         ip_echo_server_threads: config.ip_echo_server_threads,
         rayon_global_threads: config.rayon_global_threads,
         replay_forks_threads: config.replay_forks_threads,

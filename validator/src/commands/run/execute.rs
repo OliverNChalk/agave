@@ -65,7 +65,9 @@ use {
         snapshot_utils::{self, BANK_SNAPSHOTS_DIR},
     },
     solana_signer::Signer,
-    solana_streamer::quic::{QuicServerParams, DEFAULT_TPU_COALESCE},
+    solana_streamer::quic::{
+        QuicServerParams, DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER, DEFAULT_TPU_COALESCE,
+    },
     solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP,
     solana_turbine::{
         broadcast_stage::BroadcastStageType,
@@ -656,6 +658,7 @@ pub fn execute(
         .into(),
         invalidator_config: InvalidatorConfig::default(),
         public_invalidator: matches.is_present("public_invalidator"),
+        max_connections_per_peer: DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER,
     };
 
     let reserved = validator_config
@@ -710,6 +713,9 @@ pub fn execute(
         &mut validator_config.invalidator_config.block_generator_config,
         matches,
     );
+    validator_config.max_connections_per_peer =
+        value_t!(matches, "max_connections_per_peer", usize)
+            .unwrap_or(DEFAULT_MAX_QUIC_CONNECTIONS_PER_PEER);
 
     validator_config.invalidator_config.rpc_adversary_id = rpc_adversary_id;
 

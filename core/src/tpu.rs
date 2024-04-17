@@ -76,6 +76,12 @@ use {
     tokio_util::sync::CancellationToken,
 };
 
+// Upper bound allowed when configuring connections per peer. This value was
+// chosen to unlock more bandwidth per client for testing scenarios to generate
+// more overall cluster traffic. This value is too high for normal operation
+// because it allows aggregate client bandwidth to exceed ingest rates.
+pub const MAX_QUIC_CONNECTIONS_PER_PEER: usize = 256;
+
 pub struct TpuSockets {
     pub transactions: Vec<UdpSocket>,
     pub transaction_forwards: Vec<UdpSocket>,

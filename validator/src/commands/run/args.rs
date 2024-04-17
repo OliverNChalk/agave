@@ -1496,6 +1496,14 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .takes_value(false)
             .help("Disable rpc adversary authenticaton"),
     )
+    .arg(
+        Arg::with_name("max_connections_per_peer")
+            .long("max-connections-per-peer")
+            .value_name("COUNT")
+            .takes_value(true)
+            .validator(|s| is_within_range(s, 1..=solana_core::tpu::MAX_QUIC_CONNECTIONS_PER_PEER))
+            .help("Maximum number of connections allowed for each QUIC peer"),
+    )
     .banking_stage_args()
 }
 
