@@ -14,17 +14,17 @@ use {
 };
 
 pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
-    max_accounts_tx::verify(accounts, "payers", accounts.payers.len())
+    max_accounts_tx::verify(accounts, "max_size", accounts.max_size.len())
 }
 
 /// Creates transactions that use maximum number of maximum sized accounts for input.  Overloading
 /// the replay machinery IO subsystem.
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    let target_accounts = Cycler::over(accounts.clone(), |accounts| accounts.payers.iter());
+    let target_accounts = Cycler::over(accounts.clone(), |accounts| accounts.max_size.iter());
 
     Box::new(max_accounts_tx::generator(
         accounts,
-        "payers",
+        "max_size",
         target_accounts,
         num_workers,
         move |bank: &Bank, payer: &Keypair, tx_accounts: cycler::ChunkIter<'_, '_, Keypair>| {
@@ -51,6 +51,7 @@ pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> Tran
                 blockhash,
                 vec![],
             );
+
             Transaction::new(&[&payer], message, blockhash)
         },
     ))
@@ -86,10 +87,10 @@ mod tests {
 
     #[test]
     fn generate_one() {
-        let accounts: AccountsFile = TestAccounts::new(64, 0).into();
+        let accounts: AccountsFile = TestAccounts::new(1, 64).into();
         let first_payer = accounts.payers[0].pubkey();
-        let payers_pubkeys = accounts
-            .payers
+        let max_size_pubkeys = accounts
+            .max_size
             .iter()
             .map(Keypair::pubkey)
             .collect::<Vec<_>>();
@@ -120,7 +121,7 @@ mod tests {
         assert_eq!(
             message.account_keys().iter().collect::<Vec<_>>(),
             iter::once(&first_payer)
-                .chain(payers_pubkeys[0..TX_MAX_ATTACK_ACCOUNTS_IN_PACKET].iter())
+                .chain(max_size_pubkeys[0..TX_MAX_ATTACK_ACCOUNTS_IN_PACKET].iter())
                 .collect::<Vec<_>>(),
         );
     }

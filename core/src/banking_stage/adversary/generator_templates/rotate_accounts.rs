@@ -21,7 +21,7 @@ use {
     std::sync::Arc,
 };
 
-const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+pub const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
 
 /// Checks the `payers` accounts to hold enough payers to pay for the
 /// `TRANSACTION_LEVEL_STACK_HEIGHT` transactions in parallel.

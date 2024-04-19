@@ -16,7 +16,12 @@ use {
     solana_client::{pubsub_client::PubsubClientSubscription, rpc_response::RpcBlockUpdate},
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
-    solana_core::validator::{InvalidatorConfig, ValidatorConfig},
+    solana_core::{
+        banking_stage::adversary::generator_templates::{
+            max_accounts_tx::TX_MAX_ATTACK_ACCOUNTS_IN_PACKET, rotate_accounts::BATCH_SIZE,
+        },
+        validator::{InvalidatorConfig, ValidatorConfig},
+    },
     solana_gossip::gossip_service::discover_validators,
     solana_keypair::Keypair,
     solana_local_cluster::{
@@ -56,6 +61,7 @@ trait TestVersionedTransaction {
     fn is_allocate(&self) -> bool;
     fn is_calling_stress_test_program(&self) -> bool;
     fn is_calling_user_program(&self) -> bool;
+    fn is_empty(&self) -> bool;
 }
 
 fn get_program_ids<const EXPECTED_ID_COUNT: usize>(
@@ -176,6 +182,11 @@ impl TestVersionedTransaction for VersionedTransaction {
             *program_2_id == STRESS_TEST_PROGRAM_ID || *program_2_id == system_program::id();
 
         !is_non_user_program
+    }
+
+    // Return true if transaction contains no instructions
+    fn is_empty(&self) -> bool {
+        get_program_ids(self) == Some([])
     }
 }
 
@@ -358,6 +369,10 @@ mod setup {
                 | Attack::ChainTransactions
                 | Attack::AllocateRandomSmall
                 | Attack::AllocateRandomLarge => (1_000, 0, 0),
+                Attack::ReadMaxAccounts => {
+                    let num_max_size_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * BATCH_SIZE;
+                    (BATCH_SIZE, num_max_size_accounts, 0)
+                }
                 Attack::WriteProgram(attack_config) | Attack::ReadProgram(attack_config) => {
                     let num_payers_accounts = attack_config
                         .transaction_batch_size
@@ -577,6 +592,7 @@ fn run_replay_attack(attack: Attack) {
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
         Attack::WriteProgram(_) | Attack::ReadProgram(_) => Some(4 * 1024),
+        Attack::ReadMaxAccounts => Some(1),
         _ => None,
     };
     let (accounts_file, starting_accounts) =
@@ -597,7 +613,12 @@ fn run_replay_attack(attack: Attack) {
     }
     sleep(Duration::from_millis(800));
 
-    assert_eq!(start_replay_attack(&cluster, attack.clone()), Ok(()));
+    match start_replay_attack(&cluster, attack.clone()) {
+        Ok(_) => debug!("Replay attack {attack} started"),
+        Err(err) => {
+            panic!("Failed to start replay attack {attack}: {err}");
+        }
+    }
 
     // Let the cluster run for some period of time generating transactions.
     let test_duration = Duration::from_secs(15);
@@ -612,6 +633,7 @@ fn run_replay_attack(attack: Attack) {
             VersionedTransaction::is_calling_stress_test_program
         }
         Attack::ColdProgramCache(_) => VersionedTransaction::is_calling_user_program,
+        Attack::ReadMaxAccounts => VersionedTransaction::is_empty,
         _ => unimplemented!(),
     };
 
@@ -623,7 +645,12 @@ fn run_replay_attack(attack: Attack) {
         valid_transaction_check,
     );
 
-    assert_eq!(stop_replay_attack(&cluster), Ok(()));
+    match stop_replay_attack(&cluster) {
+        Ok(_) => debug!("Replay attack {attack} stopped"),
+        Err(err) => {
+            panic!("Failed to stop replay attack {attack}: {err}");
+        }
+    }
 
     // Perform post-attack verification and cleanup.
     if let Attack::WriteProgram(_) = attack {
@@ -670,6 +697,12 @@ fn test_allocate_random_large_generator() {
 #[serial]
 fn test_write_program_generator() {
     run_replay_attack(Attack::WriteProgram(AttackProgramConfig::default()));
+}
+
+#[test]
+#[serial]
+fn test_read_max_accounts_generator() {
+    run_replay_attack(Attack::ReadMaxAccounts);
 }
 
 #[test]

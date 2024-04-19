@@ -4,7 +4,7 @@ pub mod attack_scheduler;
 pub mod bypass;
 pub(crate) mod failed_transaction_hotpath;
 mod generator_components;
-mod generator_templates;
+pub mod generator_templates;
 pub mod invalidate_leader_block_attack;
 pub mod transaction_generators;
 

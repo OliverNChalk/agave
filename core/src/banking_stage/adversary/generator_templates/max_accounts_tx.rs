@@ -20,16 +20,15 @@ use {
     std::sync::Arc,
 };
 
-// Some space in the transaction is used by transaction headers and other data.  It is estimated by
-// the `TX_PADDING` value.  This is for the legacy transactions for now.
+// Space in bytes consumed by a transaction with a single payer and no instructions.
 //
 // Correctness of this value is checked in [`tests::check_tx_padding`].
-const TX_PADDING: usize = 69;
+const TX_WITH_SINGLE_PAYER_SIZE_BYTES: usize = 134;
 
 // See how many account addresses can we pack into a single transaction space.  One account is
 // the payer, the rest are our "transaction accounts".
-pub(crate) const TX_MAX_ATTACK_ACCOUNTS_IN_PACKET: usize =
-    (PACKET_DATA_SIZE - TX_PADDING) / PUBKEY_BYTES - 1;
+pub const TX_MAX_ATTACK_ACCOUNTS_IN_PACKET: usize =
+    (PACKET_DATA_SIZE - TX_WITH_SINGLE_PAYER_SIZE_BYTES) / PUBKEY_BYTES;
 
 pub(crate) fn verify(
     accounts: &AccountsFile,
@@ -113,23 +112,28 @@ where
 #[cfg(test)]
 mod tests {
     use {
-        super::TX_PADDING, bincode, solana_hash::Hash,
-        solana_message::legacy::Message as LegacyMessage, solana_pubkey::Pubkey,
+        super::TX_WITH_SINGLE_PAYER_SIZE_BYTES, bincode, solana_hash::Hash,
+        solana_keypair::Keypair, solana_message::legacy::Message as LegacyMessage,
+        solana_signer::Signer, solana_transaction::Transaction,
     };
 
     #[test]
     fn check_tx_padding() {
-        let payer = Pubkey::new_unique();
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let blockhash = Hash::new_unique();
 
-        let mut message = LegacyMessage::new(&[], Some(&payer));
-        message.recent_blockhash = Hash::new_unique();
+        let message =
+            LegacyMessage::new_with_compiled_instructions(1, 0, 0, vec![payer], blockhash, vec![]);
 
-        let bytes = bincode::serialize(&message).unwrap();
+        let tx = Transaction::new(&[&keypair], message, blockhash);
+        let bytes = bincode::serialize(&tx).unwrap();
 
         assert_eq!(
             bytes.len(),
-            TX_PADDING,
-            "`TX_PADDING` should be set to the size of an empty message"
+            TX_WITH_SINGLE_PAYER_SIZE_BYTES,
+            "`TX_WITH_SINGLE_PAYER_SIZE_BYTES` should be set to the size of an empty tx with a \
+             single payer"
         );
     }
 }
