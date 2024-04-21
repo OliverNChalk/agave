@@ -14,17 +14,17 @@ use {
 };
 
 pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
-    max_accounts_tx::verify(accounts, "payers", accounts.payers.len())
+    max_accounts_tx::verify(accounts, "max_size", accounts.max_size.len())
 }
 
 /// Creates transactions that use maximum number of maximum sized accounts for input.  Overloading
 /// the replay machinery IO subsystem.
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    let target_accounts = Cycler::over(accounts.clone(), |accounts| accounts.payers.iter());
+    let target_accounts = Cycler::over(accounts.clone(), |accounts| accounts.max_size.iter());
 
     Box::new(max_accounts_tx::generator(
         accounts,
-        "payers",
+        "max_size",
         target_accounts,
         num_workers,
         move |bank: &Bank, payer: &Keypair, tx_accounts: cycler::ChunkIter<'_, '_, Keypair>| {
@@ -83,10 +83,10 @@ mod tests {
 
     #[test]
     fn generate_one() {
-        let accounts: AccountsFile = TestAccounts::new(64, 0).into();
+        let accounts: AccountsFile = TestAccounts::new(1, 64).into();
         let first_payer = accounts.payers[0].pubkey();
-        let payers_pubkeys = accounts
-            .payers
+        let max_size_pubkeys = accounts
+            .max_size
             .iter()
             .map(Keypair::pubkey)
             .collect::<Vec<_>>();
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(
             message.account_keys().iter().collect::<Vec<_>>(),
             iter::once(&first_payer)
-                .chain(payers_pubkeys[0..TX_MAX_ATTACK_ACCOUNTS_IN_PACKET].iter())
+                .chain(max_size_pubkeys[0..TX_MAX_ATTACK_ACCOUNTS_IN_PACKET].iter())
                 .collect::<Vec<_>>(),
         );
     }
@@ -127,7 +127,11 @@ mod tests {
     fn rpc_config_not_enough_payer_accounts() {
         let (mut meta, keypair, io, token) = setup_test();
 
-        setup_accounts(&mut meta, 1, 0);
+        setup_accounts(
+            &mut meta,
+            1,
+            TARGET_NUM_TRANSACTIONS_PER_BATCH * TX_MAX_ATTACK_ACCOUNTS_IN_PACKET,
+        );
 
         let config = AdversarialConfig {
             selected_attack: Some(Attack::WriteMaxAccounts),
@@ -154,6 +158,40 @@ mod tests {
         );
     }
 
+    // TODO `[serial]` is necessary as the RPC configuration is a global singleton.  It would be
+    // nice to move a to a more composable architecture and remove `[serial]`.
+    #[test]
+    #[serial]
+    fn rpc_config_not_enough_max_size_accounts() {
+        let (mut meta, keypair, io, token) = setup_test();
+
+        setup_accounts(&mut meta, TARGET_NUM_TRANSACTIONS_PER_BATCH, 1);
+
+        let config = AdversarialConfig {
+            selected_attack: Some(Attack::WriteMaxAccounts),
+        };
+
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result = parse_failure_response(rsp);
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            "Not enough `max_size` accounts: need at least 2176\n`max_size` accounts: 1".into(),
+        );
+        assert_eq!(result, expected);
+        assert_eq!(
+            AdversarialConfig::default(),
+            get_config(),
+            "Invalid config update should not change the config"
+        );
+    }
+
     // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
     #[test]
     #[serial]
@@ -162,8 +200,8 @@ mod tests {
 
         setup_accounts(
             &mut meta,
+            TARGET_NUM_TRANSACTIONS_PER_BATCH,
             TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * TARGET_NUM_TRANSACTIONS_PER_BATCH,
-            0,
         );
 
         let config = AdversarialConfig {

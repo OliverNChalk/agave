@@ -133,10 +133,14 @@ mod tests {
     fn rpc_config_not_enough_payer_accounts() {
         let (mut meta, keypair, io, token) = setup_test();
 
-        setup_accounts(&mut meta, 1, 0);
+        setup_accounts(
+            &mut meta,
+            1,
+            TARGET_NUM_TRANSACTIONS_PER_BATCH * TX_MAX_ATTACK_ACCOUNTS_IN_PACKET,
+        );
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteMaxAccounts),
+            selected_attack: Some(Attack::ReadMaxAccounts),
         };
 
         let rsp = send_signed_request_sync(
@@ -160,6 +164,40 @@ mod tests {
         );
     }
 
+    // TODO `[serial]` is necessary as the RPC configuration is a global singleton.  It would be
+    // nice to move a to a more composable architecture and remove `[serial]`.
+    #[test]
+    #[serial]
+    fn rpc_config_not_enough_max_size_accounts() {
+        let (mut meta, keypair, io, token) = setup_test();
+
+        setup_accounts(&mut meta, TARGET_NUM_TRANSACTIONS_PER_BATCH, 1);
+
+        let config = AdversarialConfig {
+            selected_attack: Some(Attack::ReadMaxAccounts),
+        };
+
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureReplayStageAttack",
+            &token,
+            &config,
+        );
+        let result = parse_failure_response(rsp);
+        let expected = (
+            ErrorCode::InvalidParams.code(),
+            "Not enough `max_size` accounts: need at least 2176\n`max_size` accounts: 1".into(),
+        );
+        assert_eq!(result, expected);
+        assert_eq!(
+            AdversarialConfig::default(),
+            get_config(),
+            "Invalid config update should not change the config"
+        );
+    }
+
     // TODO See `rpc_config_invalid()` for why `[serial]` is necessary.
     #[test]
     #[serial]
@@ -168,12 +206,12 @@ mod tests {
 
         setup_accounts(
             &mut meta,
+            TARGET_NUM_TRANSACTIONS_PER_BATCH,
             TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * TARGET_NUM_TRANSACTIONS_PER_BATCH,
-            0,
         );
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteMaxAccounts),
+            selected_attack: Some(Attack::ReadMaxAccounts),
         };
         let response = send_signed_request_sync(
             meta.clone(),

@@ -369,7 +369,7 @@ mod setup {
                 | Attack::ChainTransactions
                 | Attack::AllocateRandomSmall
                 | Attack::AllocateRandomLarge => (1_000, 0, 0),
-                Attack::ReadMaxAccounts => {
+                Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => {
                     let num_max_size_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
                 }
@@ -592,7 +592,7 @@ fn run_replay_attack(attack: Attack) {
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
         Attack::WriteProgram(_) | Attack::ReadProgram(_) => Some(4 * 1024),
-        Attack::ReadMaxAccounts => Some(1),
+        Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => Some(1),
         _ => None,
     };
     let (accounts_file, starting_accounts) =
@@ -633,7 +633,7 @@ fn run_replay_attack(attack: Attack) {
             VersionedTransaction::is_calling_stress_test_program
         }
         Attack::ColdProgramCache(_) => VersionedTransaction::is_calling_user_program,
-        Attack::ReadMaxAccounts => VersionedTransaction::is_empty,
+        Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => VersionedTransaction::is_empty,
         _ => unimplemented!(),
     };
 
@@ -703,6 +703,12 @@ fn test_write_program_generator() {
 #[serial]
 fn test_read_max_accounts_generator() {
     run_replay_attack(Attack::ReadMaxAccounts);
+}
+
+#[test]
+#[serial]
+fn test_write_max_accounts_generator() {
+    run_replay_attack(Attack::WriteMaxAccounts);
 }
 
 #[test]
