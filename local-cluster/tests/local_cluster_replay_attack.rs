@@ -373,7 +373,9 @@ mod setup {
                     let num_max_size_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
                 }
-                Attack::WriteProgram(attack_config) | Attack::ReadProgram(attack_config) => {
+                Attack::WriteProgram(attack_config)
+                | Attack::ReadProgram(attack_config)
+                | Attack::RecursiveProgram(attack_config) => {
                     let num_payers_accounts = attack_config
                         .transaction_batch_size
                         .saturating_mul(num_replay_threads);
@@ -591,7 +593,9 @@ fn run_replay_attack(attack: Attack) {
 
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
-        Attack::WriteProgram(_) | Attack::ReadProgram(_) => Some(4 * 1024),
+        Attack::WriteProgram(_) | Attack::ReadProgram(_) | Attack::RecursiveProgram(_) => {
+            Some(4 * 1024)
+        }
         Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => Some(1),
         _ => None,
     };
@@ -629,9 +633,10 @@ fn run_replay_attack(attack: Attack) {
         Attack::AllocateRandomLarge | Attack::AllocateRandomSmall => {
             VersionedTransaction::is_allocate
         }
-        Attack::WriteProgram(_) | Attack::ReadProgram(_) | Attack::LargeNop(_) => {
-            VersionedTransaction::is_calling_stress_test_program
-        }
+        Attack::WriteProgram(_)
+        | Attack::ReadProgram(_)
+        | Attack::LargeNop(_)
+        | Attack::RecursiveProgram(_) => VersionedTransaction::is_calling_stress_test_program,
         Attack::ColdProgramCache(_) => VersionedTransaction::is_calling_user_program,
         Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => VersionedTransaction::is_empty,
         _ => unimplemented!(),
@@ -715,6 +720,12 @@ fn test_write_max_accounts_generator() {
 #[serial]
 fn test_read_program_generator() {
     run_replay_attack(Attack::ReadProgram(AttackProgramConfig::default()));
+}
+
+#[test]
+#[serial]
+fn test_recursive_program_generator() {
+    run_replay_attack(Attack::RecursiveProgram(AttackProgramConfig::default()));
 }
 
 #[test]
