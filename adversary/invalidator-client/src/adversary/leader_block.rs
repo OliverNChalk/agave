@@ -20,35 +20,6 @@ impl Command for InvalidateLeaderBlockConfig {
     const RPC_METHOD: &'static str = "configureInvalidateLeaderBlock";
 }
 
-pub fn configure_send_duplicate_blocks_enable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_send_duplicate_blocks(
-        &rpc_endpoint_url,
-        SendDuplicateBlocksConfig {
-            num_duplicate_validators: 1,
-            new_entry_index_from_end: 0,
-            send_original_after_ms: 0,
-            turbine_send_delay_ms: 0,
-            send_destinations: Vec::new(),
-            leaf_node_partitions: None,
-        },
-        rpc_adversary_keypair,
-    )
-}
-
-pub fn configure_send_duplicate_blocks_disable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_send_duplicate_blocks(
-        &rpc_endpoint_url,
-        SendDuplicateBlocksConfig::default(),
-        rpc_adversary_keypair,
-    )
-}
-
 pub fn configure_send_duplicate_blocks_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
@@ -114,32 +85,6 @@ pub fn configure_send_duplicate_blocks(
     rpc_adversary_keypair: &Option<Keypair>,
 ) -> Result<(), String> {
     send_duplicate_blocks_config.send_with_auth(rpc_endpoint_url, rpc_adversary_keypair)
-}
-
-pub fn configure_invalidate_leader_block_enable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_invalidate_leader_block(
-        &rpc_endpoint_url,
-        InvalidateLeaderBlockConfig {
-            invalidation_kind: Some(InvalidationKind::InvalidFeePayer),
-        },
-        rpc_adversary_keypair,
-    )
-}
-
-pub fn configure_invalidate_leader_block_disable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_invalidate_leader_block(
-        &rpc_endpoint_url,
-        InvalidateLeaderBlockConfig {
-            invalidation_kind: None,
-        },
-        rpc_adversary_keypair,
-    )
 }
 
 pub fn configure_invalidate_leader_block_args(

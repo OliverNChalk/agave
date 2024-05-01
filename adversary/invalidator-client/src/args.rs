@@ -1,7 +1,7 @@
 use {
     crate::common::STDIN_TOKEN,
     block_generator_stress_test::LARGE_NOP_DATA_SIZE,
-    clap::{value_t_or_exit, App, AppSettings, Arg, SubCommand},
+    clap::{App, AppSettings, Arg, SubCommand},
     const_format::formatcp,
     solana_adversary::adversary_feature_set::{
         gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
@@ -15,7 +15,7 @@ use {
         *,
     },
     solana_cli_config::ConfigInput,
-    std::{sync::LazyLock, time::Duration},
+    std::sync::LazyLock,
 };
 
 const RPC_ENDPOINT_URL: &str = "http://localhost:8899";
@@ -49,26 +49,6 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                 .takes_value(true)
                 .validator(is_keypair_or_ask_keyword)
                 .help("Validator rpc adversary keypair"),
-        )
-        .subcommand(
-            SubCommand::with_name("continuous")
-                .about("Continuous cycling through all adversary scenarios")
-                .arg(
-                    Arg::with_name("runtime")
-                        .long("runtime")
-                        .default_value("60")
-                        .value_name("SECONDS")
-                        .validator(|arg| input_validators::is_within_range(arg, 1..))
-                        .help("Amount of time in seconds to spend running each scenario"),
-                )
-                .arg(
-                    Arg::with_name("sleeptime")
-                        .long("sleeptime")
-                        .default_value("5")
-                        .value_name("SECONDS")
-                        .validator(|arg| input_validators::is_within_range(arg, 1..))
-                        .help("Amount of time in seconds to spend sleeping between scenarios"),
-                ),
         )
         .subcommand(
             SubCommand::with_name("configure-shred-receiver-address")
@@ -412,18 +392,6 @@ pub fn run_command() -> Result<(), String> {
     let rpc_adversary_keypair = keypair_of(&matches, "rpc_adversary_keypair");
 
     match matches.subcommand() {
-        ("continuous", Some(sub_matches)) => {
-            let scenario_run_duration =
-                Duration::from_secs(value_t_or_exit!(sub_matches, "runtime", u64));
-            let rest_between_scenarios_duration =
-                Duration::from_secs(value_t_or_exit!(sub_matches, "sleeptime", u64));
-            crate::continuous_mode::run_continuous_mode(
-                &rpc_endpoint_url,
-                scenario_run_duration,
-                rest_between_scenarios_duration,
-                &rpc_adversary_keypair,
-            )
-        }
         ("configure-shred-receiver-address", Some(sub_matches)) => {
             crate::adversary::shred_forwarder::configure_shred_receiver_address_args(
                 &rpc_endpoint_url,

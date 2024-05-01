@@ -9,32 +9,6 @@ impl Command for DelayVotesConfig {
     const RPC_METHOD: &'static str = "delayVotes";
 }
 
-pub fn configure_delay_votes_enable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_delay_votes(
-        &rpc_endpoint_url,
-        DelayVotesConfig {
-            delay_votes_by_slot_count: 4,
-        },
-        rpc_adversary_keypair,
-    )
-}
-
-pub fn configure_delay_votes_disable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_delay_votes(
-        &rpc_endpoint_url,
-        DelayVotesConfig {
-            delay_votes_by_slot_count: 0,
-        },
-        rpc_adversary_keypair,
-    )
-}
-
 pub fn configure_delay_votes_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,

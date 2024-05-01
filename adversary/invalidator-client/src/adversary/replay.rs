@@ -12,32 +12,6 @@ impl Command for ReplayStageAttackConfig {
     const RPC_METHOD: &'static str = "configureReplayStageAttack";
 }
 
-pub fn configure_replay_stage_attack_enable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_replay_stage_attack(
-        &rpc_endpoint_url,
-        ReplayStageAttackConfig {
-            selected_attack: Some(Attack::TransferRandom),
-        },
-        rpc_adversary_keypair,
-    )
-}
-
-pub fn configure_replay_stage_attack_disable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_replay_stage_attack(
-        &rpc_endpoint_url,
-        ReplayStageAttackConfig {
-            selected_attack: None,
-        },
-        rpc_adversary_keypair,
-    )
-}
-
 fn set_common_config(
     config: &mut AttackProgramConfig,
     sub_matches: &ArgMatches<'_>,

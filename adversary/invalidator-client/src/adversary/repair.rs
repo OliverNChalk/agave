@@ -29,35 +29,6 @@ impl Command for RepairParametersConfig {
     const RPC_METHOD: &'static str = "configureRepairParameters";
 }
 
-pub fn configure_repair_packet_flood_enable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_repair_packet_flood(
-        &rpc_endpoint_url,
-        RepairPacketFloodConfig {
-            configs: vec![FloodConfig {
-                flood_strategy: FloodStrategy::MinimalPackets,
-                packets_per_peer_per_iteration: DEFAULT_FLOOD_PACKETS_PER_PEER_PER_ITERATION,
-                iteration_delay_us: DEFAULT_FLOOD_ITERATION_DELAY_US,
-                target: None,
-            }],
-        },
-        rpc_adversary_keypair,
-    )
-}
-
-pub fn configure_repair_packet_flood_disable(
-    rpc_endpoint_url: String,
-    rpc_adversary_keypair: &Option<Keypair>,
-) -> Result<(), String> {
-    configure_repair_packet_flood(
-        &rpc_endpoint_url,
-        RepairPacketFloodConfig { configs: vec![] },
-        rpc_adversary_keypair,
-    )
-}
-
 pub fn configure_repair_packet_flood_args(
     rpc_endpoint_url: &str,
     sub_matches: &ArgMatches<'_>,
