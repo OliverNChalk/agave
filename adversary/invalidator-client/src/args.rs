@@ -3,11 +3,15 @@ use {
     block_generator_stress_test::LARGE_NOP_DATA_SIZE,
     clap::{App, AppSettings, Arg, SubCommand},
     const_format::formatcp,
-    solana_adversary::adversary_feature_set::{
-        gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
-        invalidate_leader_block::InvalidationKind,
-        repair_packet_flood::FloodStrategy as RepairFloodStrategy,
-        replay_stage_attack::Attack as ReplayStageAttack,
+    solana_adversary::{
+        adversary_feature_set::{
+            gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
+            invalidate_leader_block::InvalidationKind,
+            repair_packet_flood::FloodStrategy as RepairFloodStrategy,
+            replay_stage_attack::Attack as ReplayStageAttack,
+            tpu_packet_flood::FloodStrategy as TpuFloodStrategy,
+        },
+        tpu::MAX_PACKETS_PER_PEER_PER_ITERATION,
     },
     solana_clap_utils::{
         input_parsers::keypair_of,
@@ -315,6 +319,68 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("configure-tpu-packet-flood")
+                .about("Configure flooding TPU packet requests")
+                .arg(
+                    Arg::with_name("flood_strategy")
+                        .long("flood-strategy")
+                        .value_name("ENUM STRING")
+                        .possible_values(TpuFloodStrategy::cli_names())
+                        .help("Which strategy to use for flooding TPU packets")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("packets_per_peer_per_iteration")
+                        .long("packets-per-peer-per-iteration")
+                        .value_name("NUMBER")
+                        .validator(|arg| {
+                            input_validators::is_within_range(
+                                arg,
+                                1..MAX_PACKETS_PER_PEER_PER_ITERATION,
+                            )
+                        })
+                        .help("Number of packets to send to each peer each iteration")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("iteration_duration_us")
+                        .long("iteration-duration-us")
+                        .value_name("MICROSECONDS")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Minimum time for an iteration in microseconds")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("target")
+                        .long("target")
+                        .takes_value(true)
+                        .value_name("PUBKEY")
+                        .validator(input_validators::is_pubkey)
+                        .help("Peer to target with packets")
+                        .conflicts_with("target_leader")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("target_leader")
+                        .long("target-leader")
+                        .default_value("true")
+                        .value_name("BOOLEAN")
+                        .validator(input_validators::is_parsable::<bool>)
+                        .help("Target current leader with packets")
+                        .conflicts_with("target")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("toml_config")
+                        .long("toml")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .help(formatcp!(
+                            "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
+                        )),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("configure-replay-stage-attack")
                 .about(
                     "Configure packing custom blocks to replay. Requires leader slots to do \
@@ -450,6 +516,13 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-gossip-packet-flood", Some(sub_matches)) => {
             crate::adversary::gossip::configure_gossip_packet_flood_args(
+                &rpc_endpoint_url,
+                sub_matches,
+                &rpc_adversary_keypair,
+            )
+        }
+        ("configure-tpu-packet-flood", Some(sub_matches)) => {
+            crate::adversary::tpu::configure_tpu_packet_flood_args(
                 &rpc_endpoint_url,
                 sub_matches,
                 &rpc_adversary_keypair,

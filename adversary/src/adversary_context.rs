@@ -8,6 +8,7 @@ use {
 pub struct AdversaryContext {
     pub gossip_packet_flood: RwLock<Option<AdversaryWorkersContext>>,
     pub repair_packet_flood: RwLock<Option<AdversaryWorkersContext>>,
+    pub tpu_packet_flood: RwLock<Option<AdversaryWorkersContext>>,
 }
 
 impl AdversaryContext {
@@ -28,4 +29,5 @@ impl AdversaryContext {
 pub static ADVERSARY_CONTEXT: LazyLock<AdversaryContext> = LazyLock::new(|| AdversaryContext {
     gossip_packet_flood: RwLock::new(None),
     repair_packet_flood: RwLock::new(None),
+    tpu_packet_flood: RwLock::new(None),
 });

@@ -52,9 +52,12 @@ solana-sbf-block-generator-stress-test = { path = "../programs/block-generator-s
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-streamer = { workspace = true }
+solana-system-interface = { workspace = true }
 solana-system-transaction = { workspace = true }
 solana-time-utils = { workspace = true }
+solana-transaction = { workspace = true }
 solana-validator-exit = { workspace = true }
+spl-memo-interface = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }

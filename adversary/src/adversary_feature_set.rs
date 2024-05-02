@@ -348,6 +348,67 @@ pub mod gossip_packet_flood {
     }
 }
 
+/// Configuration for flooding tpu packets
+pub mod tpu_packet_flood {
+    use {
+        solana_pubkey::Pubkey,
+        std::time::Duration,
+        strum::VariantNames,
+        strum_macros::{EnumString, EnumVariantNames},
+    };
+    pub const ID: &str = "tpu_packet_flood";
+    adversarial_feature_impl!(TpuPacketFlood);
+
+    #[derive(
+        Clone,
+        Debug,
+        Eq,
+        EnumString,
+        EnumVariantNames,
+        PartialEq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
+    #[serde(rename_all = "camelCase")]
+    #[strum(serialize_all = "camelCase")]
+    pub enum FloodStrategy {
+        /// Send bursts of UDP packets to peer vote ports.
+        UdpVoteOverflow,
+    }
+
+    impl FloodStrategy {
+        pub const fn cli_names() -> &'static [&'static str] {
+            Self::VARIANTS
+        }
+    }
+
+    /// Define a flood strategy which will be executed on its own thread. The thread will
+    /// continue flooding with the defined configuration until stopped.
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FloodConfig {
+        /// Flood strategy to use for this configuration.
+        pub flood_strategy: FloodStrategy,
+        /// Number of packets which will be sent to each peer during each iteration of the
+        /// flood strategy loop.
+        pub packets_per_peer_per_iteration: usize,
+        /// Minimum time between iterations of the flood strategy loop.
+        pub iteration_duration: Duration,
+        /// Optional target to limit the flood configuration to a specific peer.
+        pub target: Option<Pubkey>,
+        /// Limit the flood to the current leader node.
+        pub target_leader: bool,
+    }
+
+    /// Define a list of flood configurations, each configuration will be executed on its
+    /// own thread. An empty list disables all tpu flooding.
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub configs: Vec<FloodConfig>,
+    }
+}
+
 /// Configuration for delaying votes.
 pub mod delay_votes {
     pub const ID: &str = "delay_votes";
@@ -386,6 +447,8 @@ pub enum AdversaryFeatureConfig {
     ReplayStageAttack(replay_stage_attack::AdversarialConfig),
     #[serde(rename = "gossipPacketFloodAdversarialConfig")]
     GossipPacketFlood(gossip_packet_flood::AdversarialConfig),
+    #[serde(rename = "tpuPacketFlood")]
+    TpuPacketFlood(tpu_packet_flood::AdversarialConfig),
     #[serde(rename = "delayVotes")]
     DelayVotes(delay_votes::AdversarialConfig),
 }
@@ -449,6 +512,12 @@ static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig
                 gossip_packet_flood::ID,
                 AdversaryFeatureConfig::GossipPacketFlood(
                     gossip_packet_flood::AdversarialConfig::default(),
+                ),
+            ),
+            (
+                tpu_packet_flood::ID,
+                AdversaryFeatureConfig::TpuPacketFlood(
+                    tpu_packet_flood::AdversarialConfig::default(),
                 ),
             ),
             (

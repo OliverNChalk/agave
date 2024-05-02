@@ -15,6 +15,7 @@ pub(super) mod packet_drop;
 pub(super) mod repair;
 pub(super) mod replay;
 pub(super) mod shred_forwarder;
+pub(super) mod tpu;
 
 pub trait Command: Serialize + Sized {
     const RPC_METHOD: &'static str;

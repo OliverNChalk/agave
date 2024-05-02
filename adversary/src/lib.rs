@@ -24,6 +24,7 @@ pub mod block_generator_config;
 pub mod flood_worker;
 pub mod gossip;
 pub mod repair;
+pub mod tpu;
 
 /// `Sender` and `Receiver` types to exchange information about requested attacks
 /// between rpc, banking stage and attach scheduler.

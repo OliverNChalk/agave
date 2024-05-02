@@ -10,12 +10,12 @@ use {
             self, delay_votes, drop_turbine_votes, example, gossip_packet_flood,
             invalidate_leader_block, packet_drop_parameters, repair_packet_flood,
             repair_parameters, replay_stage_attack, send_duplicate_blocks, shred_receiver_address,
-            AdversaryFeatureConfig,
+            tpu_packet_flood, AdversaryFeatureConfig,
         },
         auth::{AuthHeader, JsonRpcAuthToken},
         gossip::GossipPacketFlood,
         repair::RepairPacketFlood,
-        verify_peer_identifier, SelectedReplayAttack,
+        tpu, verify_peer_identifier, SelectedReplayAttack,
     },
     solana_metrics::metrics::public_metrics_db,
     solana_pubkey::Pubkey,
@@ -192,6 +192,13 @@ pub trait Adversary {
         config: gossip_packet_flood::AdversarialConfig,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "configureTpuPacketFlood")]
+    fn configure_tpu_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: tpu_packet_flood::AdversarialConfig,
+    ) -> Result<()>;
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>;
@@ -225,6 +232,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         invalidate_leader_block::InvalidationKindSubtypeStatsId::default();
     let mut replay_stage_attack = replay_stage_attack::AttackSubtypeStatsId::default();
     let mut gossip_packet_flood = false;
+    let mut tpu_packet_flood = false;
     let mut delay_votes = false;
 
     for adversary_feature_config in adversary_feature_configs {
@@ -267,6 +275,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                     gossip_packet_flood = true;
                 }
             }
+            AdversaryFeatureConfig::TpuPacketFlood(config) => {
+                if !config.configs.is_empty() {
+                    tpu_packet_flood = true;
+                }
+            }
             AdversaryFeatureConfig::DelayVotes(config) => {
                 if config.delay_votes_by_slot_count > 0 {
                     delay_votes = true;
@@ -306,6 +319,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         ),
         ("replay_stage_attack", i64::from(replay_stage_attack), i64),
         ("gossip_packet_flood", gossip_packet_flood, i64),
+        ("tpu_packet_flood", tpu_packet_flood, i64),
         ("delay_votes", delay_votes, i64),
     );
 }
@@ -520,6 +534,32 @@ impl Adversary for AdversaryImpl {
         })
     }
 
+    fn configure_tpu_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: tpu_packet_flood::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta.clone(), || {
+            let mut adversary_tpu = adversary_context::ADVERSARY_CONTEXT
+                .tpu_packet_flood
+                .write()
+                .unwrap();
+            if let Some(context) = adversary_tpu.take() {
+                context.join().unwrap();
+            }
+            tpu_packet_flood::set_config(config.clone());
+            if !config.configs.is_empty() {
+                *adversary_tpu = Some(tpu::start(
+                    meta.cluster_info(),
+                    meta.bank_forks(),
+                    meta.leader_schedule_cache(),
+                    config.configs,
+                ));
+            }
+            Ok(())
+        })
+    }
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>,
@@ -722,6 +762,11 @@ pub mod tests {
             {
                 "shredReceiverAddress": {
                     "shredReceiverAddress": null,
+                },
+            },
+            {
+                "tpuPacketFlood": {
+                    "configs": [],
                 },
             }]
         );
