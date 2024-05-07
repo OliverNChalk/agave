@@ -95,6 +95,20 @@ attack_gossipPacketFlood() {
   sleep "$sleeptime"
 }
 
+attack_tpuPacketFlood() {
+  local strategy=$1
+  shift
+  local -a extraConfig=( "$@" )
+
+  "$invalidatorClient" "${commonArgs[@]}" \
+    configure-tpu-packet-flood --flood-strategy "$strategy" \
+    "${extraConfig[@]}"
+  sleep "$runtime"
+  "$invalidatorClient" "${commonArgs[@]}" \
+    configure-tpu-packet-flood
+  sleep "$sleeptime"
+}
+
 attack_replayStage() {
   local attack=$1
   shift

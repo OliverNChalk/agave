@@ -27,6 +27,9 @@ run_attacks_all() {
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10000
 
+  attack_tpuPacketFlood udpVoteOverflow \
+    --iteration-duration-us 0
+
   attack_delayBroadcast
 
   attack_sendDuplicateBlocks

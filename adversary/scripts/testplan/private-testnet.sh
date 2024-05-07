@@ -26,6 +26,9 @@ run_attacks_all() {
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10000
 
+  attack_tpuPacketFlood udpVoteOverflow \
+    --iteration-duration-us 0
+
   # attacks that use only fee payer accounts
   attack_replayStage transferRandom
   attack_replayStage transferRandomWithMemo
