@@ -10683,6 +10683,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-sbf-client-test-program"
+version = "3.1.0"
+dependencies = [
+ "borsh",
+ "num-derive",
+ "num-traits",
+ "solana-account-info",
+ "solana-msg",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-program-test",
+ "solana-pubkey",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "solana-sbpf"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11691,6 +11707,59 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction-error",
+]
+
+[[package]]
+name = "solana-transaction-bench"
+version = "3.1.0"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "borsh",
+ "clap 3.2.23",
+ "crossbeam-channel",
+ "futures 0.3.31",
+ "itertools 0.12.1",
+ "log",
+ "lru",
+ "quinn",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rustls 0.23.32",
+ "serde_json",
+ "solana-clap-v3-utils",
+ "solana-cli-config",
+ "solana-clock",
+ "solana-commitment-config",
+ "solana-compute-budget-interface",
+ "solana-connection-cache",
+ "solana-core",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-logger",
+ "solana-measure",
+ "solana-message",
+ "solana-native-token",
+ "solana-pubkey",
+ "solana-quic-definitions",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-sbf-client-test-program",
+ "solana-sdk-ids",
+ "solana-sha256-hasher",
+ "solana-signature",
+ "solana-signer",
+ "solana-streamer",
+ "solana-system-interface",
+ "solana-time-utils",
+ "solana-tls-utils",
+ "solana-tpu-client",
+ "solana-transaction",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util 0.7.16",
+ "url 2.5.7",
 ]
 
 [[package]]

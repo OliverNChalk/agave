@@ -508,7 +508,8 @@ fn get_connection_stake(
     ))
 }
 
-fn compute_max_allowed_uni_streams(peer_type: ConnectionPeerType, total_stake: u64) -> usize {
+// pub for invalidator use in transaction-bench.
+pub fn compute_max_allowed_uni_streams(peer_type: ConnectionPeerType, total_stake: u64) -> usize {
     match peer_type {
         ConnectionPeerType::Staked(peer_stake) => {
             // No checked math for f64 type. So let's explicitly check for 0 here
