@@ -37,7 +37,7 @@ use {
     solana_rent::Rent,
     solana_rpc_client_api::{
         config::{RpcBlockSubscribeConfig, RpcBlockSubscribeFilter},
-        response::{Response, RpcBlockUpdateError},
+        response::Response,
     },
     solana_sdk_ids::{bpf_loader, system_program},
     solana_signer::Signer,
@@ -48,7 +48,7 @@ use {
         sanitized::{MessageHash, SanitizedTransaction},
         versioned::VersionedTransaction,
     },
-    std::{iter, sync::Arc, thread::sleep, time::Duration},
+    std::{iter, net::SocketAddr, sync::Arc, thread::sleep, time::Duration},
     tempfile::tempdir,
 };
 
@@ -193,11 +193,19 @@ impl TestVersionedTransaction for VersionedTransaction {
 mod setup {
     use super::*;
 
+    /// Sets up a local cluster instance.
+    ///
+    /// Most of our tests are going to subscribe to the PubSub RPC, and the
+    /// non-bootstrap node gets allocated 100% of active stake and thus gets all
+    /// leader slots and drives commitment levels of updates.  So we want to
+    /// subscribe to this node because it's blockstore will be in sync with the
+    /// cluster when we query for things like confirmed slots. See more about
+    /// this issue described in solana-labs/solana#33462
     pub fn create_cluster(
         num_nodes: usize,
         accounts_file: Arc<AccountsFile>,
         starting_accounts: Vec<(Pubkey, AccountSharedData)>,
-    ) -> LocalCluster {
+    ) -> (LocalCluster, SocketAddr) {
         // Create a validator config configured for block generation.
         let mut validator_config = ValidatorConfig {
             invalidator_config: InvalidatorConfig {
@@ -231,20 +239,25 @@ mod setup {
         .unwrap();
         assert_eq!(cluster_nodes.len(), num_nodes);
 
-        cluster
+        let leader_node = cluster_nodes
+            .iter()
+            .find(|node| node.pubkey() != cluster.entry_point_info.pubkey())
+            .unwrap();
+
+        (
+            cluster,
+            leader_node.rpc_pubsub().expect("RPC PubSub must exist"),
+        )
     }
 
     pub fn block_subscriber(
-        cluster: &LocalCluster,
+        rpc_pubsub_addr: &SocketAddr,
     ) -> (
         PubsubClientSubscription<Response<RpcBlockUpdate>>,
         Receiver<Response<RpcBlockUpdate>>,
     ) {
         PubsubClient::block_subscribe(
-            format!(
-                "ws://{}",
-                &cluster.entry_point_info.rpc_pubsub().unwrap().to_string()
-            ),
+            format!("ws://{rpc_pubsub_addr}"),
             RpcBlockSubscribeFilter::All,
             Some(RpcBlockSubscribeConfig {
                 commitment: Some(CommitmentConfig::confirmed()),
@@ -470,10 +483,7 @@ mod verify {
         let mut num_valid_txs: i32 = 0;
         for _ in 0..num_response_check_iterations {
             receiver.try_iter().for_each(|response| {
-                if let Some(err) = response.value.err {
-                    // sometimes block is not ready, see issues/33462
-                    assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
-                }
+                assert_eq!(response.value.err, None);
                 if let Some(block) = response.value.block {
                     if let Some(encoded_transactions) = block.transactions {
                         for encoded_tx in encoded_transactions {
@@ -518,10 +528,7 @@ mod verify {
 
         // Verify that there are no new attack transactions.
         receiver.try_iter().for_each(|response| {
-            if let Some(err) = response.value.err {
-                // sometimes block is not ready, see issues/33462
-                assert_eq!(err, RpcBlockUpdateError::BlockStoreError);
-            }
+            assert_eq!(response.value.err, None);
             if let Some(block) = response.value.block {
                 if let Some(encoded_transactions) = block.transactions {
                     for encoded_tx in encoded_transactions {
@@ -604,12 +611,13 @@ fn run_replay_attack(attack: Attack) {
 
     // Setup cluster and clients.
     let num_nodes = 2;
-    let cluster = setup::create_cluster(num_nodes, accounts_file.clone(), starting_accounts);
+    let (cluster, rpc_pubsub_addr) =
+        setup::create_cluster(num_nodes, accounts_file.clone(), starting_accounts);
     let client = cluster
         .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
         .unwrap();
     let rpc_client = client.rpc_client();
-    let (mut block_subscribe_client, receiver) = setup::block_subscriber(&cluster);
+    let (mut block_subscribe_client, receiver) = setup::block_subscriber(&rpc_pubsub_addr);
 
     // Check programs have been deployed.
     for program_id in &accounts_file.program_ids_jit_attack {
