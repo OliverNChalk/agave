@@ -113,7 +113,9 @@ fn create_nop_message(
 #[cfg(test)]
 mod tests {
     use {
-        crate::banking_stage::adversary::test_helpers::{setup_accounts, setup_test},
+        crate::banking_stage::adversary::test_helpers::{
+            create_test_bank, setup_accounts, setup_test, TestAccounts,
+        },
         jsonrpc_core::{types::error::ErrorCode, Value},
         serde_json::json,
         serial_test::serial,
@@ -124,7 +126,29 @@ mod tests {
             rpc::test_helpers::{parse_failure_response, parse_success_result},
             rpc_adversary::test_helpers::send_signed_request_sync,
         },
+        std::sync::Arc,
     };
+
+    #[test]
+    fn test_generator_produces_transactions() {
+        // Prepare all necessary inputs to create and call tx generator.
+        let accounts = Arc::new(TestAccounts::new(10_000, 0).into());
+        let num_workers = 4;
+        let config = LargeNopAttackConfig::default();
+        let bank = create_test_bank();
+
+        // Create the generator.
+        let mut generator = super::generator(accounts, num_workers, config);
+
+        // Generate a batch of transactions.
+        let (transactions, _worker_index) = generator(&bank);
+
+        // Verify transactions were generated.
+        assert!(
+            transactions.len() == config.common.transaction_batch_size,
+            "Expected a full batch of tx to be generated",
+        );
+    }
 
     // TODO `[serial]` is necessary as the RPC configuration is a global singleton.  It would be
     // nice to move a to a more composable architecture and remove `[serial]`.
