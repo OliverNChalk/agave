@@ -21,6 +21,7 @@ declare -a mandatory_affected_files=(
   Cargo.lock$
   ^ci/buildkite-pipeline.sh
   ^ci/docker/Dockerfile
+  ^.buildkite/invalidator/_pipeline.sh
 )
 
 affects() {
@@ -137,8 +138,14 @@ wait_step
 
 ## stable
 if affects .rs$ ^ci/rust-version.sh ^ci/test-stable.sh ; then
-  add_step_in_docker stable 60 \
-    ci/test-stable.sh
+  parallelism=2
+  for i in $(seq 1 $parallelism); do
+    add_step_in_docker "stable-partition-$i" 60 \
+      "ci/stable/run-partition.sh $i $parallelism" 3
+  done
+
+  add_step_in_docker localnet 30 \
+    ci/stable/run-localnet.sh
 fi
 
 ## docs
