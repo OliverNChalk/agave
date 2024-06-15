@@ -17,7 +17,7 @@ use {
         repair::RepairPacketFlood,
         tpu, verify_peer_identifier, SelectedReplayAttack,
     },
-    solana_metrics::metrics::public_metrics_db,
+    solana_metrics::metrics::should_bypass_adversary_metrics,
     solana_pubkey::Pubkey,
     std::{
         collections::HashSet,
@@ -206,19 +206,8 @@ pub trait Adversary {
 
 // Detects which adversarial attacks are active and outputs metrics for each attack
 fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfig>) {
-    match public_metrics_db() {
-        Ok(false) => (),
-        Ok(true) => {
-            info!("Bypassing adversary metrics for public cluster database.");
-            return;
-        }
-        Err(e) => {
-            error!(
-                "Bypassing adversary metrics for unknown cluster database. Failed to query \
-                 metrics configuration: {e}."
-            );
-            return;
-        }
+    if should_bypass_adversary_metrics() {
+        return;
     }
 
     let mut repair_packet_flood = repair_packet_flood::FloodStrategySubtypeStatsId::default();

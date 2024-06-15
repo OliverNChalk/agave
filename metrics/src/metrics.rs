@@ -566,9 +566,29 @@ pub fn set_panic_hook(program: &'static str, version: Option<String>) {
     });
 }
 
-pub fn public_metrics_db() -> Result<bool, String> {
-    let config = get_metrics_config()?;
-    Ok(matches!(&config.db[..], "mainnet-beta" | "tds" | "devnet"))
+pub fn should_bypass_adversary_metrics() -> bool {
+    match get_metrics_config() {
+        Ok(config) => {
+            if matches!(&config.db[..], "mainnet-beta" | "tds" | "devnet") {
+                warn!("Bypassing adversary metrics for public cluster database.");
+                true
+            } else {
+                // Valid configuration targeting private metrics database
+                false
+            }
+        }
+        Err(MetricsError::VarError(env::VarError::NotPresent)) => {
+            info!("Bypassing adversary metrics because configuration not present.");
+            true
+        }
+        Err(e) => {
+            error!(
+                "Bypassing adversary metrics for unknown cluster database. Failed to query \
+                 metrics configuration: {e}."
+            );
+            true
+        }
+    }
 }
 
 pub mod test_mocks {
