@@ -48,6 +48,7 @@ use {
         sanitized::{MessageHash, SanitizedTransaction},
         versioned::VersionedTransaction,
     },
+    solana_transaction_status::UiConfirmedBlock,
     std::{iter, net::SocketAddr, sync::Arc, thread::sleep, time::Duration},
     tempfile::tempdir,
 };
@@ -471,36 +472,73 @@ mod verify {
     // transactions to drain out.
     const NUM_NEW_ROOTS_TO_WAIT_FOR: usize = 16;
 
+    fn block_has_valid_attack_tx(
+        block: &Option<UiConfirmedBlock>,
+        valid_attack_tx_check: &impl Fn(&VersionedTransaction) -> bool,
+    ) -> bool {
+        // Extract the transactions from the block.
+        let Some(UiConfirmedBlock {
+            transactions: Some(encoded_transactions),
+            ..
+        }) = block
+        else {
+            // No transactions found.
+            return false;
+        };
+
+        // Check each transaction for validity.
+        for encoded_tx in encoded_transactions {
+            let Some(tx) = encoded_tx.transaction.decode() else {
+                // Unabled to decode transactions.
+                continue;
+            };
+            if valid_attack_tx_check(&tx) {
+                // Found a valid transaction.
+                return true;
+            }
+        }
+
+        // No valid transactions found.
+        false
+    }
+
+    fn block_updates_have_valid_attack_tx(
+        receiver: &Receiver<Response<RpcBlockUpdate>>,
+        valid_attack_tx_check: &impl Fn(&VersionedTransaction) -> bool,
+    ) -> bool {
+        // Each response is an update for a confirmed block.
+        for response in receiver.try_iter() {
+            let RpcBlockUpdate { block, err, .. } = response.value;
+
+            assert_eq!(err, None);
+
+            if block_has_valid_attack_tx(&block, valid_attack_tx_check) {
+                return true;
+            }
+        }
+
+        // No valid transactions found.
+        false
+    }
+
     pub fn attack_transactions_are_landing(
         receiver: &Receiver<Response<RpcBlockUpdate>>,
         test_duration: Duration,
         num_response_check_iterations: u32,
-        valid_transaction_check: impl Fn(&VersionedTransaction) -> bool,
+        valid_attack_tx_check: impl Fn(&VersionedTransaction) -> bool,
     ) {
         let check_sleep_duration = test_duration
             .checked_div(num_response_check_iterations)
             .expect("check iterations must be greater than zero");
-        let mut num_valid_txs: i32 = 0;
+
         for _ in 0..num_response_check_iterations {
-            receiver.try_iter().for_each(|response| {
-                assert_eq!(response.value.err, None);
-                if let Some(block) = response.value.block {
-                    if let Some(encoded_transactions) = block.transactions {
-                        for encoded_tx in encoded_transactions {
-                            let tx = encoded_tx.transaction.decode();
-                            if let Some(tx) = tx {
-                                if valid_transaction_check(&tx) {
-                                    num_valid_txs = num_valid_txs.saturating_add(1);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+            if block_updates_have_valid_attack_tx(receiver, &valid_attack_tx_check) {
+                return;
+            }
             sleep(check_sleep_duration);
         }
-        debug!("total valid transactions landed: {num_valid_txs}");
-        assert_ne!(num_valid_txs, 0);
+
+        panic!("No attack transactions were found in the block updates");
     }
 
     // Verify the cluster is still making roots.
@@ -517,10 +555,15 @@ mod verify {
         cluster: LocalCluster,
         block_subscribe_client: &mut PubsubClientSubscription<Response<RpcBlockUpdate>>,
     ) {
+        // Clean the receiver to make sure it doesn't get filled up with giant
+        // blocks filled with attack transactions and cause issues.
+        receiver.try_iter().for_each(drop);
+
         // This also provides time for attack transactions to drain out.
         cluster_advancing(&cluster);
 
-        // Clean the receiver.
+        // Clean the receiver again to make sure all blocks expected to contain
+        // attack transactions are cleared out.
         receiver.try_iter().for_each(drop);
 
         // Wait a bit so there are new block updates.
@@ -534,7 +577,7 @@ mod verify {
                     for encoded_tx in encoded_transactions {
                         let tx = encoded_tx.transaction.decode();
                         if let Some(tx) = tx {
-                            // Only expect to see votes because we allowed other
+                            // Only expect to see votes because we allowed attack
                             // transactions to drain out while checking the
                             // cluster was advancing.
                             assert!(tx.is_simple_vote());
@@ -560,20 +603,34 @@ mod verify {
         );
     }
 
-    pub fn accounts_were_written(
+    // We expect at least one account to have been written to by the attack
+    // because we previously verified that an attack transaction landed
+    // successfully. This function confirms this by checking the first byte of
+    // data that should have been updated by this transaction.
+    pub fn at_least_one_account_written(
         client: &RpcClient,
         max_size_accounts_keypairs: &Vec<Keypair>,
         account_size: usize,
     ) {
         for account in max_size_accounts_keypairs {
             let account_data = client
-                .get_account_data(&account.pubkey())
-                .expect("Account is present");
+                // Use processed because updated account data may not be confirmed yet.
+                .get_account_with_commitment(&account.pubkey(), CommitmentConfig::processed())
+                .expect("Account is present")
+                .value
+                .unwrap()
+                .data;
 
             assert_eq!(account_data.len(), account_size);
             // Value for the first byte of the account is passed to the program in test_generator.
-            assert_eq!(account_data[0], 128u8);
+            if account_data[0] == 128u8 {
+                return;
+            }
         }
+
+        // At least 1 account must have been modified if attack transactions
+        // landed successfully.
+        panic!("No accounts were found to be modified");
     }
 }
 
@@ -633,9 +690,9 @@ fn run_replay_attack(attack: Attack) {
     }
 
     // Let the cluster run for some period of time generating transactions.
-    let test_duration = Duration::from_secs(15);
+    let max_test_duration = Duration::from_secs(15);
     let num_response_check_iterations = 5;
-    let valid_transaction_check = match attack {
+    let valid_attack_tx_check = match attack {
         Attack::TransferRandom | Attack::ChainTransactions => VersionedTransaction::is_transfer,
         Attack::CreateNonceAccounts => VersionedTransaction::is_create_nonce_account,
         Attack::AllocateRandomLarge | Attack::AllocateRandomSmall => {
@@ -653,9 +710,9 @@ fn run_replay_attack(attack: Attack) {
     // Verify transactions are landing during the attack.
     verify::attack_transactions_are_landing(
         &receiver,
-        test_duration,
+        max_test_duration,
         num_response_check_iterations,
-        valid_transaction_check,
+        valid_attack_tx_check,
     );
 
     match stop_replay_attack(&cluster) {
@@ -667,7 +724,7 @@ fn run_replay_attack(attack: Attack) {
 
     // Perform post-attack verification and cleanup.
     if let Attack::WriteProgram(_) = attack {
-        verify::accounts_were_written(
+        verify::at_least_one_account_written(
             rpc_client,
             &accounts_file.max_size,
             max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
