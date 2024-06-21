@@ -287,6 +287,90 @@ explicitly specifying the package, if you want to save some:
 ./cargo nightly test --package solana-net-protocol --lib -- test_abi_
 ```
 
+#### 1.6.2. Updates for third party dependency versions with multiple versions
+
+When the invalidator branch introduces a new dependency on a third party crate,
+it may create conflicts during the rebase.  Assume the following is added to one
+of the `Cargo.toml` files in the invaldiator repo:
+
+```toml
+[dependencies]
+itertools = { workspace = true }
+```
+
+For example, let's assume we add it into `shred-dos/Cargo.toml`.  It would cause
+a dependency on `itertools` for the `shred-dos ` crate recorded in `Cargo.lock`
+using the current version of `itertools`.
+
+Consider, what happens when `itertools` version is updated in the workspace
+`Cargo.toml`.
+
+If initially, the whole workspace was using just one version of `itertools`,
+then all crates that use `itertools` will specify the dependency as just, well,
+`itertools`, and the update would only touch the definition of `itertools`.
+This case would not create any conflicts.
+
+But if there are multiple versions of `itertools` in the workspace, then the
+situation becomes more complex.  For example, in this case, `shred-dos` version
+of `itertools` in `Cargo.lock` would be recorded as the current version, say as
+`itertools 0.10.5`.
+
+Now, if the upstream `itertools` is updated, `git rebase` has no idea that
+`itertools 0.10.5` for `shred-dos` in `Cargo.lock` needs to be updated as well.
+It might need to be changed to `itertools` without an explicit version, or it
+might need to be updated to `itertools 0.12.1`, which is the version after the
+updated.
+
+Besides introducing conflicts the above might also create updates for
+`Crago.lock` files in the wrong commits.
+
+One approach is to just recompile every commit in the invalidator `master`
+branch.  But with 200 commits and growing it is too slow.
+
+I found the following shortcut.  Run `git log` to see a full list of commits
+where `itertools` was updated:
+
+```bash
+git log -Gitertools --oneline upstream/master..master-next -- \
+    Cargo.lock programs/sbf/Cargo.lock
+```
+
+This list would normally be quite small.  Now run an interactive rebase:
+
+```bash
+git rebase --interactive "$( git merge-base sync/master-upstream HEAD )"
+```
+
+Add the following `exec` checks before each commit that touches the updated
+dependency:
+
+```gitrebase
+exec ./cargo check --lib --bins --tests
+exec cd programs/sbf/ && ../../cargo check --bins --tests
+```
+
+`cargo check` will update any versions to their up to date state and, as a
+result, `Cargo.lock` updates will happen in the correct commits.  `git rebase`
+will stop whenever `Cargo.lock` is updated due to the `cargo check` invocation,
+and you just need to do the following when it stops:
+
+```bash
+git status
+git diff
+
+# Make sure that it is indeed only the `Cargo.lock` that is updated and that the
+# updates are only for the dependency in question.
+
+git add --update
+git commit --amend
+git rebase --continue
+```
+
+Unfortunately, you might be able to run the above process only *after* you
+resolve conflicts.  So, just resolve them in any commit where they pop up.  And
+the process above should shift `Cargo.lock` updates into the right commits when
+you run it later.
+
 ### 1.7. Run CI for `master-next`
 
 Create a PR with the `master-next` content in the `invalidator` repo and wait
