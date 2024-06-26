@@ -2,18 +2,19 @@
 
 use {
     super::TransactionGenerator,
-    crate::banking_stage::adversary::generator_templates::replay_attack_program,
+    crate::banking_stage::adversary::{
+        generator_components::IndexByModulo, generator_templates::replay_attack_program,
+    },
     block_generator_stress_test::{BlockGeneratorStressTestInstruction, LARGE_NOP_DATA_SIZE},
     rand::{seq::SliceRandom, thread_rng, Rng},
+    rayon::iter::{IntoParallelIterator, ParallelIterator},
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{Attack, LargeNopAttackConfig},
     },
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_instruction::Instruction,
-    solana_keypair::Keypair,
     solana_message::Message,
-    solana_pubkey::Pubkey,
     solana_runtime::bank::Bank,
     solana_signer::Signer,
     solana_transaction::{sanitized::SanitizedTransaction, Transaction},
@@ -44,56 +45,36 @@ pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
     )
 }
 
+fn create_nop_instruction(accounts: Arc<AccountsFile>, tx_data_size: usize) -> Instruction {
+    let program_id = accounts
+        .owner_program_id
+        .expect("`owner_program_id` presence is checked during the config validation");
+    let rnd = rand::thread_rng().gen::<u64>();
+    let random_data: Vec<u8> = std::iter::repeat_with(|| rnd.to_le_bytes().to_vec())
+        .flatten()
+        .take(tx_data_size)
+        .collect();
+    let data = BlockGeneratorStressTestInstruction::Nop {
+        random_data: random_data.into_boxed_slice(),
+    };
+    Instruction::new_with_borsh(program_id, &data, vec![])
+}
+
 pub(super) fn generator(
     accounts: Arc<AccountsFile>,
     num_workers: usize,
     config: LargeNopAttackConfig,
 ) -> TransactionGenerator {
-    let mut worker_index = 0;
-    let program_id = accounts
-        .owner_program_id
-        .expect("`owner_program_id` presence is checked during the config validation");
-    Box::new(move |bank: &Bank| {
-        let blockhash = bank.last_blockhash();
+    // Used to distribute transactions across banking stage consume workers.
+    let mut worker_index = IndexByModulo::new(num_workers);
 
-        let transactions = accounts
-            .payers
-            .choose_multiple(&mut thread_rng(), config.common.transaction_batch_size)
-            .map(|payer| {
-                let message = create_nop_message(
-                    payer,
-                    &program_id,
-                    config.common.transaction_cu_budget,
-                    config.tx_data_size,
-                );
-                Transaction::new(&[payer], message, blockhash)
-            })
-            .map(SanitizedTransaction::from_transaction_for_tests)
-            .collect::<Vec<_>>();
-
-        let current_worker_index = worker_index;
-        worker_index = (worker_index + 1) % num_workers;
-        (transactions, current_worker_index)
-    })
-}
-
-fn create_nop_message(
-    payer: &Keypair,
-    program_id: &Pubkey,
-    transaction_cu_budget: u32,
-    tx_data_size: usize,
-) -> Message {
-    let rnd = thread_rng().gen_range(0..=u64::MAX);
-    let random_data: Vec<u8> = rnd
-        .to_le_bytes()
-        .iter()
-        .cycle()
-        .take(tx_data_size)
-        .cloned()
-        .collect();
-    let data = BlockGeneratorStressTestInstruction::Nop {
-        random_data: random_data.into_boxed_slice(),
-    };
+    // Transaction generation is the bottleneck, so parallelize it. Currently
+    // limiting to just 2 threads because we can exceed the shred limit when
+    // moving to 4 threads and beyond.
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
 
     // Explicitly specify the CU budget to avoid dropping some transactions on the CU check side.
     // The constraint is that 48M/64 > CU limit.
@@ -101,13 +82,27 @@ fn create_nop_message(
     // real CU consumption.
     // Default is 200k.
     let set_cu_instruction =
-        ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget);
+        ComputeBudgetInstruction::set_compute_unit_limit(config.common.transaction_cu_budget);
 
-    let nop_instruction = Instruction::new_with_borsh(*program_id, &data, vec![]);
-    Message::new(
-        &[set_cu_instruction, nop_instruction],
-        Some(&payer.pubkey()),
-    )
+    let nop_instruction = create_nop_instruction(accounts.clone(), config.tx_data_size);
+
+    Box::new(move |bank: &Bank| {
+        let blockhash = bank.last_blockhash();
+        let instructions = &[set_cu_instruction.clone(), nop_instruction.clone()];
+        thread_pool.install(|| {
+            let transactions: Vec<SanitizedTransaction> = (0..config.common.transaction_batch_size)
+                .into_par_iter()
+                .map_init(thread_rng, |rng, _| {
+                    // Unique payers for entropy in the transaction generation.
+                    let payer = accounts.payers.choose(rng).expect("should have payers");
+                    let message = Message::new(instructions, Some(&payer.pubkey()));
+                    let transaction = Transaction::new(&[payer], message, blockhash);
+                    SanitizedTransaction::from_transaction_for_tests(transaction)
+                })
+                .collect();
+            (transactions, worker_index.next())
+        })
+    })
 }
 
 #[cfg(test)]

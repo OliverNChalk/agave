@@ -402,7 +402,10 @@ mod setup {
                     let num_payers_accounts = attack_config
                         .common
                         .transaction_batch_size
-                        .saturating_mul(num_replay_threads);
+                        .saturating_mul(num_replay_threads)
+                        // Larger number to avoid collisions because accounts
+                        // get selected by random
+                        .saturating_mul(10);
                     (num_payers_accounts, 0, 1)
                 }
                 Attack::ColdProgramCache(attack_config) => {

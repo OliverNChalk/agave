@@ -65,7 +65,12 @@ pub struct LargeNopAttackConfig {
 impl Default for LargeNopAttackConfig {
     fn default() -> Self {
         Self {
-            common: AttackProgramConfig::default(),
+            common: AttackProgramConfig {
+                // Larger batch size because we generate tx in parallel using a
+                // thread pool
+                transaction_batch_size: 64,
+                ..Default::default()
+            },
             tx_data_size: LARGE_NOP_DATA_SIZE,
         }
     }
