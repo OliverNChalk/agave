@@ -2,18 +2,62 @@
 
 set -e
 
-if [[ -z "$TRIGGER_ALL_STEPS" ]]; then
-  # get affected files
-  pr_number="$BUILDKITE_PULL_REQUEST"
-  readarray -t affected_files < <(gh pr diff --name-only "$pr_number")
+set_affected_files() {
+  local pr_number=$1
+
+  if [[ $# -ne 1 ]]; then
+    echo "ERROR: set_affected_files takes 1 argument"
+    exit 1
+  fi
+
+  local pr_files
+
+  local prev_ops
+  local last_exit
+  prev_ops=$(set +o)
+  set +o errexit
+
+  pr_files=$(gh pr diff --name-only "$pr_number" 2>&1)
+  last_exit=$?
+
+  eval "$prev_ops"
+
+  # `gh pr diff` fails if the number of changed files is more than 300 or if the
+  # diff is too big.  In either case, running all steps seems an OK workaround
+  # for now.
+  if [[ "$last_exit" -eq 1 \
+    && "$pr_files" = *"PullRequest.diff too_large"* ]]; then
+    TRIGGER_ALL_STEPS=1
+    return
+  fi
+
+  if [[ "$last_exit" -ne 0 ]]; then
+    cat <<EOM
+ERROR: "gh pr diff --name-only $pr_number" failed.
+  Error: $last_exit
+  Output:
+EOM
+    printf -- "%s\n" "$pr_files" | sed -e 's/^/  /'
+    exit 1
+  fi
+
+  readarray -t affected_files <<<"$pr_files"
   if [[ ${#affected_files[*]} -eq 0 ]]; then
     echo "Unable to determine the files affected by this PR"
     exit 1
   fi
+}
+
+if [[ -z "$TRIGGER_ALL_STEPS" ]]; then
+  set_affected_files "$BUILDKITE_PULL_REQUEST"
+fi
+
+# `set_affected_files` above may set $TRIGGER_ALL_STEPS, so check again.
+if [[ -z "$TRIGGER_ALL_STEPS" ]]; then
   echo "~~~ Affected files"
   printf '%s\n' "${affected_files[@]}"
 else
-  echo "trigger all steps so ignore affected files"
+  echo "Triggering all steps, ignoring affected files"
 fi
 
 declare -a mandatory_affected_files=(
