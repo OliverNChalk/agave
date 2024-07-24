@@ -94,7 +94,6 @@ add_step() {
   - name: "$name"
     command: "$command"
     timeout_in_minutes: $timeout_in_minutes
-    cancel_on_build_failing: true
     agents:
       queue: "invalidator"
 EOF
@@ -119,7 +118,6 @@ add_step_parallel() {
   - name: "$name"
     command: "$command"
     timeout_in_minutes: $timeout_in_minutes
-    cancel_on_build_failing: true
     agents:
       queue: "invalidator"
     parallelism: $parallelism
