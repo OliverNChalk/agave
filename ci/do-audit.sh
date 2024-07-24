@@ -59,6 +59,21 @@ cargo_audit_ignores=(
   # URL:       https://rustsec.org/advisories/RUSTSEC-2024-0376
   # Solution:  Upgrade to >=0.12.3
   --ignore RUSTSEC-2024-0376
+
+  # Invalidator CI specific.
+  #
+  # Ignore openssl issue while the upstream is figuring out a solution.
+  #
+  # Crate:     openssl
+  # Version:   0.10.64
+  # Title:     `MemBio::get_buf` has undefined behavior with empty buffers
+  # Date:      2024-07-21
+  # ID:        RUSTSEC-2024-0357
+  # URL:       https://rustsec.org/advisories/RUSTSEC-2024-0357
+  # Solution:  Upgrade to >=0.10.66
+  # Dependency tree:
+  # openssl 0.10.64
+  --ignore RUSTSEC-2024-0357
 )
 scripts/cargo-for-all-lock-files.sh audit "${cargo_audit_ignores[@]}" | $dep_tree_filter
 # we want the `cargo audit` exit code, not `$dep_tree_filter`'s
