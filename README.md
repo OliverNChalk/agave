@@ -1,9 +1,7 @@
 # Invalidator
 
-This repo contains attack patterns for the [Solana
-validator](https://github.com/solana-labs/solana).  Changes from the upstream
-
-https://github.com/solana-labs/solana
+This repo contains attack patterns for the [Agave
+validator](https://github.com/anza-xyz/agave). Changes from [upstream master](https://github.com/anza-xyz/agave/tree/master)
 
 are regularly merged in and the `master` branch is rebased when that happens.
 
@@ -13,7 +11,7 @@ You are **strongly** encouraged to add a git client side hook to your local
 checkout, to make sure your local changes correctly cross a `master` rebase:
 
 ```sh
-# Fork https://github.com/solana-labs/invalidator.git on GitHub
+# Fork https://github.com/anza-xyz/invalidator on GitHub
 git clone git@github.com:my-github-name/invalidator.git
 cd invalidator
 cp scripts/pre-rebase-hook.sh .git/hooks/pre-rebase
@@ -31,12 +29,12 @@ Synchronization process is described in detail in
 unmitigated vulnerabilities should never be upstreamed.
 
 For now, in order to publish a change upstream, one needs to cherry pick it into
-`https://github.com/solana-labs/solana` and it should then be merged back into
+`https://github.com/anza-xyz/agave` and it should then be merged back into
 this repository during the next synchronization process.
 
 # Original README.md
 
-Below is the original `README.md` from the `solana` repo.  Let's keep it this
+Below is the original `README.md` from the `Agave` repo.  Let's keep it this
 way.
 
 ---
