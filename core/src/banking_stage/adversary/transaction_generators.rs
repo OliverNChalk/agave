@@ -17,6 +17,7 @@ pub(super) mod cold_program_cache;
 pub(super) mod create_nonce_accounts;
 pub(super) mod large_nop;
 pub(super) mod read_max_accounts;
+pub(super) mod read_non_existent_accounts;
 pub(super) mod read_program;
 pub(super) mod recursive_program;
 pub(super) mod transfer_random;
@@ -102,6 +103,10 @@ impl ActiveGenerator {
             TransferRandomWithMemo => (
                 transfer_random_with_memo::generator(accounts, num_workers),
                 10,
+            ),
+            ReadNonExistentAccounts => (
+                read_non_existent_accounts::generator(accounts, num_workers),
+                20,
             ),
         }
     }

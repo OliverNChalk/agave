@@ -686,4 +686,12 @@ mod tests {
             }),
         );
     }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_non_existent_accounts() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["readNonExistentAccounts"],
+            Attack::ReadNonExistentAccounts,
+        );
+    }
 }

@@ -414,6 +414,7 @@ mod setup {
                         .saturating_mul(num_replay_threads);
                     (num_payers_accounts, 0, num_payers_accounts)
                 }
+                Attack::ReadNonExistentAccounts => (1_000, 0, 0),
                 _ => unimplemented!(),
             }
         }
@@ -706,7 +707,9 @@ fn run_replay_attack(attack: Attack) {
         | Attack::LargeNop(_)
         | Attack::RecursiveProgram(_) => VersionedTransaction::is_calling_stress_test_program,
         Attack::ColdProgramCache(_) => VersionedTransaction::is_calling_user_program,
-        Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => VersionedTransaction::is_empty,
+        Attack::ReadMaxAccounts | Attack::WriteMaxAccounts | Attack::ReadNonExistentAccounts => {
+            VersionedTransaction::is_empty
+        }
         _ => unimplemented!(),
     };
 
@@ -806,4 +809,10 @@ fn test_cold_program_cache_generator() {
 #[serial]
 fn test_large_nop_generator() {
     run_replay_attack(Attack::LargeNop(LargeNopAttackConfig::default()));
+}
+
+#[test]
+#[serial]
+fn test_read_non_existent_accounts_generator() {
+    run_replay_attack(Attack::ReadNonExistentAccounts);
 }

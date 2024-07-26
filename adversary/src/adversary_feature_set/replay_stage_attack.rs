@@ -104,6 +104,7 @@ pub enum Attack {
     ColdProgramCache(AttackProgramConfig),
     LargeNop(LargeNopAttackConfig),
     TransferRandomWithMemo,
+    ReadNonExistentAccounts,
 }
 
 #[derive(Default)]
@@ -251,6 +252,7 @@ impl Attack {
             Attack::ColdProgramCache(_) => 11,
             Attack::LargeNop(_) => 12,
             Attack::TransferRandomWithMemo => 13,
+            Attack::ReadNonExistentAccounts => 14,
         };
 
         AttackSubtypeStatsId(id)

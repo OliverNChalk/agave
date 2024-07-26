@@ -36,6 +36,7 @@ run_attacks_all() {
   attack_replayStage allocateRandomLarge
   attack_replayStage allocateRandomSmall
   attack_replayStage chainTransactions
+  attack_replayStage readNonExistentAccounts
   # attacks that use max accounts
   attack_replayStage readMaxAccounts
   attack_replayStage writeMaxAccounts
