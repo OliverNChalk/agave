@@ -136,7 +136,7 @@ EOF
 
   gitSetOrAdvanceTime
 
-  sed --in-place --expression='
+  sed -i -e '
     /^Middle point/ {
       i \
 This line is added by I2, removed by I3, and moved by S3.\
@@ -172,7 +172,7 @@ This line is added by I2, removed by I3, and moved by S3.\
 
   gitSetOrAdvanceTime
 
-  sed --in-place --expression='
+  sed -i -e '
     /^This line is added by I2/d
   ' c.txt
   git add c.txt
@@ -358,7 +358,7 @@ EOF
 
   gitSetOrAdvanceTime
 
-  sed --in-place --expression='
+  sed -i -e '
     /^Middle point/ {
       i \
 This line is added by I2, removed by I3, and moved by S3.\
@@ -399,7 +399,7 @@ This line is added by I2, removed by I3, and moved by S3.\
 
   gitSetOrAdvanceTime
 
-  sed --in-place --expression='
+  sed -i -e '
     /^This line is added by I2/d
   ' c.txt
   git add c.txt
@@ -441,7 +441,7 @@ EOF
 
   gitSetOrAdvanceTime
 
-  sed --in-place --expression='
+  sed -i -e '
     /^This line is added by I2/ {
       # Read one more line into the pattern space and delete both
       N
@@ -465,7 +465,7 @@ This line is added by I2, removed by I3, and moved by S3.\
   gitSetOrAdvanceTime
 
   # This change can not be cherry picked.  It needs to be re-applied.
-  sed --in-place --expression='
+  sed -i -e '
     /^This line is added by I2/d
   ' c.txt
   git add c.txt

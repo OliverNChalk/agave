@@ -226,7 +226,7 @@ findLocalBaseline() {
   while IFS='' read -r line; do candidates+=("$line"); done < <(
     git branch --list --remotes --no-column --no-color \
         "$upstreamRemote/$syncPrefix/master/local/*" \
-      | sed --expression='
+      | sed -e '
           # Remove indentation
           s@^\s*@@
         ' \

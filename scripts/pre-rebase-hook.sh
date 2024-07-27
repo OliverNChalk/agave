@@ -48,8 +48,23 @@ self_update() {
   fi
 
   local repoVersion
+  # MacOS has a version of `sed` that does not support long arguments.
+  # Here is the usage message it prints:
+  #
+  # usage: sed script [-Ealnru] [-i extension] [file ...]
+  #        sed [-Ealnu] [-i extension] [-e script] ... [-f script_file] ... [file ...]
+  #
+  # So, rather than saying
+  #
+  #   sed --silent --expression=''
+  #
+  # we need to say
+  #
+  #   sed -n -e ''
+  #
+  # in order to be compatible.
   repoVersion=$(
-    sed --silent --expression='
+    sed -n -e '
         s@^declare version=\([0-9]\+\)$@\1@p
       ' "$repoLocation" 2>/dev/null
     ) || true
@@ -104,7 +119,7 @@ EOF
 # workspace when executed.
 #
 # "self_update()" uses sed to look for this version line.  Keep the format.
-declare version=1
+declare version=2
 declare meInRepo=scripts/pre-rebase-hook.sh
 
 # Allow execution from both `.git/hook` as well as from `scripts/`.
