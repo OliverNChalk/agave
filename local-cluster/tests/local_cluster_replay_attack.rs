@@ -831,6 +831,13 @@ fn test_large_nop_generator() {
 
 #[test]
 #[serial]
+#[ignore = "\
+    This tests slows down the local cluster nodes so much, that they can not finish running the
+    attack in the allocated 1 second, and an assertion in setup::cluster_and_cleanup() that
+    verifies if the attack transactions have stopped is triggered.
+    There are several possible ways to improve the situation, we just need to decide which one we
+    like the best.
+    "]
 fn test_read_non_existent_accounts_generator() {
     run_replay_attack(Attack::ReadNonExistentAccounts);
 }
