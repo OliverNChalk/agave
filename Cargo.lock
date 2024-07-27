@@ -9424,6 +9424,7 @@ dependencies = [
  "crossbeam-channel",
  "fs_extra",
  "gag",
+ "indoc",
  "itertools 0.12.1",
  "log",
  "rand 0.8.5",

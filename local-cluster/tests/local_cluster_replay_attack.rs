@@ -1,6 +1,7 @@
 use {
     agave_reserved_account_keys::ReservedAccountKeys,
     crossbeam_channel::Receiver,
+    indoc::formatdoc,
     log::debug,
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
@@ -332,9 +333,26 @@ mod setup {
                 "programs/block-generator-stress-test/Cargo.toml",
             ]);
 
-            let _output = command
+            let output = command
                 .output()
                 .expect("block-generator-stress-test program should be successfully compiled");
+
+            if !output.status.success() {
+                let details = formatdoc! {"
+                    Command: {:?}
+                    Exit status: {:?}
+                    std output:
+                    {}
+                    std error:
+                    {}
+                    ",
+                    command,
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                };
+                panic!("block-generator-stress-test program compilation failed:\n{details}");
+            }
 
             let target_file_name = "block_generator_stress_test.so";
             let target_path_name = target_directory.path().join(target_file_name);
