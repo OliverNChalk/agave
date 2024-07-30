@@ -22,7 +22,11 @@ run_attacks_all() {
    --iteration-delay-us 10000000 \
    --packets-per-iteration 20
 
-  attack_gossipPacketFlood pingCacheOverflow \
+  attack_gossipPacketFlood pullContactInfo \
+    --iteration-delay-us 1000000 \
+    --packets-per-peer-per-iteration 10000
+
+  attack_gossipPacketFlood pushContactInfo \
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10000
 

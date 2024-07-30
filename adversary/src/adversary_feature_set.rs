@@ -312,14 +312,35 @@ pub mod gossip_packet_flood {
     )]
     #[serde(rename_all = "camelCase")]
     #[strum(serialize_all = "camelCase")]
+    /// Send bursts of packets to peers with each packet signed using a unique keypair.
     pub enum FloodStrategy {
-        /// Send bursts of packets to peers with each packet signed using a unique keypair.
-        PingCacheOverflow,
+        /// Flood with pull requests for contact info.
+        PullContactInfo,
+        /// Flood with push messages for contact info.
+        PushContactInfo,
+    }
+
+    #[derive(Default)]
+    pub struct FloodStrategySubtypeStatsId(i64);
+
+    impl From<FloodStrategySubtypeStatsId> for i64 {
+        fn from(stats_id: FloodStrategySubtypeStatsId) -> i64 {
+            stats_id.0
+        }
     }
 
     impl FloodStrategy {
         pub const fn cli_names() -> &'static [&'static str] {
             Self::VARIANTS
+        }
+
+        pub fn stats_id(&self) -> FloodStrategySubtypeStatsId {
+            let id = match self {
+                FloodStrategy::PullContactInfo => 1,
+                FloodStrategy::PushContactInfo => 2,
+            };
+
+            FloodStrategySubtypeStatsId(id)
         }
     }
 

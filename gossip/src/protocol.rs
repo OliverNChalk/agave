@@ -225,7 +225,9 @@ impl Signable for PruneData {
 /// max_chunk_size.
 /// Note: some messages cannot be contained within that size so in the worst case this returns
 /// N nested Vecs with 1 item each.
-pub(crate) fn split_gossip_messages<T: Serialize + Debug>(
+///
+/// This function is 'pub(crate)' on Agave; made 'pub' here for adversary crate use.
+pub fn split_gossip_messages<T: Serialize + Debug>(
     max_chunk_size: usize,
     data_feed: impl IntoIterator<Item = T>,
 ) -> impl Iterator<Item = Vec<T>> {

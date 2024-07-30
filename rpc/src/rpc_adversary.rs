@@ -2,6 +2,7 @@ use {
     crate::{rpc::JsonRpcRequestProcessor, rpc_service::AuthenticationMiddleware},
     jsonrpc_core::{Error, MetaIoHandler, Result},
     jsonrpc_derive::rpc,
+    log::warn,
     lru::LruCache,
     rand::{thread_rng, Rng},
     solana_adversary::{
@@ -220,7 +221,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
     let mut invalidate_leader_block =
         invalidate_leader_block::InvalidationKindSubtypeStatsId::default();
     let mut replay_stage_attack = replay_stage_attack::AttackSubtypeStatsId::default();
-    let mut gossip_packet_flood = false;
+    let mut gossip_packet_flood = gossip_packet_flood::FloodStrategySubtypeStatsId::default();
     let mut tpu_packet_flood = false;
     let mut delay_votes = false;
 
@@ -229,6 +230,13 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
             AdversaryFeatureConfig::RepairPacketFlood(config) => {
                 if let Some(config) = config.configs.first() {
                     repair_packet_flood = config.flood_strategy.stats_id();
+                }
+
+                if config.configs.len() > 1 {
+                    warn!(
+                        "More than one repair flood config found. Running multiple repair attacks \
+                         concurrently is not supported. Only taking the first one."
+                    );
                 }
             }
             AdversaryFeatureConfig::SendDuplicateBlocks(config) => {
@@ -260,8 +268,15 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
                 }
             }
             AdversaryFeatureConfig::GossipPacketFlood(config) => {
-                if !config.configs.is_empty() {
-                    gossip_packet_flood = true;
+                if let Some(config) = config.configs.first() {
+                    gossip_packet_flood = config.flood_strategy.stats_id();
+                }
+
+                if config.configs.len() > 1 {
+                    warn!(
+                        "More than one gossip flood config found. Running multiple gossip attacks \
+                         concurrently is not supported. Only taking the first one."
+                    );
                 }
             }
             AdversaryFeatureConfig::TpuPacketFlood(config) => {
@@ -307,7 +322,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
             i64
         ),
         ("replay_stage_attack", i64::from(replay_stage_attack), i64),
-        ("gossip_packet_flood", gossip_packet_flood, i64),
+        ("gossip_packet_flood", i64::from(gossip_packet_flood), i64),
         ("tpu_packet_flood", tpu_packet_flood, i64),
         ("delay_votes", delay_votes, i64),
     );
