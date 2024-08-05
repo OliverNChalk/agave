@@ -631,6 +631,17 @@ x509-parser = "0.14.0"
 zeroize = { version = "1.8", default-features = false }
 zstd = "0.13.3"
 
+# `local-cluster` tests need to run with all the optimizations, as they contain
+# timeouts, which are essentially race conditions.  We want as much margin as
+# possible for those timeouts not to trigger.
+#
+# NOTE  It seems that `inherit` does not work here.  Initially, I've added a new
+# dedicated profile called `test-release` that would inherit from `release`, but
+# would also enable `debug` and `debug-assertions`.  And added an `inherit =
+# "test-release"` line here.  That had no effect.
+[profile.test.package."solana-local-cluster"]
+opt-level = 3
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true
