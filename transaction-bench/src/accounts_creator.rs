@@ -2,7 +2,7 @@
 //! Using RpcClient for simplicity.
 #![allow(clippy::arithmetic_side_effects)]
 use {
-    crate::{cli::AccountParams, range::Range},
+    crate::{accounts_file::AccountsFile, cli::AccountParams, range::Range},
     futures::future::join_all,
     log::*,
     solana_clock::DEFAULT_MS_PER_SLOT,
@@ -11,10 +11,7 @@ use {
     solana_native_token::LAMPORTS_PER_SOL,
     solana_pubkey::Pubkey,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
-    solana_rpc_client_api::{
-        client_error::{Error as ClientError, ErrorKind},
-        request::RpcError as RequestRpcError,
-    },
+    solana_rpc_client_api::client_error::Error as ClientError,
     solana_signer::Signer,
     solana_system_interface::{instruction as system_instruction, program as system_program},
     solana_transaction::Transaction,
@@ -22,10 +19,6 @@ use {
     thiserror::Error,
     tokio::time::{sleep, Duration},
 };
-
-/// Size of the accounts chunk for which we request accounts info (get_multiple_accounts call).
-/// Cannot be greater than 100.
-const RPC_ACCOUNT_CHUNK_SIZE: usize = 64;
 
 /// How many transactions send concurrently.
 const RPC_SEND_TX_BATCH: usize = 64;
@@ -42,134 +35,6 @@ pub enum AccountsCreatorError {
 
     #[error("Failed to create account")]
     CreateAccountFailure,
-}
-
-#[derive(Debug)]
-pub struct AccountsFile {
-    // owner for sized accounts
-    pub owner_program_id: Pubkey,
-    pub payers: Vec<Keypair>,
-    pub sized_accounts: Vec<Keypair>,
-}
-
-impl AccountsFile {
-    pub async fn validate(
-        &self,
-        rpc_client: Arc<RpcClient>,
-        account_params: AccountParams,
-    ) -> Result<bool, AccountsCreatorError> {
-        info!("Started validating accounts registry...");
-        let program_validation = self.validate_program_deployed(rpc_client.clone());
-        let payers_validation = self.validate_payers(
-            rpc_client.clone(),
-            account_params.num_payers,
-            account_params.payer_account_balance,
-        );
-        let sized_validation = self.validate_sized_accounts(
-            rpc_client,
-            account_params.num_accounts,
-            account_params.account_size,
-            account_params.account_owner,
-        );
-        let result =
-            program_validation.await? && payers_validation.await? && sized_validation.await?;
-        if result {
-            info!("Successfully validated accounts registry.");
-        } else {
-            error!("Failed accounts registry validation.");
-        }
-        Ok(result)
-    }
-    pub async fn validate_program_deployed(
-        &self,
-        rpc_client: Arc<RpcClient>,
-    ) -> Result<bool, AccountsCreatorError> {
-        let account = rpc_client.get_account(&self.owner_program_id).await;
-        match account {
-            Ok(account) => {
-                if account.executable {
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-            Err(err) => {
-                // check if account was not found
-                if let ErrorKind::RpcError(RequestRpcError::ForUser(_)) = &*err.kind {
-                    return Ok(false);
-                }
-                Err(AccountsCreatorError::ClientError(err))
-            }
-        }
-    }
-
-    pub async fn validate_payers(
-        &self,
-        rpc_client: Arc<RpcClient>,
-        desired_num: usize,
-        desired_balance: u64,
-    ) -> Result<bool, AccountsCreatorError> {
-        if self.payers.len() < desired_num {
-            error!(
-                "Insufficient number of payers {}, while expected {}",
-                self.payers.len(),
-                desired_num
-            );
-            return Ok(false);
-        }
-        for payer in &self.payers {
-            let balance = rpc_client.get_balance(&payer.pubkey()).await?;
-            if balance < desired_balance {
-                error!(
-                    "Insufficient balance {} for account {}.",
-                    balance,
-                    payer.pubkey()
-                );
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-    pub async fn validate_sized_accounts(
-        &self,
-        rpc_client: Arc<RpcClient>,
-        desired_num: usize,
-        desired_account_size: Range,
-        desired_owner: Pubkey,
-    ) -> Result<bool, AccountsCreatorError> {
-        if self.sized_accounts.len() < desired_num {
-            error!(
-                "Insufficient number of sized accounts {}, while expected {}",
-                self.sized_accounts.len(),
-                desired_num
-            );
-            return Ok(false);
-        }
-        for accounts_chunk in self.sized_accounts.chunks(RPC_ACCOUNT_CHUNK_SIZE) {
-            let pubkeys: Vec<Pubkey> = accounts_chunk
-                .iter()
-                .map(|keypair| keypair.pubkey())
-                .collect();
-            let accounts_info = rpc_client.get_multiple_accounts(&pubkeys).await?;
-            for (index, info) in accounts_info.iter().enumerate() {
-                let Some(info) = info else {
-                    error!("Account {} doesn't exist.", pubkeys[index]);
-                    return Ok(false);
-                };
-                if !desired_account_size.contains(info.data.len()) {
-                    error!("Size of account {} is unexpected.", pubkeys[index]);
-                    return Ok(false);
-                }
-                if info.owner != desired_owner {
-                    error!(
-                        "Unexpected account owner for {}. Expected {}, found {}.",
-                        pubkeys[index], desired_owner, info.owner
-                    );
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
-    }
 }
 
 pub struct AccountsCreator {

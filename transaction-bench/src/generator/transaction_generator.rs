@@ -1,7 +1,7 @@
 //! Service generating serialized transactions in batches.
 use {
     crate::{
-        accounts_creator::AccountsFile, cli::TransactionParams,
+        accounts_file::AccountsFile, cli::TransactionParams,
         generator::chunked_accounts_iterator::ChunkedAccountsIterator,
     },
     client_test_program::ClientTestProgramInstruction,

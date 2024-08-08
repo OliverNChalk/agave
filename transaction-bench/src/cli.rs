@@ -1,6 +1,6 @@
 use {
     crate::range::Range,
-    clap::{crate_description, crate_name, crate_version, Args, Parser},
+    clap::{crate_description, crate_name, crate_version, Args, Parser, Subcommand},
     solana_clap_v3_utils::{
         input_parsers::parse_url_or_moniker, input_validators::normalize_to_url_if_moniker,
     },
@@ -28,31 +28,79 @@ pub struct ClientCliParameters {
         short = 'u',
         validator = parse_url_or_moniker,
         parse(try_from_str = normalize_to_url),
-        help = "URL for Solana's JSON RPC or moniker (or their first letter): \
+        help = "URL for Solana's JSON RPC or moniker (or their first letter):\n\
         [mainnet-beta, testnet, devnet, localhost]"
     )]
     pub json_rpc_url: String,
 
     #[clap(
         long,
-        parse(try_from_str = parse_duration),
-        help = "Seconds to run benchmark, then exit; default is forever"
-    )]
-    pub duration: Option<Duration>,
-
-    #[clap(
-        long,
         default_value = "confirmed",
         possible_values = &["processed", "confirmed", "finalized"],
-        help = "Block commitment config for getting latest blockhash"
+        help = "Block commitment config for getting latest blockhash.\n"
     )]
     pub commitment_config: CommitmentConfig,
 
-    #[clap(long, help = "Pinned address to send transactions.")]
-    pub pinned_address: Option<SocketAddr>,
-
     // Cannot use value_parser to read keypair file because Keypair is not Clone.
-    #[clap(long, help = "validator identity for staked connection")]
+    #[clap(
+        long,
+        help = "Keypair file of authority. If not provided, create a new one.\nIf authority has \
+                insufficient funds, client will try airdrop."
+    )]
+    pub authority: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Validate the created accounts number, size, balance.\nMight be time consuming, so \
+                recommended only for debugging purposes."
+    )]
+    pub validate_accounts: bool,
+
+    #[clap(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum Command {
+    #[clap(about = "Create accounts without saving them and run")]
+    Run {
+        #[clap(flatten)]
+        account_params: AccountParams,
+
+        #[clap(flatten)]
+        execution_params: ExecutionParams,
+
+        #[clap(flatten)]
+        transaction_params: TransactionParams,
+    },
+
+    #[clap(about = "Read accounts from provided accounts file and run")]
+    ReadAccountsRun {
+        #[clap(long, help = "File with saved accounts")]
+        accounts_file: PathBuf,
+
+        #[clap(flatten)]
+        execution_params: ExecutionParams,
+
+        #[clap(flatten)]
+        transaction_params: TransactionParams,
+    },
+
+    #[clap(about = "Create accounts and save them to a file, skipping the execution")]
+    WriteAccounts {
+        #[clap(long, help = "File to save the created accounts into")]
+        accounts_file: PathBuf,
+
+        #[clap(flatten)]
+        account_params: AccountParams,
+    },
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+pub struct ExecutionParams {
+    // Cannot use value_parser to read keypair file because Keypair is not Clone.
+    #[clap(long, help = "validator identity for staked connection.")]
     pub staked_identity_file: Option<PathBuf>,
 
     /// Address to bind on, default will listen on all available interfaces, 0 that
@@ -60,25 +108,15 @@ pub struct ClientCliParameters {
     #[clap(long, help = "bind", default_value = "0.0.0.0:0")]
     pub bind: SocketAddr,
 
-    #[clap(flatten)]
-    pub transaction_params: TransactionParams,
-
-    #[clap(flatten)]
-    pub account_params: AccountParams,
-
-    // Cannot use value_parser to read keypair file because Keypair is not Clone.
     #[clap(
         long,
-        help = "Keypair file of authority. If not provided, try create one and airdrop."
+        parse(try_from_str = parse_duration),
+        help = "If specified, limits the benchmark execution to the specified duration."
     )]
-    pub authority: Option<PathBuf>,
+    pub duration: Option<Duration>,
 
-    #[clap(
-        long,
-        help = "Validate the created accounts number, size, balance.
-        Might be time consuming, so recommended only for debugging purposes."
-    )]
-    pub validate_accounts: bool,
+    #[clap(long, help = "Pinned address to send transactions.")]
+    pub pinned_address: Option<SocketAddr>,
 
     #[clap(
         long,
@@ -95,8 +133,8 @@ pub struct TransactionParams {
         long,
         default_value = "1",
         validator = validate_num_accounts_per_tx,
-        help = "Number of sized accounts in transaction in format '<value>|[<value>,<value>]'.\
-        If interval is specified, the uniform distribution will be used."
+        help = "Number of sized accounts in transaction in format '<value>|[<value>,<value>]'.\n\
+                If interval is specified, the uniform distribution will be used.\n"
     )]
     pub num_accounts_per_tx: Range,
 
@@ -121,23 +159,23 @@ pub struct AccountParams {
         long,
         default_value = "1",
         validator = validate_account_size,
-        help = "Account size (bytes) in the format '<value>|[<value>,<value>]'.\
-        If interval is specified, the uniform distribution will be used."
+        help = "Account size (bytes) in the format '<value>|[<value>,<value>]'.\n\
+                If interval is specified, the uniform distribution will be used.\n"
     )]
     pub account_size: Range,
 
     #[clap(
         long,
         default_value = "1",
-        help = "Payer account balance in SOL, used to fund creation of other accounts and for \
-                transactions."
+        help = "Payer account balance in SOL,\nused to fund creation of other accounts and for \
+                transactions.\n"
     )]
     pub payer_account_balance: u64,
 
     #[clap(
         long,
         default_value_t = system_program::id(),
-        help = "Program that owns sized accounts, by default system program."
+        help = "Program that owns sized accounts, by default system program.\n"
     )]
     pub account_owner: Pubkey,
 }
@@ -178,64 +216,189 @@ mod tests {
         std::net::{IpAddr, Ipv4Addr},
     };
 
-    #[test]
-    fn test_typical_local_setup() {
-        let keypair_file_name = "/tmp/randomfile.json";
+    fn get_common_execution_params(keypair_file_name: &str) -> (Vec<&str>, ExecutionParams) {
+        (
+            vec![
+                "--staked-identity-file",
+                keypair_file_name,
+                "--duration",
+                "120",
+                "--pinned-address",
+                "127.0.0.1:8009",
+            ],
+            ExecutionParams {
+                staked_identity_file: Some(PathBuf::from(&keypair_file_name)),
+                bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+                duration: Some(Duration::from_secs(120)),
+                pinned_address: Some(SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    8009,
+                )),
+                num_max_open_connections: 16,
+            },
+        )
+    }
 
-        let cli = ClientCliParameters::try_parse_from([
+    fn get_common_account_params() -> (Vec<&'static str>, AccountParams) {
+        (
+            vec![
+                "--num-payers",
+                "256",
+                "--num-accounts",
+                "1024",
+                "--account-size",
+                "[128,512]",
+                "--payer-account-balance",
+                "1",
+            ],
+            AccountParams {
+                num_accounts: 1024,
+                num_payers: 256,
+                account_size: Range { min: 128, max: 512 },
+                payer_account_balance: 1,
+                account_owner: system_program::id(),
+            },
+        )
+    }
+
+    #[test]
+    fn test_run_command() {
+        let keypair_file_name = "/home/testUser/masterKey.json";
+
+        let mut args = vec![
             "test",
             "-ul",
             "--authority",
             keypair_file_name,
-            "--staked-identity-file",
-            keypair_file_name,
-            "--duration",
-            "120",
-            "--num-payers",
-            "256",
-            "--num-accounts",
-            "1024",
-            "--account-size",
-            "[128,512]",
-            "--payer-account-balance",
-            "1",
-            "--pinned-address",
-            "127.0.0.1:8009",
+            "run",
             "--num-accounts-per-tx",
             "[1,10]",
             "--transaction-cu-budget",
             "2000",
-        ]);
-        assert!(cli.is_ok());
-        let actual = cli.unwrap();
+        ];
+        let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
+        args.extend(exec_args.iter());
+        let (account_args, account_params) = get_common_account_params();
+        args.extend(account_args.iter());
 
-        assert_eq!(
-            actual,
-            ClientCliParameters {
-                json_rpc_url: "http://localhost:8899".to_string(),
-                duration: Some(Duration::from_secs(120)),
-                commitment_config: CommitmentConfig::confirmed(),
-                pinned_address: Some(SocketAddr::new(
-                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    8009
-                )),
-                staked_identity_file: Some(PathBuf::from(&keypair_file_name)),
-                bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        let expected_parameters = ClientCliParameters {
+            json_rpc_url: "http://localhost:8899".to_string(),
+            commitment_config: CommitmentConfig::confirmed(),
+            command: Command::Run {
                 transaction_params: TransactionParams {
                     num_accounts_per_tx: Range { min: 1, max: 10 },
-                    transaction_cu_budget: 2000
+                    transaction_cu_budget: 2000,
                 },
-                account_params: AccountParams {
-                    num_accounts: 1024,
-                    num_payers: 256,
-                    account_size: Range { min: 128, max: 512 },
-                    payer_account_balance: 1,
-                    account_owner: system_program::id()
+                account_params,
+                execution_params,
+            },
+            authority: Some(PathBuf::from(&keypair_file_name)),
+            validate_accounts: false,
+        };
+        let actual = ClientCliParameters::try_parse_from(args).unwrap();
+
+        assert_eq!(actual, expected_parameters);
+    }
+
+    #[test]
+    fn test_read_accounts_run_command() {
+        let keypair_file_name = "/home/testUser/masterKey.json";
+        let accounts_file_name = "/home/testUser/accountsFile.json";
+
+        let mut args = vec![
+            "test",
+            "-ul",
+            "--authority",
+            keypair_file_name,
+            "read-accounts-run",
+            "--accounts-file",
+            accounts_file_name,
+            "--num-accounts-per-tx",
+            "[1,10]",
+            "--transaction-cu-budget",
+            "2000",
+        ];
+        let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
+        args.extend(exec_args.iter());
+
+        let expected_parameters = ClientCliParameters {
+            json_rpc_url: "http://localhost:8899".to_string(),
+            commitment_config: CommitmentConfig::confirmed(),
+            command: Command::ReadAccountsRun {
+                accounts_file: accounts_file_name.into(),
+                transaction_params: TransactionParams {
+                    num_accounts_per_tx: Range { min: 1, max: 10 },
+                    transaction_cu_budget: 2000,
                 },
-                authority: Some(PathBuf::from(&keypair_file_name)),
-                validate_accounts: false,
-                num_max_open_connections: 16,
-            }
-        );
+                execution_params,
+            },
+            authority: Some(PathBuf::from(&keypair_file_name)),
+            validate_accounts: false,
+        };
+        let cli = ClientCliParameters::try_parse_from(args);
+        assert!(cli.is_ok(), "Unexpected error {:?}", cli.err());
+        let actual = cli.unwrap();
+
+        assert_eq!(actual, expected_parameters);
+    }
+
+    #[test]
+    fn test_write_accounts_command() {
+        let keypair_file_name = "/home/testUser/masterKey.json";
+        let accounts_file_name = "/home/testUser/accountsFile.json";
+
+        let mut args = vec![
+            "test",
+            "-ul",
+            "--authority",
+            keypair_file_name,
+            "write-accounts",
+            "--accounts-file",
+            accounts_file_name,
+        ];
+
+        let (account_args, account_params) = get_common_account_params();
+        args.extend(account_args.iter());
+
+        let expected_parameters = ClientCliParameters {
+            json_rpc_url: "http://localhost:8899".to_string(),
+            commitment_config: CommitmentConfig::confirmed(),
+            command: Command::WriteAccounts {
+                accounts_file: accounts_file_name.into(),
+                account_params,
+            },
+            authority: Some(PathBuf::from(&keypair_file_name)),
+            validate_accounts: false,
+        };
+        let cli = ClientCliParameters::try_parse_from(args);
+        assert!(cli.is_ok(), "Unexpected error {:?}", cli.err());
+        let actual = cli.unwrap();
+
+        assert_eq!(actual, expected_parameters);
+    }
+
+    /// Check that cannot use `write` subcommand together with parameters from `TransactionParams`
+    #[test]
+    fn test_write_accounts_file_conflict() {
+        let keypair_file_name = "/home/testUser/masterKey.json";
+        let accounts_file_name = "/home/testUser/accountsFile.json";
+
+        let mut args = vec![
+            "test",
+            "-ul",
+            "--authority",
+            keypair_file_name,
+            "write-accounts",
+            "--num-accounts-per-tx",
+            "100",
+            "--accounts-file",
+            accounts_file_name,
+        ];
+
+        let (account_args, _account_params) = get_common_account_params();
+        args.extend(account_args.iter());
+
+        let cli = ClientCliParameters::try_parse_from(args);
+        assert!(cli.is_err());
     }
 }

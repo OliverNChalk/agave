@@ -9,11 +9,15 @@ use {
     solana_streamer::nonblocking::quic::{compute_max_allowed_uni_streams, ConnectionPeerType},
     solana_transaction_bench::{
         accounts_creator::AccountsCreator,
+        accounts_file::{read_accounts_file, write_accounts_file, AccountsFile},
         blockhash_updater::BlockhashUpdater,
-        cli::{build_cli_parameters, ClientCliParameters},
+        cli::{
+            build_cli_parameters, ClientCliParameters, Command, ExecutionParams, TransactionParams,
+        },
         error::BenchClientError,
         generator::TransactionGenerator,
         network::{leader_updater::create_leader_updater, ConnectionWorkersScheduler},
+        validate_accounts::validate,
     },
     std::{fmt::Debug, sync::Arc},
     tokio::{
@@ -46,15 +50,6 @@ fn main() {
 
 #[tokio::main]
 async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
-    let validator_identity = if let Some(staked_identity_file) = parameters.staked_identity_file {
-        Some(
-            Keypair::read_from_file(staked_identity_file)
-                .map_err(|_err| BenchClientError::KeypairReadFailure)?,
-        )
-    } else {
-        None
-    };
-
     let authority = if let Some(authority_file) = parameters.authority {
         Keypair::read_from_file(authority_file)
             .map_err(|_err| BenchClientError::KeypairReadFailure)?
@@ -72,78 +67,59 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
         parameters.commitment_config,
     ));
 
-    let accounts_creator =
-        AccountsCreator::new(rpc_client.clone(), authority, parameters.account_params);
-    let accounts = accounts_creator.create().await?;
-    if parameters.validate_accounts
-        && !accounts
-            .validate(rpc_client.clone(), parameters.account_params)
-            .await?
-    {
-        return Err(BenchClientError::AccountsValidationFailure);
+    match parameters.command {
+        Command::Run {
+            transaction_params,
+            account_params,
+            execution_params,
+        } => {
+            let accounts_creator =
+                AccountsCreator::new(rpc_client.clone(), authority, account_params);
+            let accounts = accounts_creator.create().await?;
+            if parameters.validate_accounts
+                && !validate(&accounts, rpc_client.clone(), account_params).await?
+            {
+                return Err(BenchClientError::AccountsValidationFailure);
+            }
+            run_client(
+                rpc_client,
+                websocket_url,
+                accounts,
+                transaction_params,
+                execution_params,
+            )
+            .await?;
+        }
+        Command::ReadAccountsRun {
+            accounts_file,
+            transaction_params,
+            execution_params,
+        } => {
+            let accounts = read_accounts_file(accounts_file);
+            run_client(
+                rpc_client,
+                websocket_url,
+                accounts,
+                transaction_params,
+                execution_params,
+            )
+            .await?;
+        }
+        Command::WriteAccounts {
+            accounts_file,
+            account_params,
+        } => {
+            let accounts_creator =
+                AccountsCreator::new(rpc_client.clone(), authority, account_params);
+            let accounts = accounts_creator.create().await?;
+            if parameters.validate_accounts
+                && !validate(&accounts, rpc_client.clone(), account_params).await?
+            {
+                return Err(BenchClientError::AccountsValidationFailure);
+            }
+            write_accounts_file(accounts_file, accounts);
+        }
     }
-
-    // Set up size of the txs batch to put into the queue to be equal to the num_streams_per_connection
-    let num_streams_per_connection = compute_num_streams(
-        &rpc_client,
-        validator_identity.as_ref().map(|keypair| keypair.pubkey()),
-    )
-    .await?;
-    let send_batch_size = num_streams_per_connection;
-    info!("Number of streams per connection is {num_streams_per_connection}.");
-
-    let blockhash = rpc_client
-        .get_latest_blockhash()
-        .await
-        .expect("Blockhash request should not fail.");
-    let (blockhash_sender, blockhash_receiver) = watch::channel(blockhash);
-    let blockhash_updater = BlockhashUpdater::new(rpc_client.clone(), blockhash_sender);
-
-    let blockhash_task_handle = tokio::spawn(async move { blockhash_updater.run().await });
-
-    // Use bounded to avoid producing too many batches of transactions.
-    let (transaction_sender, transaction_receiver) = mpsc::channel(GENERATOR_CHANNEL_SIZE);
-
-    let transaction_generator = TransactionGenerator::new(
-        accounts,
-        blockhash_receiver,
-        transaction_sender,
-        parameters.transaction_params,
-        send_batch_size,
-        parameters.duration,
-    );
-
-    let transaction_generator_task_handle =
-        tokio::spawn(async move { transaction_generator.run().await });
-
-    let scheduler_handle: JoinHandle<Result<(), BenchClientError>> = tokio::spawn(async move {
-        let leader_updater = create_leader_updater(
-            rpc_client,
-            websocket_url,
-            LOOKAHEAD_SLOTS,
-            parameters.pinned_address,
-        )
-        .await?;
-
-        // TODO It would be good to connect the `cancel` token to the Ctrl+C and other interrupt
-        // handlers.
-        let cancel = CancellationToken::new();
-
-        ConnectionWorkersScheduler::run(
-            parameters.bind,
-            validator_identity,
-            leader_updater,
-            cancel,
-            transaction_receiver,
-            parameters.num_max_open_connections,
-        )
-        .await?;
-        Ok(())
-    });
-
-    join_service(transaction_generator_task_handle, "TransactionGenerator").await;
-    join_service(blockhash_task_handle, "BlockhashUpdater").await;
-    join_service::<BenchClientError>(scheduler_handle, "Scheduler").await;
 
     Ok(())
 }
@@ -207,4 +183,86 @@ where
         Ok(Err(e)) => error!("Task failed with error: {e:?}"),
         Err(e) => error!("Task was cancelled or panicked: {e:?}"),
     }
+}
+
+async fn run_client(
+    rpc_client: Arc<RpcClient>,
+    websocket_url: String,
+    accounts: AccountsFile,
+    transaction_params: TransactionParams,
+    ExecutionParams {
+        staked_identity_file,
+        bind,
+        duration,
+        pinned_address,
+        num_max_open_connections,
+    }: ExecutionParams,
+) -> Result<(), BenchClientError> {
+    let validator_identity = if let Some(staked_identity_file) = staked_identity_file {
+        Some(
+            Keypair::read_from_file(staked_identity_file)
+                .map_err(|_err| BenchClientError::KeypairReadFailure)?,
+        )
+    } else {
+        None
+    };
+
+    // Set up size of the txs batch to put into the queue to be equal to the num_streams_per_connection
+    let num_streams_per_connection = compute_num_streams(
+        &rpc_client,
+        validator_identity.as_ref().map(|keypair| keypair.pubkey()),
+    )
+    .await?;
+    let send_batch_size = num_streams_per_connection;
+    info!("Number of streams per connection is {num_streams_per_connection}.");
+
+    let blockhash = rpc_client
+        .get_latest_blockhash()
+        .await
+        .expect("Blockhash request should not fail.");
+    let (blockhash_sender, blockhash_receiver) = watch::channel(blockhash);
+    let blockhash_updater = BlockhashUpdater::new(rpc_client.clone(), blockhash_sender);
+
+    let blockhash_task_handle = tokio::spawn(async move { blockhash_updater.run().await });
+
+    // Use bounded to avoid producing too many batches of transactions.
+    let (transaction_sender, transaction_receiver) = mpsc::channel(GENERATOR_CHANNEL_SIZE);
+
+    let transaction_generator = TransactionGenerator::new(
+        accounts,
+        blockhash_receiver,
+        transaction_sender,
+        transaction_params,
+        send_batch_size,
+        duration,
+    );
+
+    let transaction_generator_task_handle =
+        tokio::spawn(async move { transaction_generator.run().await });
+
+    let scheduler_handle: JoinHandle<Result<(), BenchClientError>> = tokio::spawn(async move {
+        let leader_updater =
+            create_leader_updater(rpc_client, websocket_url, LOOKAHEAD_SLOTS, pinned_address)
+                .await?;
+
+        // TODO It would be good to connect the `cancel` token to the Ctrl+C and other interrupt
+        // handlers.
+        let cancel = CancellationToken::new();
+
+        ConnectionWorkersScheduler::run(
+            bind,
+            validator_identity,
+            leader_updater,
+            cancel,
+            transaction_receiver,
+            num_max_open_connections,
+        )
+        .await?;
+        Ok(())
+    });
+
+    join_service(transaction_generator_task_handle, "TransactionGenerator").await;
+    join_service(blockhash_task_handle, "BlockhashUpdater").await;
+    join_service::<BenchClientError>(scheduler_handle, "Scheduler").await;
+    Ok(())
 }

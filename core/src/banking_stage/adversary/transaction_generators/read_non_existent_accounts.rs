@@ -9,9 +9,14 @@ use {
         },
         consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
     },
-    rand::{seq::SliceRandom, thread_rng},
+    rand::{seq::IteratorRandom, thread_rng},
+    rayon::{
+        iter::{IntoParallelIterator, ParallelIterator},
+        ThreadPoolBuilder,
+    },
     solana_adversary::accounts_file::AccountsFile,
     solana_message::legacy::Message as LegacyMessage,
+    solana_pubkey::{Pubkey, PUBKEY_BYTES},
     solana_runtime::bank::Bank,
     solana_signer::Signer,
     solana_transaction::{sanitized::SanitizedTransaction, Transaction},
@@ -19,6 +24,8 @@ use {
 };
 
 const NUM_NON_EXISTENT_ACCOUNTS_PER_TX: usize = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET;
+
+const NUM_TRANSACTION_GENERATION_THREADS: usize = 4;
 
 pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
     if accounts.payers.len() < TARGET_NUM_TRANSACTIONS_PER_BATCH {
@@ -35,45 +42,61 @@ pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> Tran
     // Used to distribute transactions across banking stage consume workers.
     let mut worker_index = IndexByModulo::new(num_workers);
 
+    let thread_pool = ThreadPoolBuilder::new()
+        .num_threads(NUM_TRANSACTION_GENERATION_THREADS)
+        .build()
+        .unwrap();
+
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();
 
-        let transactions = accounts
-            .payers
-            .choose_multiple(&mut thread_rng(), TARGET_NUM_TRANSACTIONS_PER_BATCH)
-            .map(|payer| {
-                // Create a transaction with a valid/funded payer account and non-existent input accounts.
+        thread_pool.install(|| {
+            let transactions: Vec<SanitizedTransaction> = accounts
+                .payers
+                .iter()
+                .choose_multiple(&mut thread_rng(), TARGET_NUM_TRANSACTIONS_PER_BATCH)
+                .into_par_iter()
+                .map_init(thread_rng, |_rng, payer| {
+                    // Create a transaction with a valid/funded payer account and non-existent input accounts.
 
-                // As we are not running any instructions in this transaction, we do not really need
-                // to provide signatures for our testing accounts. The runtime will still need to
-                // load them, even if they did not sign.
-                let pubkeys = iter::once(payer.pubkey())
-                    .chain(
-                        iter::repeat_with(solana_pubkey::new_rand)
-                            .take(NUM_NON_EXISTENT_ACCOUNTS_PER_TX),
-                    )
-                    .collect::<Vec<_>>();
+                    // The base pubkey's bytes are randomly generated once and used to create other
+                    // pubkeys. This is done to speed up the tx creation while still having a unique
+                    // set of keys per transaction. we can do this because the test doesn't need
+                    // the corresponding private keys.
+                    let base_pubkey_bytes = rand::random::<[u8; PUBKEY_BYTES]>();
 
-                let message = LegacyMessage::new_with_compiled_instructions(
-                    // Payer will sign and pay, so it is the only writable signer.
-                    1,
-                    0,
-                    // All the other accounts are read-only accounts that did not provide a signature.
-                    pubkeys
-                        .len()
-                        .saturating_sub(1)
-                        .try_into()
-                        .expect("`pubkeys.len()` fits into u8"),
-                    pubkeys,
-                    blockhash,
-                    vec![],
-                );
-                Transaction::new(&[&payer], message, blockhash)
-            })
-            .map(SanitizedTransaction::from_transaction_for_tests)
-            .collect::<Vec<_>>();
+                    // As we are not running any instructions in this transaction, we do not really need
+                    // to provide signatures for our testing accounts. The runtime will still need to
+                    // load them, even if they did not sign.
+                    let pubkeys: Vec<_> = iter::once(payer.pubkey())
+                        .chain((0..NUM_NON_EXISTENT_ACCOUNTS_PER_TX).map(|i| {
+                            let mut new_pubkey_bytes = base_pubkey_bytes;
+                            new_pubkey_bytes[0] = new_pubkey_bytes[0].wrapping_add(i as u8);
+                            Pubkey::new_from_array(new_pubkey_bytes)
+                        }))
+                        .collect::<Vec<_>>();
 
-        (transactions, worker_index.next())
+                    let message = LegacyMessage::new_with_compiled_instructions(
+                        // Payer will sign and pay, so it is the only writable signer.
+                        1,
+                        0,
+                        // All the other accounts are read-only accounts that did not provide a signature.
+                        pubkeys
+                            .len()
+                            .saturating_sub(1)
+                            .try_into()
+                            .expect("`pubkeys.len()` fits into u8"),
+                        pubkeys,
+                        blockhash,
+                        vec![],
+                    );
+                    let transaction = Transaction::new(&[payer], message, blockhash);
+                    SanitizedTransaction::from_transaction_for_tests(transaction)
+                })
+                .collect();
+
+            (transactions, worker_index.next())
+        })
     })
 }
 
