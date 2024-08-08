@@ -9,17 +9,19 @@ use {
         scheduler_messages::{self, ConsumeWork, FinishedConsumeWork},
         transaction_scheduler::batch_id_generator::BatchIdGenerator,
     },
-    crossbeam_channel::{Receiver, Sender, TryRecvError},
+    crossbeam_channel::{Receiver, SendError, Sender, TryRecvError},
     solana_adversary::ReplayAttackReceiver,
+    solana_runtime::bank::Bank,
     solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
     solana_transaction::sanitized::SanitizedTransaction,
     std::{
+        ops::ControlFlow,
         sync::{
             atomic::{self, AtomicBool},
             Arc,
         },
         thread::sleep,
-        time::Duration,
+        time::{Duration, Instant},
     },
 };
 
@@ -127,50 +129,105 @@ impl AttackScheduler {
                 continue;
             };
 
-            let num_generator_exec = active_generator.get_execution_batch_size();
-            let use_failed_transaction_hotpath = active_generator.use_failed_transaction_hotpath();
+            let keep_running = generate_attack_transactions(
+                &mut tx_batch_id_gen,
+                &mut tx_id,
+                active_generator,
+                bank.as_ref(),
+                &consume_work_senders,
+            );
 
-            // Batch transactions to amortize decision cost.
-            for _ in 0..num_generator_exec {
-                let (transactions, worker_index) = active_generator.generate_transactions(bank);
-
-                let transactions = transactions
-                    .into_iter()
-                    .map(|tx| {
-                        RuntimeTransaction::new_from_sanitized(tx).unwrap_or_else(|err| {
-                            panic!(
-                                "Failed to convert a `SanitizedTransaction` produced by the \
-                                 generator into a \
-                                 `RuntimeTransaction<SanitizedTransaction>`.\nError: {err}",
-                            )
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                let tx_count = transactions.len();
-                let scheduled_work = ConsumeWork::<RuntimeTransaction<SanitizedTransaction>> {
-                    batch_id: tx_batch_id_gen.next(),
-                    ids: (0..tx_count)
-                        .map(|_| {
-                            tx_id += 1;
-                            tx_id
-                        })
-                        .collect(),
-                    transactions,
-                    max_ages: (0..tx_count)
-                        .map(|_| scheduler_messages::MaxAge::MAX)
-                        .collect(),
-                    use_failed_transaction_hotpath,
-                };
-
-                match consume_work_senders[worker_index].send(scheduled_work) {
-                    Ok(()) => (),
-                    Err(_) => {
-                        //The channel was disconnected.
-                        return;
-                    }
-                }
+            if keep_running.is_break() {
+                break 'scheduler_loop;
             }
         }
+    }
+}
+
+fn generate_attack_transactions(
+    tx_batch_id_gen: &mut BatchIdGenerator,
+    tx_id: &mut usize,
+    active_generator: &mut ActiveGenerator,
+    bank: &Bank,
+    consume_work_senders: &[Sender<ConsumeWork<RuntimeTransaction<SanitizedTransaction>>>],
+) -> ControlFlow<()> {
+    // There is an assumption that as some transaction generators are very fast, we may want to run
+    // them in a loop more than once, before we go back to checking all the other conditions the
+    // main loop is supposed to react to.
+    //
+    // We did see a difference in the number of transactions we managed to pack into a single block
+    // with the simple transfer attack, with and without this optimization.  But at that point the
+    // loop was doing more operations than now.  So it is possible that right now this amortization
+    // is not providing any additional value.  It is also the case, that the other operations in
+    // this loop are either very cheap, or are meaningful for the active generator.
+    //
+    // In any case, we could afford to block here for a bit, before we go back to checking all the
+    // other conditions in the loop above.  10ms is a rather random number that is not too long
+    // considering the slot time of 400ms.  We mostly expect attacks to operate at a scale of at
+    // least 4 blocks - a single leader schedule item.
+    const NON_STOP_GENERATION_INTERVAL: Duration = Duration::from_millis(10);
+    let start = Instant::now();
+
+    let use_failed_transaction_hotpath = active_generator.use_failed_transaction_hotpath();
+
+    loop {
+        let (transactions, worker_index) = active_generator.generate_transactions(bank);
+
+        let scheduled_work = transactions_to_scheduled_work(
+            tx_batch_id_gen,
+            tx_id,
+            use_failed_transaction_hotpath,
+            transactions,
+        );
+        match consume_work_senders[worker_index].send(scheduled_work) {
+            Ok(()) => (),
+            Err(SendError(_)) => {
+                // The channel was disconnected.
+                return ControlFlow::Break(());
+            }
+        }
+
+        // We want to run the generator at least once, so this check must be last in the loop.
+        if start.elapsed() >= NON_STOP_GENERATION_INTERVAL {
+            break;
+        }
+    }
+
+    ControlFlow::Continue(())
+}
+
+fn transactions_to_scheduled_work(
+    tx_batch_id_gen: &mut BatchIdGenerator,
+    tx_id: &mut usize,
+    use_failed_transaction_hotpath: bool,
+    transactions: Vec<SanitizedTransaction>,
+) -> ConsumeWork<RuntimeTransaction<SanitizedTransaction>> {
+    let transactions = transactions
+        .into_iter()
+        .map(|tx| {
+            RuntimeTransaction::new_from_sanitized(tx).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to convert a `SanitizedTransaction` produced by the generator into a \
+                     `RuntimeTransaction<SanitizedTransaction>`.\nError: {err}",
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let tx_count = transactions.len();
+
+    ConsumeWork::<RuntimeTransaction<SanitizedTransaction>> {
+        batch_id: tx_batch_id_gen.next(),
+        ids: (0..tx_count)
+            .map(|_| {
+                *tx_id += 1;
+                *tx_id
+            })
+            .collect(),
+        transactions,
+        max_ages: (0..tx_count)
+            .map(|_| scheduler_messages::MaxAge::MAX)
+            .collect(),
+        use_failed_transaction_hotpath,
     }
 }

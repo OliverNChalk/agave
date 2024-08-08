@@ -33,7 +33,6 @@ pub type TransactionGenerator = Box<dyn Send + FnMut(&Bank) -> (Vec<SanitizedTra
 pub struct ActiveGenerator {
     attack: Attack,
     generator: TransactionGenerator,
-    execution_tx_batch_size: usize,
 }
 
 impl ActiveGenerator {
@@ -46,19 +45,8 @@ impl ActiveGenerator {
         };
 
         info!("Reset selected generator to: {attack:?}");
-        let (generator, execution_tx_batch_size) =
-            Self::create_generator(accounts, attack.clone(), num_workers);
-        Some(Self {
-            attack,
-            generator,
-            execution_tx_batch_size,
-        })
-    }
-
-    /// Run the generator this many times at once, when producing transactions.
-    /// Generators that do little work per transaction should use a larger value.
-    pub fn get_execution_batch_size(&self) -> usize {
-        self.execution_tx_batch_size
+        let generator = Self::create_generator(accounts, attack.clone(), num_workers);
+        Some(Self { attack, generator })
     }
 
     /// Generate transactions using current generator
@@ -70,44 +58,33 @@ impl ActiveGenerator {
         accounts: Arc<AccountsFile>,
         attack: Attack,
         num_workers: usize,
-    ) -> (TransactionGenerator, usize) {
+    ) -> TransactionGenerator {
         use Attack::*;
         match attack {
-            TransferRandom => (transfer_random::generator(accounts, num_workers), 100),
-            CreateNonceAccounts => (create_nonce_accounts::generator(accounts, num_workers), 10),
-            AllocateRandomLarge => (allocate_random_large::generator(accounts, num_workers), 1),
-            AllocateRandomSmall => (allocate_random_small::generator(accounts, num_workers), 10),
-            ChainTransactions => (chain_transactions::generator(accounts, num_workers), 10),
-            WriteProgram(write_program_config) => (
-                write_program::generator(accounts, num_workers, write_program_config),
-                1,
-            ),
-            ReadMaxAccounts => (read_max_accounts::generator(accounts, num_workers), 1),
-            WriteMaxAccounts => (write_max_accounts::generator(accounts, num_workers), 1),
-            ReadProgram(read_program_config) => (
-                read_program::generator(accounts, num_workers, read_program_config),
-                1,
-            ),
-            RecursiveProgram(recursive_program_config) => (
-                recursive_program::generator(accounts, num_workers, recursive_program_config),
-                1,
-            ),
-            ColdProgramCache(cold_program_cache_config) => (
-                cold_program_cache::generator(accounts, num_workers, cold_program_cache_config),
-                1,
-            ),
-            LargeNop(large_nop_program_config) => (
-                large_nop::generator(accounts, num_workers, large_nop_program_config),
-                10,
-            ),
-            TransferRandomWithMemo => (
-                transfer_random_with_memo::generator(accounts, num_workers),
-                10,
-            ),
-            ReadNonExistentAccounts => (
-                read_non_existent_accounts::generator(accounts, num_workers),
-                20,
-            ),
+            TransferRandom => transfer_random::generator(accounts, num_workers),
+            CreateNonceAccounts => create_nonce_accounts::generator(accounts, num_workers),
+            AllocateRandomLarge => allocate_random_large::generator(accounts, num_workers),
+            AllocateRandomSmall => allocate_random_small::generator(accounts, num_workers),
+            ChainTransactions => chain_transactions::generator(accounts, num_workers),
+            WriteProgram(write_program_config) => {
+                write_program::generator(accounts, num_workers, write_program_config)
+            }
+            ReadMaxAccounts => read_max_accounts::generator(accounts, num_workers),
+            WriteMaxAccounts => write_max_accounts::generator(accounts, num_workers),
+            ReadProgram(read_program_config) => {
+                read_program::generator(accounts, num_workers, read_program_config)
+            }
+            RecursiveProgram(recursive_program_config) => {
+                recursive_program::generator(accounts, num_workers, recursive_program_config)
+            }
+            ColdProgramCache(cold_program_cache_config) => {
+                cold_program_cache::generator(accounts, num_workers, cold_program_cache_config)
+            }
+            LargeNop(large_nop_program_config) => {
+                large_nop::generator(accounts, num_workers, large_nop_program_config)
+            }
+            TransferRandomWithMemo => transfer_random_with_memo::generator(accounts, num_workers),
+            ReadNonExistentAccounts => read_non_existent_accounts::generator(accounts, num_workers),
         }
     }
 
