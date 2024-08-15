@@ -1,7 +1,7 @@
 use {
     crossbeam_channel::Receiver,
     indoc::formatdoc,
-    log::debug,
+    log::{debug, error},
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
     solana_adversary::{
@@ -48,6 +48,8 @@ use {
 
 const NUM_NODES: usize = 2;
 const STRESS_TEST_PROGRAM_ID: Pubkey = Pubkey::new_from_array([7u8; 32]);
+const BLOCK_VALIDATION_COMMITMENT_LEVEL: Option<CommitmentConfig> =
+    Some(CommitmentConfig::confirmed());
 
 mod setup {
     use super::*;
@@ -117,7 +119,7 @@ mod setup {
             format!("ws://{rpc_pubsub_addr}"),
             RpcBlockSubscribeFilter::All,
             Some(RpcBlockSubscribeConfig {
-                commitment: Some(CommitmentConfig::confirmed()),
+                commitment: BLOCK_VALIDATION_COMMITMENT_LEVEL,
                 encoding: None,
                 transaction_details: Some(TransactionDetails::Signatures),
                 show_rewards: None,
@@ -343,12 +345,58 @@ mod setup {
 }
 
 mod verify {
-    use {super::*, solana_client::rpc_client::RpcClient};
+    use {
+        super::*,
+        agave_reserved_account_keys::ReservedAccountKeys,
+        solana_client::rpc_client::RpcClient,
+        solana_message::SimpleAddressLoader,
+        solana_transaction::sanitized::{MessageHash, SanitizedTransaction},
+        solana_transaction_status::{
+            EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
+        },
+    };
 
     // Large enough to ensure cluster is still making progress.
     const NUM_NEW_ROOTS_TO_WAIT_FOR: usize = 16;
 
-    fn block_includes_attack_txs(block: &Option<UiConfirmedBlock>) -> bool {
+    fn is_vote_transaction(tx: &EncodedConfirmedTransactionWithStatusMeta) -> bool {
+        SanitizedTransaction::try_create(
+            tx.transaction
+                .transaction
+                .decode()
+                .expect("Transaction must decode"),
+            MessageHash::Compute,
+            None,
+            SimpleAddressLoader::Disabled,
+            &ReservedAccountKeys::empty_key_set(),
+        )
+        .map(|tx| tx.is_simple_vote_transaction())
+        .unwrap_or_default()
+    }
+
+    // Queries RPC for the provided transaction signature and checks if it is
+    // associated with a confirmed attack transaction.
+    fn signature_is_for_attack_transaction(signature: &str, client: &RpcClient) -> bool {
+        let config = solana_client::rpc_config::RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Base64),
+            commitment: BLOCK_VALIDATION_COMMITMENT_LEVEL,
+            max_supported_transaction_version: Some(0),
+        };
+
+        match client.get_transaction_with_config(&signature.parse().unwrap(), config) {
+            Ok(transaction) => {
+                if !is_vote_transaction(&transaction) {
+                    // Attack transactions should be the only non-vote transactions.
+                    return true;
+                }
+            }
+            Err(err) => error!("Error getting transaction: {err:?}"),
+        }
+
+        false
+    }
+
+    fn block_includes_attack_txs(block: &Option<UiConfirmedBlock>, client: &RpcClient) -> bool {
         // Extract the signatures from the block.
         let Some(UiConfirmedBlock {
             signatures: Some(signatures),
@@ -359,26 +407,25 @@ mod verify {
             return false;
         };
 
-        // Use the signature count as a proxy for whether this block includes
-        // attack transactions. This is done because pulling down all the
-        // transactions in a block results in several MBs of data and can take a
-        // long time when we're packing blocks with 10s of thousands of
-        // transactions. Attacks are the only non-vote traffic, so using node
-        // count * 2 should provide plenty of margin to ensure we're seeing
-        // non-votes getting landed.
-        signatures.len() > NUM_NODES.saturating_mul(2)
+        for signature in signatures {
+            if signature_is_for_attack_transaction(signature, client) {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn block_updates_include_attack_transactions(
         receiver: &Receiver<Response<RpcBlockUpdate>>,
+        client: &RpcClient,
     ) -> bool {
         // Each response is an update for a confirmed block.
         for response in receiver.try_iter() {
             let RpcBlockUpdate { block, err, .. } = response.value;
-
             assert_eq!(err, None);
 
-            if block_includes_attack_txs(&block) {
+            if block_includes_attack_txs(&block, client) {
                 return true;
             }
         }
@@ -388,6 +435,7 @@ mod verify {
 
     pub fn attack_transactions_are_landing(
         receiver: &Receiver<Response<RpcBlockUpdate>>,
+        client: &RpcClient,
         test_duration: Duration,
         num_response_check_iterations: u32,
     ) {
@@ -396,7 +444,7 @@ mod verify {
             .expect("check iterations must be greater than zero");
 
         for _ in 0..num_response_check_iterations {
-            if block_updates_include_attack_transactions(receiver) {
+            if block_updates_include_attack_transactions(receiver, client) {
                 return;
             }
             sleep(check_sleep_duration);
@@ -529,6 +577,7 @@ fn run_replay_attack(attack: Attack) {
     // Verify transactions are landing during the attack.
     verify::attack_transactions_are_landing(
         &receiver,
+        rpc_client,
         max_test_duration,
         num_response_check_iterations,
     );
