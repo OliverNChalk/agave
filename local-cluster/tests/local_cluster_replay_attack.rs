@@ -255,7 +255,8 @@ mod setup {
                 | Attack::CreateNonceAccounts
                 | Attack::ChainTransactions
                 | Attack::AllocateRandomSmall
-                | Attack::AllocateRandomLarge => (1_000, 0, 0),
+                | Attack::AllocateRandomLarge
+                | Attack::ReadNonExistentAccounts => (1_000, 0, 0),
                 Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => {
                     let num_max_size_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
@@ -287,7 +288,6 @@ mod setup {
                         .saturating_mul(num_replay_threads);
                     (num_payers_accounts, 0, num_payers_accounts)
                 }
-                Attack::ReadNonExistentAccounts => (1_000, 0, 0),
                 _ => unimplemented!(),
             }
         }
