@@ -7,7 +7,10 @@ use {
     },
     block_generator_stress_test::{BlockGeneratorStressTestInstruction, LARGE_NOP_DATA_SIZE},
     rand::{seq::SliceRandom, thread_rng, Rng},
-    rayon::iter::{IntoParallelIterator, ParallelIterator},
+    rayon::{
+        iter::{IntoParallelIterator, ParallelIterator},
+        ThreadPool,
+    },
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{Attack, LargeNopAttackConfig},
@@ -64,17 +67,10 @@ pub(super) fn generator(
     accounts: Arc<AccountsFile>,
     num_workers: usize,
     config: LargeNopAttackConfig,
+    tx_generator_thread_pool: Arc<ThreadPool>,
 ) -> TransactionGenerator {
     // Used to distribute transactions across banking stage consume workers.
     let mut worker_index = IndexByModulo::new(num_workers);
-
-    // Transaction generation is the bottleneck, so parallelize it. Currently
-    // limiting to just 2 threads because we can exceed the shred limit when
-    // moving to 4 threads and beyond.
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
-        .build()
-        .unwrap();
 
     // Explicitly specify the CU budget to avoid dropping some transactions on the CU check side.
     // The constraint is that 48M/64 > CU limit.
@@ -89,7 +85,7 @@ pub(super) fn generator(
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();
         let instructions = &[set_cu_instruction.clone(), nop_instruction.clone()];
-        thread_pool.install(|| {
+        tx_generator_thread_pool.install(|| {
             let transactions: Vec<SanitizedTransaction> = (0..config.common.transaction_batch_size)
                 .into_par_iter()
                 .map_init(thread_rng, |rng, _| {
@@ -112,6 +108,7 @@ mod tests {
             create_test_bank, setup_accounts, setup_test, TestAccounts,
         },
         jsonrpc_core::{types::error::ErrorCode, Value},
+        rayon::ThreadPoolBuilder,
         serde_json::json,
         serial_test::serial,
         solana_adversary::adversary_feature_set::replay_stage_attack::{
@@ -131,9 +128,12 @@ mod tests {
         let num_workers = 4;
         let config = LargeNopAttackConfig::default();
         let bank = create_test_bank();
+        let tx_generator_thread_pool =
+            Arc::new(ThreadPoolBuilder::new().num_threads(2).build().unwrap());
 
         // Create the generator.
-        let mut generator = super::generator(accounts, num_workers, config);
+        let mut generator =
+            super::generator(accounts, num_workers, config, tx_generator_thread_pool);
 
         // Generate a batch of transactions.
         let (transactions, _worker_index) = generator(&bank);

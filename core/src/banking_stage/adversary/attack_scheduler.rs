@@ -10,6 +10,7 @@ use {
         transaction_scheduler::batch_id_generator::BatchIdGenerator,
     },
     crossbeam_channel::{Receiver, SendError, Sender, TryRecvError},
+    rayon::{ThreadPool, ThreadPoolBuilder},
     solana_adversary::ReplayAttackReceiver,
     solana_runtime::bank::Bank,
     solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
@@ -24,6 +25,8 @@ use {
         time::{Duration, Instant},
     },
 };
+
+const RAYON_THREADS_POOL_SIZE_FOR_TX_GENERATION: usize = 2;
 
 /// This is an adversarial scheduler.  It does not process any incoming transactions, but instead
 /// will generate transactions using our test generators.
@@ -50,6 +53,9 @@ pub struct AttackScheduler {
     /// Controls the `BankingStage` scheduler, indicating that it should be dropping packets rather
     /// then processing them.
     drop_packets: Arc<AtomicBool>,
+
+    /// Transaction generators' thread pool.
+    tx_generator_thread_pool: Arc<ThreadPool>,
 }
 
 impl AttackScheduler {
@@ -70,6 +76,13 @@ impl AttackScheduler {
             num_workers,
             replay_attack_receiver,
             drop_packets,
+            tx_generator_thread_pool: Arc::new(
+                ThreadPoolBuilder::new()
+                    .num_threads(RAYON_THREADS_POOL_SIZE_FOR_TX_GENERATION)
+                    .thread_name(|i| format!("solAdvTxGen{i}"))
+                    .build()
+                    .unwrap(),
+            ),
         }
     }
 
@@ -85,13 +98,18 @@ impl AttackScheduler {
             num_workers,
             replay_attack_receiver,
             drop_packets,
+            tx_generator_thread_pool,
         } = self;
 
         'scheduler_loop: loop {
             match replay_attack_receiver.try_recv() {
                 Ok(selected_attack) => {
                     info!("Reset selected generator to: {selected_attack:?}");
-                    active_generator = ActiveGenerator::given(selected_attack, num_workers);
+                    active_generator = ActiveGenerator::given(
+                        selected_attack,
+                        num_workers,
+                        Arc::clone(&tx_generator_thread_pool),
+                    );
                 }
                 Err(TryRecvError::Empty) => {
                     // continue executing active_generator

@@ -12,7 +12,7 @@ use {
     rand::{seq::IteratorRandom, thread_rng},
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
-        ThreadPoolBuilder,
+        ThreadPool,
     },
     solana_adversary::accounts_file::AccountsFile,
     solana_message::legacy::Message as LegacyMessage,
@@ -25,8 +25,6 @@ use {
 
 const NUM_NON_EXISTENT_ACCOUNTS_PER_TX: usize = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET;
 
-const NUM_TRANSACTION_GENERATION_THREADS: usize = 4;
-
 pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
     if accounts.payers.len() < TARGET_NUM_TRANSACTIONS_PER_BATCH {
         return Err(format!(
@@ -38,19 +36,18 @@ pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
 }
 
 /// Creates transactions that use many non-existent accounts for input.
-pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
+pub(super) fn generator(
+    accounts: Arc<AccountsFile>,
+    num_workers: usize,
+    tx_generator_thread_pool: Arc<ThreadPool>,
+) -> TransactionGenerator {
     // Used to distribute transactions across banking stage consume workers.
     let mut worker_index = IndexByModulo::new(num_workers);
-
-    let thread_pool = ThreadPoolBuilder::new()
-        .num_threads(NUM_TRANSACTION_GENERATION_THREADS)
-        .build()
-        .unwrap();
 
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();
 
-        thread_pool.install(|| {
+        tx_generator_thread_pool.install(|| {
             let transactions: Vec<SanitizedTransaction> = accounts
                 .payers
                 .iter()
@@ -112,6 +109,7 @@ mod tests {
             consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
         },
         jsonrpc_core::types::error::ErrorCode,
+        rayon::ThreadPoolBuilder,
         serde_json::{json, Value},
         serial_test::serial,
         solana_adversary::{
@@ -134,8 +132,10 @@ mod tests {
     fn generate_one() {
         let accounts: AccountsFile = TestAccounts::new(TARGET_NUM_TRANSACTIONS_PER_BATCH, 0).into();
         let accounts_pubkeys: Vec<Pubkey> = accounts.payers.iter().map(|kp| kp.pubkey()).collect();
+        let tx_generator_thread_pool =
+            Arc::new(ThreadPoolBuilder::new().num_threads(2).build().unwrap());
 
-        let mut tx_generator = generator(Arc::new(accounts), 1);
+        let mut tx_generator = generator(Arc::new(accounts), 1, tx_generator_thread_pool);
 
         let bank = create_test_bank();
 

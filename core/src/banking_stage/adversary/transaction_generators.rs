@@ -1,6 +1,7 @@
 //! Generators for testing banking stage
 
 use {
+    rayon::ThreadPool,
     solana_adversary::{
         accounts_file::AccountsFile, adversary_feature_set::replay_stage_attack::Attack,
         SelectedReplayAttack,
@@ -38,14 +39,23 @@ pub struct ActiveGenerator {
 impl ActiveGenerator {
     /// Produces an `ActiveGenerator` if the `SelectedReplayAttack` indicates an attack needs to be
     /// run.
-    pub fn given(selected_attack: SelectedReplayAttack, num_workers: usize) -> Option<Self> {
+    pub fn given(
+        selected_attack: SelectedReplayAttack,
+        num_workers: usize,
+        tx_generator_thread_pool: Arc<ThreadPool>,
+    ) -> Option<Self> {
         let (accounts, attack) = match selected_attack {
             SelectedReplayAttack::Selected { accounts, attack } => (accounts, attack),
             SelectedReplayAttack::None => return None,
         };
 
         info!("Reset selected generator to: {attack:?}");
-        let generator = Self::create_generator(accounts, attack.clone(), num_workers);
+        let generator = Self::create_generator(
+            accounts,
+            attack.clone(),
+            num_workers,
+            tx_generator_thread_pool,
+        );
         Some(Self { attack, generator })
     }
 
@@ -58,6 +68,7 @@ impl ActiveGenerator {
         accounts: Arc<AccountsFile>,
         attack: Attack,
         num_workers: usize,
+        tx_generator_thread_pool: Arc<ThreadPool>,
     ) -> TransactionGenerator {
         use Attack::*;
         match attack {
@@ -80,11 +91,18 @@ impl ActiveGenerator {
             ColdProgramCache(cold_program_cache_config) => {
                 cold_program_cache::generator(accounts, num_workers, cold_program_cache_config)
             }
-            LargeNop(large_nop_program_config) => {
-                large_nop::generator(accounts, num_workers, large_nop_program_config)
-            }
+            LargeNop(large_nop_program_config) => large_nop::generator(
+                accounts,
+                num_workers,
+                large_nop_program_config,
+                tx_generator_thread_pool,
+            ),
             TransferRandomWithMemo => transfer_random_with_memo::generator(accounts, num_workers),
-            ReadNonExistentAccounts => read_non_existent_accounts::generator(accounts, num_workers),
+            ReadNonExistentAccounts => read_non_existent_accounts::generator(
+                accounts,
+                num_workers,
+                tx_generator_thread_pool,
+            ),
         }
     }
 
