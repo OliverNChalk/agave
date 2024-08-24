@@ -224,12 +224,8 @@ findLocalBaseline() {
   local -a candidates=( "$upstreamRemote/master" )
 
   while IFS='' read -r line; do candidates+=("$line"); done < <(
-    git branch --list --remotes --no-column --no-color \
+    git branch --list --remotes --format='%(refname)' \
         "$upstreamRemote/$syncPrefix/master/local/*" \
-      | sed -e '
-          # Remove indentation
-          s@^\s*@@
-        ' \
       | sort -u
   )
 

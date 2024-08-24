@@ -42,8 +42,8 @@ a20bd5ea8a79a0816ca7b9a271e39c2e7c163414 I3: Removed from c.txt
   You probably want to rebase your work on top of the new
   "upstream/master" before you continue any work, like this:
 
-  # Rebase, excluding changes already in the "upstream/sync/master/local/2023-06-28" branch.
-  git rebase --onto="upstream/master" "upstream/sync/master/local/2023-06-28"
+  # Rebase, excluding changes already in the "refs/remotes/upstream/sync/master/local/2023-06-28" branch.
+  git rebase --onto="upstream/master" "refs/remotes/upstream/sync/master/local/2023-06-28"
 
   (If you really know what you are doing, you can skip with check with a
   `--no-verify` argument.)
