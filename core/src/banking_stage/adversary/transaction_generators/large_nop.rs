@@ -80,11 +80,12 @@ pub(super) fn generator(
     let set_cu_instruction =
         ComputeBudgetInstruction::set_compute_unit_limit(config.common.transaction_cu_budget);
 
-    let nop_instruction = create_nop_instruction(accounts.clone(), config.tx_data_size);
-
     Box::new(move |bank: &Bank| {
         let blockhash = bank.last_blockhash();
-        let instructions = &[set_cu_instruction.clone(), nop_instruction.clone()];
+        let instructions = &[
+            set_cu_instruction.clone(),
+            create_nop_instruction(accounts.clone(), config.tx_data_size),
+        ];
         tx_generator_thread_pool.install(|| {
             let transactions: Vec<SanitizedTransaction> = (0..config.common.transaction_batch_size)
                 .into_par_iter()
