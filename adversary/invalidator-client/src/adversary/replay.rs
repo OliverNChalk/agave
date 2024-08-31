@@ -3,6 +3,7 @@ use {
     clap::{value_t, ArgMatches},
     solana_adversary::adversary_feature_set::replay_stage_attack::{
         AdversarialConfig as ReplayStageAttackConfig, Attack, AttackProgramConfig,
+        LargeNopAttackConfig,
     },
     solana_keypair::Keypair,
     std::str::FromStr,
@@ -12,18 +13,32 @@ impl Command for ReplayStageAttackConfig {
     const RPC_METHOD: &'static str = "configureReplayStageAttack";
 }
 
+fn set_if_present(
+    sub_matches: &ArgMatches<'_>,
+    key: &str,
+    setter: &mut dyn FnMut(usize),
+) -> Result<(), String> {
+    if sub_matches.is_present(key) {
+        setter(value_t!(sub_matches, key, usize).map_err(|e| e.to_string())?);
+    }
+    Ok(())
+}
+
 fn set_common_config(
     config: &mut AttackProgramConfig,
     sub_matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
     config.use_failed_transaction_hotpath =
         sub_matches.is_present("use_failed_transaction_hotpath");
-    config.transaction_batch_size =
-        value_t!(sub_matches, "transaction_batch_size", usize).map_err(|e| e.to_string())?;
-    config.num_accounts_per_tx =
-        value_t!(sub_matches, "num_accounts_per_tx", usize).map_err(|e| e.to_string())?;
-    config.transaction_cu_budget =
-        value_t!(sub_matches, "transaction_cu_budget", u32).map_err(|e| e.to_string())?;
+    set_if_present(sub_matches, "transaction_batch_size", &mut |v| {
+        config.transaction_batch_size = v
+    })?;
+    set_if_present(sub_matches, "num_accounts_per_tx", &mut |v| {
+        config.num_accounts_per_tx = v
+    })?;
+    set_if_present(sub_matches, "transaction_cu_budget", &mut |v| {
+        config.transaction_cu_budget = v as u32
+    })?;
     Ok(())
 }
 
@@ -40,12 +55,15 @@ pub fn parse_replay_stage_attack_args(
         | Attack::ReadProgram(config)
         | Attack::RecursiveProgram(config)
         | Attack::ColdProgramCache(config) => {
+            *config = AttackProgramConfig::default();
             set_common_config(config, sub_matches)?;
         }
         Attack::LargeNop(config) => {
+            *config = LargeNopAttackConfig::default();
             set_common_config(&mut config.common, sub_matches)?;
-            config.tx_data_size =
-                value_t!(sub_matches, "tx_data_size", usize).map_err(|e| e.to_string())?;
+            set_if_present(sub_matches, "tx_data_size", &mut |v| {
+                config.tx_data_size = v
+            })?;
         }
         _ => {}
     }

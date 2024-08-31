@@ -51,7 +51,7 @@ pub enum BlockGeneratorStressTestInstruction {
         random: u64,
     },
     Nop {
-        random_data: Box<[u8]>,
+        random_data: Vec<u8>,
     },
 }
 

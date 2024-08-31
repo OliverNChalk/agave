@@ -57,9 +57,7 @@ fn create_nop_instruction(accounts: Arc<AccountsFile>, tx_data_size: usize) -> I
         .flatten()
         .take(tx_data_size)
         .collect();
-    let data = BlockGeneratorStressTestInstruction::Nop {
-        random_data: random_data.into_boxed_slice(),
-    };
+    let data = BlockGeneratorStressTestInstruction::Nop { random_data };
     Instruction::new_with_borsh(program_id, &data, vec![])
 }
 

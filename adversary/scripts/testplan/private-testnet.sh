@@ -45,8 +45,7 @@ run_attacks_all() {
   attack_replayStage readMaxAccounts
   attack_replayStage writeMaxAccounts
   # attacks that execute deployed program
-  # how many transactions can be processes in parallel by one replay thread.
-  local BATCH_SIZE=64
+  attack_replayStage largeNop
   # One tx can load up to 64MB, each account is 10MB.
   # Hence, 6 is max value we can use.
   # Temporarily reducing value to 1 because slot replay times currently explode
@@ -55,8 +54,6 @@ run_attacks_all() {
   # Transaction budget to prevent transaction from being successful.
   # Required because `use-failed-transaction-hotpath` txs must not succeed.
   local INSUFFICIENT_CU_BUDGET=100
-  attack_replayStage largeNop \
-   --transaction-batch-size ${BATCH_SIZE}
   # Temporarily reducing value to 1 because slot replay times currently explode
   # to minutes with 64.
   BATCH_SIZE=1

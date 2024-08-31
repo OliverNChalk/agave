@@ -1,6 +1,5 @@
 use {
     crate::common::STDIN_TOKEN,
-    block_generator_stress_test::LARGE_NOP_DATA_SIZE,
     clap::{App, AppSettings, Arg, SubCommand},
     const_format::formatcp,
     solana_adversary::{
@@ -19,13 +18,9 @@ use {
         *,
     },
     solana_cli_config::ConfigInput,
-    std::sync::LazyLock,
 };
 
 const RPC_ENDPOINT_URL: &str = "http://localhost:8899";
-
-static LARGE_NOP_DATA_SIZE_STR: LazyLock<String> =
-    LazyLock::new(|| LARGE_NOP_DATA_SIZE.to_string());
 
 fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
     // to fix error inside formatcp macro
@@ -400,7 +395,6 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .validator(input_validators::is_parsable::<usize>)
-                        .default_value("1")
                         .help("Number of transactions in a batch (entry) for replay execution."),
                 )
                 .arg(
@@ -416,7 +410,6 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         .long("transaction-cu-budget")
                         .value_name("NUMBER")
                         .validator(input_validators::is_parsable::<u32>)
-                        .default_value("1000")
                         .help(
                             "CU budget for a transaction. Setting this to lower than required \
                              value might be used to make transaction to be invalid.",
@@ -437,7 +430,6 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         .long("tx-data-size")
                         .value_name("NUMBER")
                         .validator(input_validators::is_parsable::<usize>)
-                        .default_value(&LARGE_NOP_DATA_SIZE_STR)
                         .help(
                             "Amount of padding to add to large nop transactions. Default ensures \
                              max tx size.",
