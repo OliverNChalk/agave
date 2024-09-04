@@ -17,7 +17,7 @@ use {
     solana_commitment_config::CommitmentConfig,
     solana_core::{
         banking_stage::adversary::generator_templates::{
-            max_accounts_tx::TX_MAX_ATTACK_ACCOUNTS_IN_PACKET, rotate_accounts::BATCH_SIZE,
+            max_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
         },
         validator::{InvalidatorConfig, ValidatorConfig},
     },
@@ -260,7 +260,7 @@ mod setup {
                 | Attack::AllocateRandomLarge
                 | Attack::ReadNonExistentAccounts => (1_000, 0, 0),
                 Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => {
-                    let num_max_size_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * BATCH_SIZE;
+                    let num_max_size_accounts = TX_MAX_NUM_MAX_SIZE_ACCOUNTS * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
                 }
                 Attack::WriteProgram(attack_config)

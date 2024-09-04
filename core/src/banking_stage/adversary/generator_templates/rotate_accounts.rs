@@ -7,12 +7,9 @@
 //! transaction in a round robin fashion.
 
 use {
-    crate::banking_stage::{
-        adversary::generator_components::{
-            cycler::{self, Cycler},
-            IndexByModulo,
-        },
-        consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
+    crate::banking_stage::adversary::generator_components::{
+        cycler::{self, Cycler},
+        IndexByModulo,
     },
     solana_adversary::accounts_file::AccountsFile,
     solana_keypair::Keypair,
@@ -21,7 +18,10 @@ use {
     std::sync::Arc,
 };
 
-pub const BATCH_SIZE: usize = TARGET_NUM_TRANSACTIONS_PER_BATCH;
+// These max accounts transactions take a long time to execute, so we only batch
+// up 1 at a time to feed the banking execution pipeline and make sure we don't
+// run over our leader slot.
+pub const BATCH_SIZE: usize = 1;
 
 /// Checks the `payers` accounts to hold enough payers to pay for the
 /// `TRANSACTION_LEVEL_STACK_HEIGHT` transactions in parallel.

@@ -61,12 +61,11 @@ pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> Tran
 mod tests {
     use {
         super::generator,
-        crate::banking_stage::{
-            adversary::{
-                generator_templates::max_accounts_tx::TX_MAX_ATTACK_ACCOUNTS_IN_PACKET,
-                test_helpers::{create_test_bank, setup_accounts, setup_test, TestAccounts},
+        crate::banking_stage::adversary::{
+            generator_templates::{
+                max_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
             },
-            consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
+            test_helpers::{create_test_bank, setup_accounts, setup_test, TestAccounts},
         },
         jsonrpc_core::types::error::ErrorCode,
         serde_json::{json, Value},
@@ -100,7 +99,7 @@ mod tests {
         let bank = create_test_bank();
 
         let (txs, worker_index) = tx_generator(&bank);
-        assert_eq!(txs.len(), TARGET_NUM_TRANSACTIONS_PER_BATCH);
+        assert_eq!(txs.len(), BATCH_SIZE);
         assert_eq!(worker_index, 0);
 
         let tx = &txs[0];
@@ -112,16 +111,14 @@ mod tests {
             &MessageHeader {
                 num_required_signatures: 1,
                 num_readonly_signed_accounts: 0,
-                num_readonly_unsigned_accounts: TX_MAX_ATTACK_ACCOUNTS_IN_PACKET
-                    .try_into()
-                    .unwrap(),
+                num_readonly_unsigned_accounts: TX_MAX_NUM_MAX_SIZE_ACCOUNTS.try_into().unwrap(),
             }
         );
         assert_eq!(message.instructions(), &vec![]);
         assert_eq!(
             message.account_keys().iter().collect::<Vec<_>>(),
             iter::once(&first_payer)
-                .chain(max_size_pubkeys[0..TX_MAX_ATTACK_ACCOUNTS_IN_PACKET].iter())
+                .chain(max_size_pubkeys[0..TX_MAX_NUM_MAX_SIZE_ACCOUNTS].iter())
                 .collect::<Vec<_>>(),
         );
     }
@@ -133,11 +130,7 @@ mod tests {
     fn rpc_config_not_enough_payer_accounts() {
         let (mut meta, keypair, io, token) = setup_test();
 
-        setup_accounts(
-            &mut meta,
-            1,
-            TARGET_NUM_TRANSACTIONS_PER_BATCH * TX_MAX_ATTACK_ACCOUNTS_IN_PACKET,
-        );
+        setup_accounts(&mut meta, 0, BATCH_SIZE * TX_MAX_NUM_MAX_SIZE_ACCOUNTS);
 
         let config = AdversarialConfig {
             selected_attack: Some(Attack::ReadMaxAccounts),
@@ -154,7 +147,7 @@ mod tests {
         let result = parse_failure_response(rsp);
         let expected = (
             ErrorCode::InvalidParams.code(),
-            "Not enough `payer` accounts: need at least 64\n`payer` accounts: 1".into(),
+            "Not enough `payer` accounts: need at least 1\n`payer` accounts: 0".into(),
         );
         assert_eq!(result, expected);
         assert_eq!(
@@ -171,7 +164,7 @@ mod tests {
     fn rpc_config_not_enough_max_size_accounts() {
         let (mut meta, keypair, io, token) = setup_test();
 
-        setup_accounts(&mut meta, TARGET_NUM_TRANSACTIONS_PER_BATCH, 1);
+        setup_accounts(&mut meta, BATCH_SIZE, 1);
 
         let config = AdversarialConfig {
             selected_attack: Some(Attack::ReadMaxAccounts),
@@ -188,7 +181,7 @@ mod tests {
         let result = parse_failure_response(rsp);
         let expected = (
             ErrorCode::InvalidParams.code(),
-            "Not enough `max_size` accounts: need at least 2176\n`max_size` accounts: 1".into(),
+            "Not enough `max_size` accounts: need at least 6\n`max_size` accounts: 1".into(),
         );
         assert_eq!(result, expected);
         assert_eq!(
@@ -206,8 +199,8 @@ mod tests {
 
         setup_accounts(
             &mut meta,
-            TARGET_NUM_TRANSACTIONS_PER_BATCH,
-            TX_MAX_ATTACK_ACCOUNTS_IN_PACKET * TARGET_NUM_TRANSACTIONS_PER_BATCH,
+            BATCH_SIZE,
+            TX_MAX_NUM_MAX_SIZE_ACCOUNTS * BATCH_SIZE,
         );
 
         let config = AdversarialConfig {
