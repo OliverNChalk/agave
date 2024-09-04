@@ -25,7 +25,7 @@ impl Default for AttackProgramConfig {
             transaction_batch_size: 1,
             num_accounts_per_tx: 1,
             // high enough value so that transaction is valid
-            transaction_cu_budget: 1_000,
+            transaction_cu_budget: 10_000,
             use_failed_transaction_hotpath: false,
         }
     }
