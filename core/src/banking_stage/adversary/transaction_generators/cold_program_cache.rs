@@ -4,14 +4,16 @@ use {
     crate::banking_stage::{
         adversary::generator_templates::replay_attack_program::verify_common, BankingStage,
     },
-    rand::Rng,
+    block_generator_stress_test::BlockGeneratorStressTestInstruction,
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{Attack, AttackProgramConfig},
     },
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_instruction::{AccountMeta, Instruction},
+    solana_keypair::Keypair,
     solana_message::Message,
+    solana_pubkey::Pubkey,
     solana_runtime::bank::Bank,
     solana_signer::Signer,
     solana_transaction::{sanitized::SanitizedTransaction, Transaction},
@@ -46,6 +48,17 @@ pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn create_nop_instruction(payer: &Keypair, program_id: Pubkey) -> Instruction {
+    let random_data = vec![];
+    let data = BlockGeneratorStressTestInstruction::Nop { random_data };
+    let accounts_meta = vec![AccountMeta {
+        pubkey: payer.pubkey(),
+        is_signer: true,
+        is_writable: false,
+    }];
+    Instruction::new_with_borsh(program_id, &data, accounts_meta)
 }
 
 pub(super) fn generator(
@@ -88,17 +101,11 @@ pub(super) fn generator(
 
                 let set_cu_instruction =
                     ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget);
-                let data = rand::thread_rng().gen::<[u8; 32]>();
-                // just try to pass something
-                let accounts_meta = [AccountMeta {
-                    pubkey: payer.pubkey(),
-                    is_signer: true,
-                    is_writable: false,
-                }];
-                let program_instruction =
-                    Instruction::new_with_bytes(*program_id, &data, accounts_meta.to_vec());
                 let message = Message::new(
-                    &[set_cu_instruction, program_instruction],
+                    &[
+                        set_cu_instruction,
+                        create_nop_instruction(payer, *program_id),
+                    ],
                     Some(&payer.pubkey()),
                 );
 

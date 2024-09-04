@@ -1,7 +1,7 @@
 use {
     crossbeam_channel::Receiver,
     indoc::formatdoc,
-    log::{debug, error},
+    log::{debug, error, info},
     serial_test::serial,
     solana_account::{Account, AccountSharedData},
     solana_adversary::{
@@ -357,7 +357,10 @@ mod verify {
         agave_reserved_account_keys::ReservedAccountKeys,
         solana_client::rpc_client::RpcClient,
         solana_message::SimpleAddressLoader,
-        solana_transaction::sanitized::{MessageHash, SanitizedTransaction},
+        solana_transaction::{
+            sanitized::{MessageHash, SanitizedTransaction},
+            versioned::VersionedTransaction,
+        },
         solana_transaction_status::{
             EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
         },
@@ -366,12 +369,9 @@ mod verify {
     // Large enough to ensure cluster is still making progress.
     const NUM_NEW_ROOTS_TO_WAIT_FOR: usize = 16;
 
-    fn is_vote_transaction(tx: &EncodedConfirmedTransactionWithStatusMeta) -> bool {
+    fn is_vote_transaction(tx: &VersionedTransaction) -> bool {
         SanitizedTransaction::try_create(
-            tx.transaction
-                .transaction
-                .decode()
-                .expect("Transaction must decode"),
+            tx.clone(),
             MessageHash::Compute,
             None,
             SimpleAddressLoader::Disabled,
@@ -379,6 +379,10 @@ mod verify {
         )
         .map(|tx| tx.is_simple_vote_transaction())
         .unwrap_or_default()
+    }
+
+    fn transaction_has_errors(transaction: &EncodedConfirmedTransactionWithStatusMeta) -> bool {
+        transaction.transaction.meta.as_ref().unwrap().err.is_some()
     }
 
     // Queries RPC for the provided transaction signature and checks if it is
@@ -392,8 +396,17 @@ mod verify {
 
         match client.get_transaction_with_config(&signature.parse().unwrap(), config) {
             Ok(transaction) => {
-                if !is_vote_transaction(&transaction) {
-                    // Attack transactions should be the only non-vote transactions.
+                if transaction_has_errors(&transaction) {
+                    panic!("Transaction has unexpected errors: {transaction:?}");
+                }
+
+                let decoded_tx = transaction
+                    .transaction
+                    .transaction
+                    .decode()
+                    .expect("Transaction must decode");
+                if !is_vote_transaction(&decoded_tx) {
+                    info!("Found attack transaction: {decoded_tx:?}");
                     return true;
                 }
             }
