@@ -230,7 +230,14 @@ mod setup {
                     .collect()
             });
             // just use the same program repeatedly
-            let program_data = compile_test_program();
+            let program_data = if num_programs > 0 {
+                // Only compile the program if we are going to use it. Compiling
+                // it mucks with timestamps and can force long re-compiles
+                // during development.
+                compile_test_program()
+            } else {
+                vec![]
+            };
             let accounts: Vec<(Pubkey, AccountSharedData)> = pubkeys
                 .iter()
                 .map(|k| {
