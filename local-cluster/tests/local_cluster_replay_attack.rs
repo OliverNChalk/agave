@@ -416,7 +416,11 @@ mod verify {
         false
     }
 
-    fn block_includes_attack_txs(block: &Option<UiConfirmedBlock>, client: &RpcClient) -> bool {
+    fn block_includes_attack_txs(
+        block: &Option<UiConfirmedBlock>,
+        client: &RpcClient,
+        use_failed_transaction_hotpath: bool,
+    ) -> bool {
         // Extract the signatures from the block.
         let Some(UiConfirmedBlock {
             signatures: Some(signatures),
@@ -427,9 +431,18 @@ mod verify {
             return false;
         };
 
-        for signature in signatures {
-            if signature_is_for_attack_transaction(signature, client) {
+        if use_failed_transaction_hotpath {
+            // Failed tx hot path doesn't save tx history, so we can't verify
+            // transaction content and status. Use transaction count as a proxy
+            // for whether non-votes are making it into the block.
+            if signatures.len() > NUM_NODES {
                 return true;
+            }
+        } else {
+            for signature in signatures {
+                if signature_is_for_attack_transaction(signature, client) {
+                    return true;
+                }
             }
         }
 
@@ -439,13 +452,14 @@ mod verify {
     fn block_updates_include_attack_transactions(
         receiver: &Receiver<Response<RpcBlockUpdate>>,
         client: &RpcClient,
+        use_failed_transaction_hotpath: bool,
     ) -> bool {
         // Each response is an update for a confirmed block.
         for response in receiver.try_iter() {
             let RpcBlockUpdate { block, err, .. } = response.value;
             assert_eq!(err, None);
 
-            if block_includes_attack_txs(&block, client) {
+            if block_includes_attack_txs(&block, client, use_failed_transaction_hotpath) {
                 return true;
             }
         }
@@ -458,13 +472,18 @@ mod verify {
         client: &RpcClient,
         test_duration: Duration,
         num_response_check_iterations: u32,
+        use_failed_transaction_hotpath: bool,
     ) {
         let check_sleep_duration = test_duration
             .checked_div(num_response_check_iterations)
             .expect("check iterations must be greater than zero");
 
         for _ in 0..num_response_check_iterations {
-            if block_updates_include_attack_transactions(receiver, client) {
+            if block_updates_include_attack_transactions(
+                receiver,
+                client,
+                use_failed_transaction_hotpath,
+            ) {
                 return;
             }
             sleep(check_sleep_duration);
@@ -536,6 +555,16 @@ mod verify {
     }
 }
 
+fn use_failed_transaction_hotpath(attack: &Attack) -> bool {
+    match attack {
+        Attack::WriteProgram(attack_config)
+        | Attack::ReadProgram(attack_config)
+        | Attack::RecursiveProgram(attack_config)
+        | Attack::ColdProgramCache(attack_config) => attack_config.use_failed_transaction_hotpath,
+        _ => false,
+    }
+}
+
 fn call_configure_replay_stage_attack(
     cluster: &LocalCluster,
     selected_attack: Option<Attack>,
@@ -600,6 +629,7 @@ fn run_replay_attack(attack: Attack) {
         rpc_client,
         max_test_duration,
         num_response_check_iterations,
+        use_failed_transaction_hotpath(&attack),
     );
 
     match stop_replay_attack(&cluster) {
@@ -610,12 +640,15 @@ fn run_replay_attack(attack: Attack) {
     }
 
     // Perform post-attack verification and cleanup.
-    if let Attack::WriteProgram(_) = attack {
-        verify::at_least_one_account_written(
-            rpc_client,
-            &accounts_file.max_size,
-            max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
-        );
+    if let Attack::WriteProgram(config) = attack {
+        // State is not updated in the failed transaction hot path.
+        if !config.use_failed_transaction_hotpath {
+            verify::at_least_one_account_written(
+                rpc_client,
+                &accounts_file.max_size,
+                max_account_size.expect("max_account_size must be Some for WriteProgram attack"),
+            );
+        }
     };
     verify::cluster_and_cleanup(cluster, &mut block_subscribe_client);
 }
@@ -658,6 +691,17 @@ fn test_write_program_generator() {
 
 #[test]
 #[serial]
+fn test_write_program_generator_fail_hotpath() {
+    let config = AttackProgramConfig {
+        transaction_cu_budget: 100,
+        use_failed_transaction_hotpath: true,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::WriteProgram(config));
+}
+
+#[test]
+#[serial]
 fn test_read_max_accounts_generator() {
     run_replay_attack(Attack::ReadMaxAccounts);
 }
@@ -676,14 +720,47 @@ fn test_read_program_generator() {
 
 #[test]
 #[serial]
+fn test_read_program_generator_fail_hotpath() {
+    let config = AttackProgramConfig {
+        transaction_cu_budget: 100,
+        use_failed_transaction_hotpath: true,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::ReadProgram(config));
+}
+
+#[test]
+#[serial]
 fn test_recursive_program_generator() {
     run_replay_attack(Attack::RecursiveProgram(AttackProgramConfig::default()));
 }
 
 #[test]
 #[serial]
+fn test_recursive_program_generator_fail_hotpath() {
+    let config = AttackProgramConfig {
+        transaction_cu_budget: 100,
+        use_failed_transaction_hotpath: true,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::RecursiveProgram(config));
+}
+
+#[test]
+#[serial]
 fn test_cold_program_cache_generator() {
     run_replay_attack(Attack::ColdProgramCache(AttackProgramConfig::default()));
+}
+
+#[test]
+#[serial]
+fn test_cold_program_cache_generator_fail_hotpath() {
+    let config = AttackProgramConfig {
+        transaction_cu_budget: 100,
+        use_failed_transaction_hotpath: true,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::ColdProgramCache(config));
 }
 
 #[test]
