@@ -12,7 +12,11 @@ use {
         block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         send_request_verified,
     },
-    solana_client::{pubsub_client::PubsubClientSubscription, rpc_response::RpcBlockUpdate},
+    solana_client::{
+        pubsub_client::PubsubClientSubscription, rpc_client::RpcClient,
+        rpc_response::RpcBlockUpdate,
+    },
+    solana_clock::DEFAULT_SLOTS_PER_EPOCH,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
     solana_core::{
@@ -23,10 +27,11 @@ use {
     },
     solana_gossip::gossip_service::discover_validators,
     solana_keypair::Keypair,
+    solana_ledger::leader_schedule::FixedSchedule,
     solana_local_cluster::{
         cluster::Cluster,
         cluster_tests,
-        integration_tests::{DEFAULT_NODE_STAKE, RUST_LOG_FILTER},
+        integration_tests::{create_custom_leader_schedule, DEFAULT_NODE_STAKE, RUST_LOG_FILTER},
         local_cluster::{ClusterConfig, LocalCluster},
         validator_configs::*,
     },
@@ -42,7 +47,7 @@ use {
     solana_stake_interface::stake_history::Epoch,
     solana_streamer::socket::SocketAddrSpace,
     solana_transaction_status::{TransactionDetails, UiConfirmedBlock},
-    std::{iter, net::SocketAddr, sync::Arc, thread::sleep, time::Duration},
+    std::{iter, sync::Arc, thread::sleep, time::Duration},
     tempfile::tempdir,
 };
 
@@ -55,18 +60,24 @@ mod setup {
     use super::*;
 
     /// Sets up a local cluster instance.
-    ///
-    /// Most of our tests are going to subscribe to the PubSub RPC, and the
-    /// non-bootstrap node gets allocated 100% of active stake and thus gets all
-    /// leader slots and drives commitment levels of updates.  So we want to
-    /// subscribe to this node because it's blockstore will be in sync with the
-    /// cluster when we query for things like confirmed slots. See more about
-    /// this issue described in solana-labs/solana#33462
     pub fn create_cluster(
         accounts_file: Arc<AccountsFile>,
         starting_accounts: Vec<(Pubkey, AccountSharedData)>,
-    ) -> (LocalCluster, SocketAddr) {
-        // Create a validator config configured for block generation.
+    ) -> LocalCluster {
+        // Create custom leader schedule where bootstrap node gets all the
+        // leader slots so it gets every opportunity to generate malicious
+        // blocks.
+        let validator_keys: Option<Vec<(Arc<Keypair>, bool)>> = Some(
+            (0..NUM_NODES)
+                .map(|_| (Arc::new(Keypair::new()), true))
+                .collect(),
+        );
+        let bootstrap_node_pubkey = validator_keys.as_ref().unwrap().first().unwrap().0.pubkey();
+        let validator_to_slots = vec![(bootstrap_node_pubkey, DEFAULT_SLOTS_PER_EPOCH as usize)];
+        let leader_schedule = create_custom_leader_schedule(validator_to_slots.into_iter());
+
+        // Create validator config with starting accounts in genesis that can be
+        // used for generating malicious blocks.
         let mut validator_config = ValidatorConfig {
             invalidator_config: InvalidatorConfig {
                 block_generator_config: Some(BlockGeneratorConfig {
@@ -74,15 +85,21 @@ mod setup {
                 }),
                 rpc_adversary_id: None,
             },
+            fixed_leader_schedule: Some(FixedSchedule {
+                leader_schedule: Arc::new(leader_schedule),
+            }),
             ..ValidatorConfig::default_for_test()
         };
         validator_config.enable_default_rpc_block_subscribe();
 
-        // Create a cluster config with the generator validator config.
+        // Create a cluster config with the generator validator config and equal
+        // stake split so that any consensus divergence will be caught by virtue
+        // of not making roots.
         let mut config = ClusterConfig {
             cluster_type: ClusterType::Development,
             node_stakes: vec![DEFAULT_NODE_STAKE; NUM_NODES],
             validator_configs: make_identical_validator_configs(&validator_config, NUM_NODES),
+            validator_keys,
             additional_accounts: starting_accounts,
             ..ClusterConfig::default()
         };
@@ -98,25 +115,38 @@ mod setup {
         .unwrap();
         assert_eq!(cluster_nodes.len(), NUM_NODES);
 
-        let leader_node = cluster_nodes
-            .iter()
-            .find(|node| node.pubkey() != cluster.entry_point_info.pubkey())
-            .unwrap();
-
-        (
-            cluster,
-            leader_node.rpc_pubsub().expect("RPC PubSub must exist"),
-        )
+        cluster
     }
 
     pub fn block_subscriber(
-        rpc_pubsub_addr: &SocketAddr,
+        cluster: &LocalCluster,
     ) -> (
         PubsubClientSubscription<Response<RpcBlockUpdate>>,
         Receiver<Response<RpcBlockUpdate>>,
     ) {
+        // It's important we subscribe to the node that will be replaying (as
+        // opposed to building) malicious blocks due to the following:
+        //
+        // 1. Tests will panic if we are unable to fetch block updates because
+        //    we need them to verify test behavior.
+        // 2. We are unable to fetch block updates when we don't populate the
+        //    blockstore with block history.
+        // 3. We don't populate blockstore with block history when using the
+        //    fast tx fail hotpath.
+        // 4. Replay path always populates blockstore with block history.
+        //
+        // We trigger the entry point node to run the attacks, so by explicitly
+        // not selecting that node here, we guarantee we will select a node that
+        // will be replaying the malicious blocks.
+        let addr = cluster
+            .validators
+            .iter()
+            .find(|(_, v)| v.info.contact_info.pubkey() != cluster.entry_point_info.pubkey())
+            .and_then(|(_, v)| v.info.contact_info.rpc_pubsub())
+            .unwrap();
+
         PubsubClient::block_subscribe(
-            format!("ws://{rpc_pubsub_addr}"),
+            format!("ws://{}", &addr.to_string()),
             RpcBlockSubscribeFilter::All,
             Some(RpcBlockSubscribeConfig {
                 commitment: BLOCK_VALIDATION_COMMITMENT_LEVEL,
@@ -127,6 +157,15 @@ mod setup {
             }),
         )
         .unwrap()
+    }
+
+    pub fn wait_for_first_epoch(client: &RpcClient) {
+        loop {
+            if client.get_epoch_info().unwrap().epoch > 0 {
+                break;
+            }
+            sleep(Duration::from_secs(1));
+        }
     }
 
     pub mod account {
@@ -355,7 +394,6 @@ mod verify {
     use {
         super::*,
         agave_reserved_account_keys::ReservedAccountKeys,
-        solana_client::rpc_client::RpcClient,
         solana_message::SimpleAddressLoader,
         solana_transaction::{
             sanitized::{MessageHash, SanitizedTransaction},
@@ -598,19 +636,22 @@ fn run_replay_attack(attack: Attack) {
         setup::account::all_accounts(&attack, max_account_size);
 
     // Setup cluster and clients.
-    let (cluster, rpc_pubsub_addr) =
-        setup::create_cluster(accounts_file.clone(), starting_accounts);
+    let cluster = setup::create_cluster(accounts_file.clone(), starting_accounts);
     let client = cluster
         .build_validator_tpu_quic_client(cluster.entry_point_info.pubkey())
         .unwrap();
     let rpc_client = client.rpc_client();
-    let (mut block_subscribe_client, receiver) = setup::block_subscriber(&rpc_pubsub_addr);
+
+    // There can be partitioning issues when initially launching validators that
+    // can result in some tx failures. Waiting for first epoch to complete
+    // ensures nodes will be in sync and no transaction failures are expected.
+    setup::wait_for_first_epoch(rpc_client);
+    let (mut block_subscribe_client, receiver) = setup::block_subscriber(&cluster);
 
     // Check programs have been deployed.
     for program_id in &accounts_file.program_ids_jit_attack {
         verify::program_was_deployed(rpc_client, program_id);
     }
-    sleep(Duration::from_millis(800));
 
     match start_replay_attack(&cluster, attack.clone()) {
         Ok(_) => debug!("Replay attack {attack} started"),
