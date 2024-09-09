@@ -74,6 +74,7 @@ pub fn configure_send_duplicate_blocks_args(
             turbine_send_delay_ms,
             send_destinations,
             leaf_node_partitions,
+            local_test_pubkey_to_perform_attack: None,
         },
         rpc_adversary_keypair,
     )

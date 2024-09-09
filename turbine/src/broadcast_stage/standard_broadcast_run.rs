@@ -15,6 +15,7 @@ use {
         MAX_DATA_SHREDS_PER_SLOT,
     },
     solana_runtime::bank::Bank,
+    solana_signer::Signer,
     solana_system_transaction as system_transaction,
     solana_time_utils::AtomicInterval,
     std::{borrow::Cow, sync::RwLock},
@@ -820,7 +821,15 @@ impl BroadcastRun for StandardBroadcastRun {
             &mut process_stats,
         )?;
 
-        let adv_config = send_duplicate_blocks::get_config();
+        let mut adv_config = send_duplicate_blocks::get_config();
+        // Hack for local cluster tests where different nodes effectively share
+        // the same config. This allows us to limit to just 1 node running the
+        // attack.
+        if adv_config.local_test_pubkey_to_perform_attack.is_some()
+            && adv_config.local_test_pubkey_to_perform_attack != Some(keypair.pubkey())
+        {
+            adv_config = AdversarialConfig::default();
+        }
 
         // TODO: Confirm that last chunk of coding shreds
         // will not be lost or delayed for too long.
@@ -950,6 +959,7 @@ mod test {
             turbine_send_delay_ms: 0,
             send_destinations: vec![],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         });
 
         // Set up the slot to be interrupted
@@ -1009,6 +1019,7 @@ mod test {
             turbine_send_delay_ms: 0,
             send_destinations: vec![],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
@@ -1163,6 +1174,7 @@ mod test {
                         turbine_send_delay_ms: 0,
                         send_destinations: vec![],
                         leaf_node_partitions: None,
+                        local_test_pubkey_to_perform_attack: None,
                     },
                     &leader_keypair,
                     &blockstore,
@@ -1227,6 +1239,7 @@ mod test {
                     turbine_send_delay_ms: 0,
                     send_destinations: vec![],
                     leaf_node_partitions: None,
+                    local_test_pubkey_to_perform_attack: None,
                 },
                 &leader_keypair,
                 &cluster_info,
@@ -1407,6 +1420,7 @@ mod test {
             turbine_send_delay_ms: 0,
             send_destinations: vec![],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         };
         broadcast_duplicate_blocks_run
             .test_process_receive_results(
@@ -1522,6 +1536,7 @@ mod test {
             turbine_send_delay_ms: 0,
             send_destinations: vec![],
             leaf_node_partitions: Some(2),
+            local_test_pubkey_to_perform_attack: None,
         };
         send_duplicate_blocks::set_config(config.clone());
 
@@ -1624,6 +1639,7 @@ mod test {
             turbine_send_delay_ms,
             send_destinations: vec![],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         };
         let (bsend, _) = unbounded();
         let (ssend, _) = unbounded();

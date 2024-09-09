@@ -166,7 +166,10 @@ pub mod repair_parameters {
 
 /// Configuration for sending duplicate blocks.
 pub mod send_duplicate_blocks {
-    use std::{net::SocketAddr, sync::Arc};
+    use {
+        solana_pubkey::Pubkey,
+        std::{net::SocketAddr, sync::Arc},
+    };
 
     pub const ID: &str = "send_duplicate_blocks";
     adversarial_feature_impl!(SendDuplicateBlocks);
@@ -187,6 +190,9 @@ pub mod send_duplicate_blocks {
         pub send_destinations: Vec<Arc<Vec<SocketAddr>>>,
         /// Configuration when delivering shreds directly to turbine leaf nodes.
         pub leaf_node_partitions: Option<usize>,
+        /// Pubkey of the validator to perform the attack. Necessary for local
+        /// test for the config is shared between multiple nodes.
+        pub local_test_pubkey_to_perform_attack: Option<Pubkey>,
     }
 }
 

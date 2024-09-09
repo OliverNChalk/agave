@@ -3,10 +3,11 @@ use {
     reqwest::blocking::Client,
     serde::{Deserialize, Serialize},
     serial_test::serial,
-    solana_adversary::adversary_feature_set::send_duplicate_blocks,
+    solana_adversary::adversary_feature_set::send_duplicate_blocks::AdversarialConfig,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
-    solana_epoch_schedule::MINIMUM_SLOTS_PER_EPOCH,
+    solana_core::repair::duplicate_repair_status::set_ancestor_hash_repair_sample_size_for_tests_only,
+    solana_epoch_schedule::{MAX_LEADER_SCHEDULE_EPOCH_OFFSET, MINIMUM_SLOTS_PER_EPOCH},
     solana_gossip::gossip_service::discover_validators,
     solana_local_cluster::{
         cluster_tests,
@@ -18,7 +19,15 @@ use {
     std::{thread::sleep, time::Duration},
 };
 
-fn configure_duplicate_block(url: &str) -> Result<(), String> {
+// Enough nodes to generate a multi-layer turbine tree while not increasing
+// execution time too much.
+const NUM_NODES: usize = 4;
+
+fn configure_duplicate_block(
+    cluster: &LocalCluster,
+    config: AdversarialConfig,
+) -> Result<(), String> {
+    let url = &cluster_tests::get_rpc_url(cluster);
     #[derive(Debug, Serialize, Deserialize)]
     struct RpcRequest {
         jsonrpc: String,
@@ -26,15 +35,6 @@ fn configure_duplicate_block(url: &str) -> Result<(), String> {
         params: serde_json::Value,
         id: u64,
     }
-
-    let config = send_duplicate_blocks::AdversarialConfig {
-        num_duplicate_validators: 0,
-        new_entry_index_from_end: 2,
-        send_original_after_ms: 0,
-        turbine_send_delay_ms: 0,
-        send_destinations: vec![],
-        leaf_node_partitions: Some(2),
-    };
 
     let rpc_method = "configureSendDuplicateBlocks";
     let params = serde_json::json!([config]);
@@ -57,69 +57,75 @@ fn configure_duplicate_block(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn disable_duplicate_block_attack(cluster: &LocalCluster) -> Result<(), String> {
+    configure_duplicate_block(cluster, AdversarialConfig::default())
+}
+
+fn enable_duplicate_block_attack(cluster: &LocalCluster) -> Result<(), String> {
+    let config = AdversarialConfig {
+        new_entry_index_from_end: 2,
+        leaf_node_partitions: Some(2),
+        local_test_pubkey_to_perform_attack: Some(*cluster.entry_point_info.pubkey()),
+        ..AdversarialConfig::default()
+    };
+
+    configure_duplicate_block(cluster, config)
+}
+
 #[test]
 #[serial]
-#[ignore]
-// This test is ignored because it fails. There are fixes being worked to resolve these vulnerabilities.
-fn test_mainnet_beta_cluster_type_duplicate_block() {
+fn test_duplicate_block_leaf_node_delivery() {
     solana_logger::setup_with_default(RUST_LOG_FILTER);
 
-    // Enough nodes to generate a multi-layer turbine tree while not increasing
-    // execution time too much.
-    let num_nodes = 4;
+    // Setup cluster and connections.
     let mut config =
-        ClusterConfig::new_with_equal_stakes(num_nodes, DEFAULT_MINT_LAMPORTS, DEFAULT_NODE_STAKE);
-    config.cluster_type = ClusterType::MainnetBeta;
+        ClusterConfig::new_with_equal_stakes(NUM_NODES, DEFAULT_MINT_LAMPORTS, DEFAULT_NODE_STAKE);
+    config.cluster_type = ClusterType::Development;
     config.slots_per_epoch = MINIMUM_SLOTS_PER_EPOCH;
-    config.stakers_slot_offset = MINIMUM_SLOTS_PER_EPOCH;
+    config.stakers_slot_offset =
+        MINIMUM_SLOTS_PER_EPOCH.saturating_mul(MAX_LEADER_SCHEDULE_EPOCH_OFFSET);
     let cluster = LocalCluster::new(&mut config, SocketAddrSpace::Unspecified);
     let cluster_nodes = discover_validators(
         &cluster.entry_point_info.gossip().unwrap(),
-        num_nodes,
+        NUM_NODES,
         cluster.entry_point_info.shred_version(),
         SocketAddrSpace::Unspecified,
     )
     .unwrap();
-    assert_eq!(cluster_nodes.len(), num_nodes);
+    assert_eq!(cluster_nodes.len(), NUM_NODES);
 
-    // Wait for node stakes to activate.
-    let client = RpcClient::new_socket(cluster.entry_point_info.rpc().unwrap());
-    let start_time = std::time::Instant::now();
-    let stake_activated_slot = MINIMUM_SLOTS_PER_EPOCH * 6;
-    loop {
-        let slot = client
-            .get_slot_with_commitment(CommitmentConfig::default())
-            .unwrap();
-        if slot > stake_activated_slot {
-            // Stake is activated.
-            break;
-        }
-        sleep(Duration::from_secs(1));
-        if start_time.elapsed().as_secs() > 120 {
-            panic!("Failed to activate stakes");
-        }
-    }
+    // Need to force this constant low because of the small number of nodes in
+    // this local cluster. Otherwise, we will deadlock when trying to sample
+    // hashes to determine which version of duplicate block we want to repair.
+    set_ancestor_hash_repair_sample_size_for_tests_only(1);
 
-    // Enable duplicate block attack where leader directly sends to turbine leaf nodes.
-    let configure_result = configure_duplicate_block(&cluster_tests::get_rpc_url(&cluster));
-    assert_matches!(configure_result, Ok(()));
-
-    // Sleep for 1 minute to monitor if network partition occurs.
-    sleep(Duration::from_secs(60));
-
-    // Get the highest Finalized slot from the cluster.
-    let slot = client
-        .get_slot_with_commitment(CommitmentConfig::default())
+    // Choose a non-malicious block producer to be RPC so we can make sure it is
+    // not getting forked off.
+    let rpc_addr = cluster
+        .validators
+        .iter()
+        .find(|(_, v)| v.info.contact_info.pubkey() != cluster.entry_point_info.pubkey())
+        .and_then(|(_, v)| v.info.contact_info.rpc())
         .unwrap();
+    let client = RpcClient::new_socket(rpc_addr);
 
-    // Cluster that does not partition (or effectively resolves partition)
-    // should be able to reach finalized slot height of ~330. Attempts at
-    // partitioning occur around slot 200. Slot 265 was chosen to provide
-    // healthy margin on either side.
-    log::info!("Finalized slot: {slot}");
-    assert!(
-        slot > stake_activated_slot + 73,
-        "Cluster did not finalize minimum number of slots in 1 minute.\nHighest finalized slot: \
-         {slot}"
+    // Wait for stake to warm up so that no single node has more than super
+    // minority stake.
+    let _ = client.wait_for_max_stake(CommitmentConfig::confirmed(), 33.0);
+
+    assert_matches!(enable_duplicate_block_attack(&cluster), Ok(()));
+
+    // Sleep for 30 seconds to allow for duplicate block network partition to
+    // occur.
+    sleep(Duration::from_secs(30));
+
+    assert_matches!(disable_duplicate_block_attack(&cluster), Ok(()));
+
+    // If we are still making roots, it means the duplicate attack was not able
+    // to partition and stall the cluster.
+    cluster.check_for_new_roots(
+        1,
+        "test_duplicate_block_leaf_node_delivery",
+        SocketAddrSpace::Unspecified,
     );
 }

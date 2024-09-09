@@ -761,6 +761,7 @@ pub mod tests {
                     "sendDestinations": [],
                     "turbineSendDelayMs": 0,
                     "leafNodePartitions": null,
+                    "localTestPubkeyToPerformAttack": null,
                 },
             },
             {
@@ -1036,6 +1037,7 @@ pub mod tests {
             turbine_send_delay_ms: 0,
             send_destinations: vec![],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         };
         let rsp = send_signed_request_sync(
             meta.clone(),
@@ -1065,6 +1067,7 @@ pub mod tests {
                 Arc::new(vec![SocketAddr::from(([0x2023, 0, 0, 0, 0, 0, 0, 1], 987))]),
             ],
             leaf_node_partitions: None,
+            local_test_pubkey_to_perform_attack: None,
         };
         let rsp = send_signed_request_sync(
             meta.clone(),

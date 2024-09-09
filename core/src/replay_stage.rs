@@ -36,6 +36,7 @@ use {
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
     rayon::{prelude::*, ThreadPool},
     solana_accounts_db::contains::Contains,
+    solana_adversary::adversary_feature_set::send_duplicate_blocks,
     solana_clock::{BankId, Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     solana_entry::entry::VerifyRecyclers,
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierArc,
@@ -1540,6 +1541,12 @@ impl ReplayStage {
         (progress, heaviest_subtree_fork_choice)
     }
 
+    fn leader_generating_duplicate_blocks() -> bool {
+        send_duplicate_blocks::get_config()
+            .leaf_node_partitions
+            .is_some()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn dump_then_repair_correct_slots(
         duplicate_slots_to_repair: &mut DuplicateSlotsToRepair,
@@ -1616,6 +1623,9 @@ impl ReplayStage {
                     // Should not dump slots for which we were the leader
                     if Some(*my_pubkey)
                         == leader_schedule_cache.slot_leader_at(*duplicate_slot, None)
+                        // We force this to happen in testing, and we want to be
+                        // able to dump/repair to let the node recover.
+                        && !Self::leader_generating_duplicate_blocks()
                     {
                         if let Some(bank) = bank_forks.read().unwrap().get(*duplicate_slot) {
                             bank_hash_details::write_bank_hash_details_file(&bank)
