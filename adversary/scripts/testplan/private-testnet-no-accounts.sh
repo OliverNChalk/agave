@@ -37,7 +37,5 @@ run_attacks_all() {
   attack_delayBroadcast
 
   attack_sendDuplicateBlocks
-  # Temporarily disabled because this test will fail consistently until we have
-  # retransmit signatures
-  # attack_sendDuplicateLeafNodes
+  attack_sendDuplicateLeafNodes
 }
