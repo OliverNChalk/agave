@@ -537,7 +537,7 @@ mod tests {
         super::*,
         crate::adversary::replay::parse_replay_stage_attack_args,
         solana_adversary::adversary_feature_set::replay_stage_attack::{
-            Attack, AttackProgramConfig,
+            Attack, AttackProgramConfig, LargeNopAttackConfig,
         },
     };
 
@@ -587,6 +587,95 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parse_replay_stage_attack_create_nonce_accounts() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["createNonceAccounts"],
+            Attack::CreateNonceAccounts,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_allocate_random_large() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["allocateRandomLarge"],
+            Attack::AllocateRandomLarge,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_allocate_random_small() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["allocateRandomSmall"],
+            Attack::AllocateRandomSmall,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_chain_transactions() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["chainTransactions"],
+            Attack::ChainTransactions,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_read_max_accounts() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["readMaxAccounts"],
+            Attack::ReadMaxAccounts,
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_write_max_accounts() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["writeMaxAccounts"],
+            Attack::WriteMaxAccounts,
+        );
+    }
+    #[test]
+    fn test_cli_parse_replay_stage_attack_large_nop_default_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["largeNop"],
+            Attack::LargeNop(LargeNopAttackConfig::default()),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_large_nop_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "largeNop",
+                "--tx-data-size",
+                "100",
+                "--transaction-batch-size",
+                "32",
+                "--num-accounts-per-tx",
+                "8",
+                "--transaction-cu-budget",
+                "100",
+            ],
+            Attack::LargeNop(LargeNopAttackConfig {
+                common: AttackProgramConfig {
+                    transaction_batch_size: 32,
+                    num_accounts_per_tx: 8,
+                    transaction_cu_budget: 100,
+                    use_failed_transaction_hotpath: false,
+                },
+                tx_data_size: 100,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_transfer_random_with_memo() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &["transferRandomWithMemo"],
+            Attack::TransferRandomWithMemo,
+        );
+    }
+
+    #[test]
     fn test_cli_parse_replay_stage_attack_write_program_default_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &["writeProgram"],
@@ -596,6 +685,27 @@ mod tests {
 
     #[test]
     fn test_cli_parse_replay_stage_attack_write_program_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "writeProgram",
+                "--transaction-batch-size",
+                "32",
+                "--num-accounts-per-tx",
+                "8",
+                "--transaction-cu-budget",
+                "100",
+            ],
+            Attack::WriteProgram(AttackProgramConfig {
+                transaction_batch_size: 32,
+                num_accounts_per_tx: 8,
+                transaction_cu_budget: 100,
+                use_failed_transaction_hotpath: false,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_write_program_custom_parameters_fail_hotpath() {
         check_configure_replay_stage_attack_arg_parsing(
             &[
                 "writeProgram",
@@ -638,6 +748,28 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parse_replay_stage_attack_read_program_custom_parameters_fail_hotpath() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "readProgram",
+                "--use-failed-transaction-hotpath",
+                "--transaction-batch-size",
+                "61",
+                "--num-accounts-per-tx",
+                "4",
+                "--transaction-cu-budget",
+                "2000",
+            ],
+            Attack::ReadProgram(AttackProgramConfig {
+                transaction_batch_size: 61,
+                num_accounts_per_tx: 4,
+                transaction_cu_budget: 2000,
+                use_failed_transaction_hotpath: true,
+            }),
+        );
+    }
+
+    #[test]
     fn test_cli_parse_replay_stage_attack_recursive_program_custom_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &[
@@ -654,6 +786,28 @@ mod tests {
                 num_accounts_per_tx: 1,
                 transaction_cu_budget: 1000,
                 use_failed_transaction_hotpath: false,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_recursive_program_custom_parameters_fail_hotpath() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "recursiveProgram",
+                "--use-failed-transaction-hotpath",
+                "--transaction-batch-size",
+                "40",
+                "--num-accounts-per-tx",
+                "1",
+                "--transaction-cu-budget",
+                "1000",
+            ],
+            Attack::RecursiveProgram(AttackProgramConfig {
+                transaction_batch_size: 40,
+                num_accounts_per_tx: 1,
+                transaction_cu_budget: 1000,
+                use_failed_transaction_hotpath: true,
             }),
         );
     }
@@ -680,6 +834,28 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parse_replay_stage_attack_cpi_program_custom_parameters_fail_hotpath() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "cpiProgram",
+                "--use-failed-transaction-hotpath",
+                "--transaction-batch-size",
+                "40",
+                "--num-accounts-per-tx",
+                "1",
+                "--transaction-cu-budget",
+                "1000",
+            ],
+            Attack::CpiProgram(AttackProgramConfig {
+                transaction_batch_size: 40,
+                num_accounts_per_tx: 1,
+                transaction_cu_budget: 1000,
+                use_failed_transaction_hotpath: true,
+            }),
+        );
+    }
+
+    #[test]
     fn test_cli_parse_replay_stage_attack_cold_program_cache_custom_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &[
@@ -696,6 +872,28 @@ mod tests {
                 num_accounts_per_tx: 2,
                 transaction_cu_budget: 100,
                 use_failed_transaction_hotpath: false,
+            }),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_cold_program_cache_custom_parameters_fail_hotpath() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "coldProgramCache",
+                "--use-failed-transaction-hotpath",
+                "--transaction-batch-size",
+                "2",
+                "--num-accounts-per-tx",
+                "2",
+                "--transaction-cu-budget",
+                "100",
+            ],
+            Attack::ColdProgramCache(AttackProgramConfig {
+                transaction_batch_size: 2,
+                num_accounts_per_tx: 2,
+                transaction_cu_budget: 100,
+                use_failed_transaction_hotpath: true,
             }),
         );
     }
