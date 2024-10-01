@@ -62,6 +62,7 @@ pub enum Attack {
     LargeNop(LargeNopAttackConfig),
     TransferRandomWithMemo,
     ReadNonExistentAccounts,
+    CpiProgram(AttackProgramConfig),
 }
 
 #[derive(Default)]
@@ -124,6 +125,7 @@ impl Attack {
             Attack::LargeNop(_) => 12,
             Attack::TransferRandomWithMemo => 13,
             Attack::ReadNonExistentAccounts => 14,
+            Attack::CpiProgram(_) => 15,
         };
 
         AttackSubtypeStatsId(id)

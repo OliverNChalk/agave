@@ -659,6 +659,27 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parse_replay_stage_attack_cpi_program_custom_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "cpiProgram",
+                "--transaction-batch-size",
+                "40",
+                "--num-accounts-per-tx",
+                "1",
+                "--transaction-cu-budget",
+                "1000",
+            ],
+            Attack::CpiProgram(AttackProgramConfig {
+                transaction_batch_size: 40,
+                num_accounts_per_tx: 1,
+                transaction_cu_budget: 1000,
+                use_failed_transaction_hotpath: false,
+            }),
+        );
+    }
+
+    #[test]
     fn test_cli_parse_replay_stage_attack_cold_program_cache_custom_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &[

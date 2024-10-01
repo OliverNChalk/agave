@@ -54,6 +54,7 @@ pub fn parse_replay_stage_attack_args(
         Attack::WriteProgram(config)
         | Attack::ReadProgram(config)
         | Attack::RecursiveProgram(config)
+        | Attack::CpiProgram(config)
         | Attack::ColdProgramCache(config) => {
             *config = AttackProgramConfig::default();
             set_common_config(config, sub_matches)?;

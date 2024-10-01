@@ -19,6 +19,7 @@ use {
     solana_clock::DEFAULT_SLOTS_PER_EPOCH,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
+    solana_compute_budget::compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
     solana_core::{
         banking_stage::adversary::generator_templates::{
             max_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
@@ -311,7 +312,8 @@ mod setup {
                 }
                 Attack::WriteProgram(attack_config)
                 | Attack::ReadProgram(attack_config)
-                | Attack::RecursiveProgram(attack_config) => {
+                | Attack::RecursiveProgram(attack_config)
+                | Attack::CpiProgram(attack_config) => {
                     let num_payers_accounts = attack_config
                         .transaction_batch_size
                         .saturating_mul(num_replay_threads);
@@ -598,6 +600,7 @@ fn use_failed_transaction_hotpath(attack: &Attack) -> bool {
         Attack::WriteProgram(attack_config)
         | Attack::ReadProgram(attack_config)
         | Attack::RecursiveProgram(attack_config)
+        | Attack::CpiProgram(attack_config)
         | Attack::ColdProgramCache(attack_config) => attack_config.use_failed_transaction_hotpath,
         _ => false,
     }
@@ -626,9 +629,10 @@ fn run_replay_attack(attack: Attack) {
 
     // Setup the necessary accounts and programs.
     let max_account_size = match attack {
-        Attack::WriteProgram(_) | Attack::ReadProgram(_) | Attack::RecursiveProgram(_) => {
-            Some(4 * 1024)
-        }
+        Attack::WriteProgram(_)
+        | Attack::ReadProgram(_)
+        | Attack::RecursiveProgram(_)
+        | Attack::CpiProgram(_) => Some(4 * 1024),
         Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => Some(1),
         _ => None,
     };
@@ -785,6 +789,29 @@ fn test_recursive_program_generator_fail_hotpath() {
         ..AttackProgramConfig::default()
     };
     run_replay_attack(Attack::RecursiveProgram(config));
+}
+
+#[test]
+#[serial]
+fn test_cpi_program_generator() {
+    let config = AttackProgramConfig {
+        // Currently each tx consumes a little over 1M CUs. This provides some
+        // margin to allow tx to succeed.
+        transaction_cu_budget: MAX_COMPUTE_UNIT_LIMIT,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::CpiProgram(config));
+}
+
+#[test]
+#[serial]
+fn test_cpi_program_generator_fail_hotpath() {
+    let config = AttackProgramConfig {
+        transaction_cu_budget: 100,
+        use_failed_transaction_hotpath: true,
+        ..AttackProgramConfig::default()
+    };
+    run_replay_attack(Attack::CpiProgram(config));
 }
 
 #[test]

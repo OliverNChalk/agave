@@ -76,6 +76,14 @@ run_attacks_all() {
    --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
    --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
    --use-failed-transaction-hotpath
+  # Increase the CU budget to allow further progress into the program before
+  # failing. Currently each tx consumes a little over 1M CUs.
+  local INSUFFICIENT_CU_BUDGET=1000000
+  attack_replayStage cpiProgram \
+   --transaction-batch-size ${BATCH_SIZE} \
+   --num-accounts-per-tx ${NUM_ACCOUNTS_PER_TX} \
+   --transaction-cu-budget ${INSUFFICIENT_CU_BUDGET} \
+   --use-failed-transaction-hotpath
 
   attack_delayBroadcast
 

@@ -53,6 +53,12 @@ pub enum BlockGeneratorStressTestInstruction {
     Nop {
         random_data: Vec<u8>,
     },
+    Cpi {
+        // recursion depth
+        depth: u8,
+        // this is random number to avoid having duplicate transactions errors
+        random: u64,
+    },
 }
 
 entrypoint!(process_instruction);
@@ -77,6 +83,9 @@ pub fn process_instruction(
             recurse(program_id, depth, random, accounts)
         }
         BlockGeneratorStressTestInstruction::Nop { random_data: _ } => Ok(()),
+        BlockGeneratorStressTestInstruction::Cpi { depth, random } => {
+            cpi(program_id, depth, random, accounts)
+        }
     }
 }
 
@@ -119,6 +128,51 @@ fn recurse(program_id: &Pubkey, depth: u8, random: u64, accounts: &[AccountInfo]
         })
         .collect();
 
+    let data = borsh::to_vec(&BlockGeneratorStressTestInstruction::Recurse {
+        depth: depth.saturating_sub(1),
+        random,
+    })
+    .map_err(|_| ProgramError::BorshIoError)?;
+    let instruction = Instruction {
+        program_id: *program_id,
+        accounts: accounts_meta,
+        data,
+    };
+    invoke(&instruction, accounts)
+}
+
+fn cpi(program_id: &Pubkey, depth: u8, random: u64, accounts: &[AccountInfo]) -> ProgramResult {
+    if depth == 0 {
+        return Ok(());
+    }
+
+    let accounts_meta: Vec<AccountMeta> = accounts
+        .iter()
+        .map(|a| AccountMeta {
+            pubkey: *a.key,
+            is_writable: a.is_writable,
+            is_signer: a.is_signer,
+        })
+        .collect();
+
+    // Make excessive CPI calls to stress the system
+    let data = borsh::to_vec(&BlockGeneratorStressTestInstruction::Nop {
+        random_data: vec![],
+    })
+    .map_err(|_| ProgramError::BorshIoError)?;
+    let instruction = Instruction {
+        program_id: *program_id,
+        accounts: accounts_meta.clone(),
+        data,
+    };
+
+    // This value was chosen to not exceed the max instruction trace length
+    // and encounter MaxInstructionTraceLengthExceeded errors.
+    for _ in 0..14 {
+        invoke(&instruction, accounts)?;
+    }
+
+    // Make recursive CPI call to stress the system
     let data = borsh::to_vec(&BlockGeneratorStressTestInstruction::Recurse {
         depth: depth.saturating_sub(1),
         random,

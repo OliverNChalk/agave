@@ -55,6 +55,7 @@ pub(crate) fn register_attack_config_verifiers() {
     verify_accounts!("writeMaxAccounts", write_max_accounts);
     verify_accounts_and_attack_config!("readProgram", read_program);
     verify_accounts_and_attack_config!("recursiveProgram", recursive_program);
+    verify_accounts_and_attack_config!("cpiProgram", cpi_program);
     verify_accounts_and_attack_config!("coldProgramCache", cold_program_cache);
     verify_accounts_and_attack_config!("largeNop", large_nop);
     verify_accounts!("readNonExistentAccounts", read_non_existent_accounts);

@@ -15,6 +15,7 @@ pub(super) mod allocate_random_large;
 pub(super) mod allocate_random_small;
 pub(super) mod chain_transactions;
 pub(super) mod cold_program_cache;
+pub(super) mod cpi_program;
 pub(super) mod create_nonce_accounts;
 pub(super) mod large_nop;
 pub(super) mod read_max_accounts;
@@ -88,6 +89,9 @@ impl ActiveGenerator {
             RecursiveProgram(recursive_program_config) => {
                 recursive_program::generator(accounts, num_workers, recursive_program_config)
             }
+            CpiProgram(cpi_program_config) => {
+                cpi_program::generator(accounts, num_workers, cpi_program_config)
+            }
             ColdProgramCache(cold_program_cache_config) => {
                 cold_program_cache::generator(accounts, num_workers, cold_program_cache_config)
             }
@@ -113,6 +117,7 @@ impl ActiveGenerator {
             Attack::WriteProgram(config)
             | Attack::ReadProgram(config)
             | Attack::RecursiveProgram(config)
+            | Attack::CpiProgram(config)
             | Attack::ColdProgramCache(config) => config.use_failed_transaction_hotpath,
             _default => false,
         }
