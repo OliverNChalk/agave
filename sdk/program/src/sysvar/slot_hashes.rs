@@ -168,7 +168,7 @@ impl PodSlotHashes {
 }
 
 /// API for querying the `SlotHashes` sysvar.
-#[deprecated(since = "2.1.0", note = "Please use `PodSlotHashes` instead")]
+#[deprecated(since = "2.0.13", note = "Please use `PodSlotHashes` instead")]
 pub struct SlotHashesSysvar;
 
 #[allow(deprecated)]

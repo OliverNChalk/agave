@@ -66,7 +66,7 @@ impl borsh0_10::ser::BorshSerialize for StakeFlags {
 impl StakeFlags {
     ///  Stake must be fully activated before deactivation is allowed (bit 1).
     #[deprecated(
-        since = "2.1.0",
+        since = "2.0.13",
         note = "This flag will be removed because it was only used for `redelegate`, which will not be enabled."
     )]
     pub const MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED: Self =

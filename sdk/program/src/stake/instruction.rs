@@ -310,7 +310,7 @@ pub enum StakeInstruction {
     ///   3. `[]` Unused account, formerly the stake config
     ///   4. `[SIGNER]` Stake authority
     ///
-    #[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
+    #[deprecated(since = "2.0.13", note = "Redelegate will not be enabled")]
     Redelegate,
 
     /// Move stake between accounts with the same authorities and lockups, using Staker authority.
@@ -843,7 +843,7 @@ fn _redelegate(
     Instruction::new_with_bincode(id(), &StakeInstruction::Redelegate, account_metas)
 }
 
-#[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
+#[deprecated(since = "2.0.13", note = "Redelegate will not be enabled")]
 pub fn redelegate(
     stake_pubkey: &Pubkey,
     authorized_pubkey: &Pubkey,
@@ -862,7 +862,7 @@ pub fn redelegate(
     ]
 }
 
-#[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
+#[deprecated(since = "2.0.13", note = "Redelegate will not be enabled")]
 pub fn redelegate_with_seed(
     stake_pubkey: &Pubkey,
     authorized_pubkey: &Pubkey,

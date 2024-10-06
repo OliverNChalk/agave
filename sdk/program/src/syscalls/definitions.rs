@@ -1,26 +1,29 @@
 #[cfg(target_feature = "static-syscalls")]
 pub use solana_define_syscall::sys_hash;
-#[deprecated(since = "2.1.0", note = "Use `solana_instruction::syscalls` instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana_instruction::syscalls` instead")]
 pub use solana_instruction::syscalls::{
     sol_get_processed_sibling_instruction, sol_get_stack_height,
 };
-#[deprecated(since = "2.1.0", note = "Use `solana_msg::sol_log` instead.")]
+#[deprecated(since = "2.0.13", note = "Use `solana_msg::sol_log` instead.")]
 pub use solana_msg::sol_log;
 #[deprecated(
-    since = "2.1.0",
+    since = "2.0.13",
     note = "Use `solana_program_memory::syscalls` instead"
 )]
 pub use solana_program_memory::syscalls::{sol_memcmp_, sol_memcpy_, sol_memmove_, sol_memset_};
-#[deprecated(since = "2.1.0", note = "Use `solana_pubkey::syscalls` instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana_pubkey::syscalls` instead")]
 pub use solana_pubkey::syscalls::{
     sol_create_program_address, sol_log_pubkey, sol_try_find_program_address,
 };
 #[deprecated(
-    since = "2.1.0",
+    since = "2.0.13",
     note = "Use `solana_secp256k1_recover::sol_secp256k1_recover` instead"
 )]
 pub use solana_secp256k1_recover::sol_secp256k1_recover;
-#[deprecated(since = "2.1.0", note = "Use solana_sha256_hasher::sol_sha256 instead")]
+#[deprecated(
+    since = "2.0.13",
+    note = "Use solana_sha256_hasher::sol_sha256 instead"
+)]
 pub use solana_sha256_hasher::sol_sha256;
 use {crate::pubkey::Pubkey, solana_define_syscall::define_syscall};
 define_syscall!(fn sol_log_64_(arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64));

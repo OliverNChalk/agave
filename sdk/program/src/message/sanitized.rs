@@ -371,7 +371,7 @@ impl SanitizedMessage {
     }
 
     #[deprecated(
-        since = "2.1.0",
+        since = "2.0.13",
         note = "Please use `SanitizedMessage::num_total_signatures` instead."
     )]
     pub fn num_signatures(&self) -> u64 {

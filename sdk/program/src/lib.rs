@@ -522,19 +522,22 @@ pub mod sysvar;
 pub mod vote;
 pub mod wasm;
 
-#[deprecated(since = "2.1.0", note = "Use `solana-program-memory` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-program-memory` crate instead")]
 pub use solana_program_memory as program_memory;
-#[deprecated(since = "2.1.0", note = "Use `solana-program-pack` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-program-pack` crate instead")]
 pub use solana_program_pack as program_pack;
-#[deprecated(since = "2.1.0", note = "Use `solana-sanitize` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-sanitize` crate instead")]
 pub use solana_sanitize as sanitize;
-#[deprecated(since = "2.1.0", note = "Use `solana-secp256k1-recover` crate instead")]
+#[deprecated(
+    since = "2.0.13",
+    note = "Use `solana-secp256k1-recover` crate instead"
+)]
 pub use solana_secp256k1_recover as secp256k1_recover;
-#[deprecated(since = "2.1.0", note = "Use `solana-serde-varint` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-serde-varint` crate instead")]
 pub use solana_serde_varint as serde_varint;
-#[deprecated(since = "2.1.0", note = "Use `solana-serialize-utils` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-serialize-utils` crate instead")]
 pub use solana_serialize_utils as serialize_utils;
-#[deprecated(since = "2.1.0", note = "Use `solana-short-vec` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-short-vec` crate instead")]
 pub use solana_short_vec as short_vec;
 #[cfg(target_arch = "wasm32")]
 pub use wasm_bindgen::prelude::wasm_bindgen;
@@ -596,7 +599,7 @@ pub mod sdk_ids {
     }
 }
 
-#[deprecated(since = "2.1.0", note = "Use `solana-decode-error` crate instead")]
+#[deprecated(since = "2.0.13", note = "Use `solana-decode-error` crate instead")]
 pub use solana_decode_error as decode_error;
 /// Same as [`declare_id`] except that it reports that this ID has been deprecated.
 pub use solana_sdk_macro::program_declare_deprecated_id as declare_deprecated_id;
