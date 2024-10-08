@@ -284,7 +284,7 @@ to check the whole repo.  Or you can run `cargo test` with the nightly compiler,
 explicitly specifying the package, if you want to save some:
 
 ```sh
-./cargo nightly test --package solana-net-protocol --lib -- test_abi_
+./cargo nightly test --package solana-net-protocol --features frozen-abi --lib -- test_abi_
 ```
 
 #### 1.6.2. Updates for third party dependency versions with multiple versions
