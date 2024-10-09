@@ -91,4 +91,9 @@ run_attacks_all() {
   attack_sendDuplicateLeafNodes
 
   attack_unloadProgramInvocation
+
+  # attacks that use invalid fee payers.
+  attack_replayStage readNonExistentAccounts \
+   --use-failed-transaction-hotpath \
+   --use-invalid-fee-payer
 }

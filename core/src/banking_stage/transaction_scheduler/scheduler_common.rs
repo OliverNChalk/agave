@@ -197,6 +197,7 @@ impl<Tx> SchedulingCommon<Tx> {
             transactions,
             max_ages,
             use_failed_transaction_hotpath: false,
+            use_invalid_fee_payer: false,
         };
         self.consume_work_senders[thread_index]
             .send(work)
@@ -230,6 +231,7 @@ impl<Tx: TransactionWithMeta> SchedulingCommon<Tx> {
                         transactions,
                         max_ages: _,
                         use_failed_transaction_hotpath,
+                        use_invalid_fee_payer,
                     },
                 retryable_indexes,
             }) => {
@@ -238,6 +240,13 @@ impl<Tx: TransactionWithMeta> SchedulingCommon<Tx> {
                     "Transactions that are designated for the failed transaction hot path should \
                      not be retried.  When retried they end up in the normal processing flow, \
                      avoiding the hot path in the first place.",
+                );
+                assert!(
+                    !use_invalid_fee_payer,
+                    "As none of the retried transactions should be the failed transaction hotpath \
+                     transactions, none of them should have the `use_invalid_fee_payer` set.  It \
+                     can only be set for the transactions that are processed by the failed \
+                     transactions hotpath logic.",
                 );
 
                 let num_transactions = ids.len();

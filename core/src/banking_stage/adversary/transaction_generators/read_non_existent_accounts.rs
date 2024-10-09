@@ -14,7 +14,12 @@ use {
         iter::{IntoParallelIterator, ParallelIterator},
         ThreadPool,
     },
-    solana_adversary::accounts_file::AccountsFile,
+    solana_adversary::{
+        accounts_file::AccountsFile,
+        adversary_feature_set::replay_stage_attack::{Attack, NonExistentAccountsAttackConfig},
+    },
+    solana_hash::Hash,
+    solana_keypair::Keypair,
     solana_message::legacy::Message as LegacyMessage,
     solana_pubkey::{Pubkey, PUBKEY_BYTES},
     solana_runtime::bank::Bank,
@@ -25,8 +30,16 @@ use {
 
 const NUM_NON_EXISTENT_ACCOUNTS_PER_TX: usize = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET;
 
-pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
-    if accounts.payers.len() < TARGET_NUM_TRANSACTIONS_PER_BATCH {
+pub fn verify(accounts: &AccountsFile, attack: &Attack) -> Result<(), String> {
+    let Attack::ReadNonExistentAccounts(attack_config) = attack else {
+        panic!("Unexpected Attack passed into `readNonExistentAccounts::verify`: {attack:?}",);
+    };
+
+    // The invalid payers variant of the attack does not require any payer accounts passed in.
+    // New keypairs are generated on-the-fly for each transaction.
+    if accounts.payers.len() < TARGET_NUM_TRANSACTIONS_PER_BATCH
+        && !attack_config.use_invalid_fee_payer
+    {
         return Err(format!(
             "Not enough `payer` accounts: need at least {TARGET_NUM_TRANSACTIONS_PER_BATCH}",
         ));
@@ -35,10 +48,57 @@ pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
     Ok(())
 }
 
+fn create_transaction(
+    payer: &Keypair,
+    blockhash: Hash,
+    accounts_in_tx: bool,
+) -> SanitizedTransaction {
+    let pubkeys = if accounts_in_tx {
+        // The base pubkey's bytes are randomly generated once and used to create other
+        // pubkeys. This is done to speed up the tx creation while still having a unique
+        // set of keys per transaction. we can do this because the test doesn't need
+        // the corresponding private keys.
+        let base_pubkey_bytes = rand::random::<[u8; PUBKEY_BYTES]>();
+
+        // As we are not running any instructions in this transaction, we do not really need
+        // to provide signatures for our testing accounts. The runtime will still need to
+        // load them, even if they did not sign.
+        iter::once(payer.pubkey())
+            .chain((0..NUM_NON_EXISTENT_ACCOUNTS_PER_TX).map(|i| {
+                let mut new_pubkey_bytes = base_pubkey_bytes;
+                new_pubkey_bytes[0] = new_pubkey_bytes[0].wrapping_add(i as u8);
+                Pubkey::new_from_array(new_pubkey_bytes)
+            }))
+            .collect::<Vec<_>>()
+    } else {
+        // With an invalid payer account, the transaction is filtered out as invalid without further
+        // procesing. So we don't get any additional stress from the invalid embedded accounts.
+        vec![payer.pubkey()]
+    };
+
+    let message = LegacyMessage::new_with_compiled_instructions(
+        // Payer will sign and pay, so it is the only writable signer.
+        1,
+        0,
+        // All the other accounts are read-only accounts that did not provide a signature.
+        pubkeys
+            .len()
+            .saturating_sub(1)
+            .try_into()
+            .expect("`pubkeys.len()` fits into u8"),
+        pubkeys,
+        blockhash,
+        vec![],
+    );
+    let transaction = Transaction::new(&[payer], message, blockhash);
+    SanitizedTransaction::from_transaction_for_tests(transaction)
+}
+
 /// Creates transactions that use many non-existent accounts for input.
 pub(super) fn generator(
     accounts: Arc<AccountsFile>,
     num_workers: usize,
+    config: NonExistentAccountsAttackConfig,
     tx_generator_thread_pool: Arc<ThreadPool>,
 ) -> TransactionGenerator {
     // Used to distribute transactions across banking stage consume workers.
@@ -48,49 +108,26 @@ pub(super) fn generator(
         let blockhash = bank.last_blockhash();
 
         tx_generator_thread_pool.install(|| {
-            let transactions: Vec<SanitizedTransaction> = accounts
-                .payers
-                .iter()
-                .choose_multiple(&mut thread_rng(), TARGET_NUM_TRANSACTIONS_PER_BATCH)
-                .into_par_iter()
-                .map_init(thread_rng, |_rng, payer| {
-                    // Create a transaction with a valid/funded payer account and non-existent input accounts.
-
-                    // The base pubkey's bytes are randomly generated once and used to create other
-                    // pubkeys. This is done to speed up the tx creation while still having a unique
-                    // set of keys per transaction. we can do this because the test doesn't need
-                    // the corresponding private keys.
-                    let base_pubkey_bytes = rand::random::<[u8; PUBKEY_BYTES]>();
-
-                    // As we are not running any instructions in this transaction, we do not really need
-                    // to provide signatures for our testing accounts. The runtime will still need to
-                    // load them, even if they did not sign.
-                    let pubkeys: Vec<_> = iter::once(payer.pubkey())
-                        .chain((0..NUM_NON_EXISTENT_ACCOUNTS_PER_TX).map(|i| {
-                            let mut new_pubkey_bytes = base_pubkey_bytes;
-                            new_pubkey_bytes[0] = new_pubkey_bytes[0].wrapping_add(i as u8);
-                            Pubkey::new_from_array(new_pubkey_bytes)
-                        }))
-                        .collect::<Vec<_>>();
-
-                    let message = LegacyMessage::new_with_compiled_instructions(
-                        // Payer will sign and pay, so it is the only writable signer.
-                        1,
-                        0,
-                        // All the other accounts are read-only accounts that did not provide a signature.
-                        pubkeys
-                            .len()
-                            .saturating_sub(1)
-                            .try_into()
-                            .expect("`pubkeys.len()` fits into u8"),
-                        pubkeys,
-                        blockhash,
-                        vec![],
-                    );
-                    let transaction = Transaction::new(&[payer], message, blockhash);
-                    SanitizedTransaction::from_transaction_for_tests(transaction)
-                })
-                .collect();
+            // failed tx hotpath is used for invalid payers variant of the attack.
+            let transactions: Vec<SanitizedTransaction> = if config.use_invalid_fee_payer {
+                (0..TARGET_NUM_TRANSACTIONS_PER_BATCH)
+                    .into_par_iter()
+                    .map(|_| {
+                        let payer = Keypair::new();
+                        create_transaction(&payer, blockhash, false)
+                    })
+                    .collect()
+            } else {
+                accounts
+                    .payers
+                    .iter()
+                    .choose_multiple(&mut thread_rng(), TARGET_NUM_TRANSACTIONS_PER_BATCH)
+                    .into_par_iter()
+                    .map_init(thread_rng, |_rng, payer| {
+                        create_transaction(payer, blockhash, true)
+                    })
+                    .collect()
+            };
 
             (transactions, worker_index.next())
         })
@@ -103,8 +140,8 @@ mod tests {
         super::generator,
         crate::banking_stage::{
             adversary::{
-                generator_templates::max_accounts_tx::TX_MAX_ATTACK_ACCOUNTS_IN_PACKET,
                 test_helpers::{create_test_bank, setup_accounts, setup_test, TestAccounts},
+                transaction_generators::read_non_existent_accounts::NUM_NON_EXISTENT_ACCOUNTS_PER_TX,
             },
             consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
         },
@@ -114,7 +151,9 @@ mod tests {
         serial_test::serial,
         solana_adversary::{
             accounts_file::AccountsFile,
-            adversary_feature_set::replay_stage_attack::{get_config, AdversarialConfig, Attack},
+            adversary_feature_set::replay_stage_attack::{
+                get_config, AdversarialConfig, Attack, NonExistentAccountsAttackConfig,
+            },
         },
         solana_message::MessageHeader,
         solana_pubkey::Pubkey,
@@ -126,8 +165,6 @@ mod tests {
         std::sync::Arc,
     };
 
-    const NUM_NON_EXISTENT_ACCOUNTS_PER_TX: u8 = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET as u8;
-
     #[test]
     fn generate_one() {
         let accounts: AccountsFile = TestAccounts::new(TARGET_NUM_TRANSACTIONS_PER_BATCH, 0).into();
@@ -135,7 +172,12 @@ mod tests {
         let tx_generator_thread_pool =
             Arc::new(ThreadPoolBuilder::new().num_threads(2).build().unwrap());
 
-        let mut tx_generator = generator(Arc::new(accounts), 1, tx_generator_thread_pool);
+        let mut tx_generator = generator(
+            Arc::new(accounts),
+            1,
+            NonExistentAccountsAttackConfig::default(),
+            tx_generator_thread_pool,
+        );
 
         let bank = create_test_bank();
 
@@ -152,10 +194,50 @@ mod tests {
             &MessageHeader {
                 num_required_signatures: 1,
                 num_readonly_signed_accounts: 0,
-                num_readonly_unsigned_accounts: NUM_NON_EXISTENT_ACCOUNTS_PER_TX,
+                num_readonly_unsigned_accounts: NUM_NON_EXISTENT_ACCOUNTS_PER_TX as u8,
             }
         );
         assert_eq!(message.instructions(), &vec![]);
+    }
+
+    #[test]
+    fn generate_one_with_invalid_payer() {
+        let accounts: AccountsFile = TestAccounts::new(0, 0).into();
+        assert_eq!(accounts.payers.len(), 0);
+
+        let tx_generator_thread_pool =
+            Arc::new(ThreadPoolBuilder::new().num_threads(2).build().unwrap());
+
+        let attack_config = NonExistentAccountsAttackConfig {
+            use_failed_transaction_hotpath: true,
+            use_invalid_fee_payer: true,
+        };
+
+        let mut tx_generator = generator(
+            Arc::new(accounts),
+            1,
+            attack_config,
+            tx_generator_thread_pool,
+        );
+
+        let bank = create_test_bank();
+
+        let (txs, worker_index) = tx_generator(&bank);
+        assert_eq!(txs.len(), TARGET_NUM_TRANSACTIONS_PER_BATCH);
+        assert_eq!(worker_index, 0);
+
+        let tx = &txs[0];
+        assert_eq!(tx.signatures().len(), 1);
+        let message = tx.message();
+        assert_eq!(
+            message.header(),
+            &MessageHeader {
+                num_required_signatures: 1,
+                num_readonly_signed_accounts: 0,
+                num_readonly_unsigned_accounts: 0,
+            }
+        );
+        assert_eq!(message.instructions(), vec![]);
     }
 
     // TODO `[serial]` is necessary as the RPC configuration is a global singleton.  It would be
@@ -168,7 +250,9 @@ mod tests {
         setup_accounts(&mut meta, 1, 0);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::ReadNonExistentAccounts),
+            selected_attack: Some(Attack::ReadNonExistentAccounts(
+                NonExistentAccountsAttackConfig::default(),
+            )),
         };
 
         let rsp = send_signed_request_sync(
@@ -201,7 +285,9 @@ mod tests {
         setup_accounts(&mut meta, TARGET_NUM_TRANSACTIONS_PER_BATCH, 0);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::ReadNonExistentAccounts),
+            selected_attack: Some(Attack::ReadNonExistentAccounts(
+                NonExistentAccountsAttackConfig::default(),
+            )),
         };
         let response = send_signed_request_sync(
             meta.clone(),

@@ -187,6 +187,7 @@ fn generate_attack_transactions(
     let start = Instant::now();
 
     let use_failed_transaction_hotpath = active_generator.use_failed_transaction_hotpath();
+    let use_invalid_fee_payer = active_generator.use_invalid_fee_payer();
 
     loop {
         let (transactions, worker_index) = active_generator.generate_transactions(bank);
@@ -195,6 +196,7 @@ fn generate_attack_transactions(
             tx_batch_id_gen,
             tx_id,
             use_failed_transaction_hotpath,
+            use_invalid_fee_payer,
             transactions,
         );
         match consume_work_senders[worker_index].send(scheduled_work) {
@@ -218,6 +220,7 @@ fn transactions_to_scheduled_work(
     tx_batch_id_gen: &mut BatchIdGenerator,
     tx_id: &mut usize,
     use_failed_transaction_hotpath: bool,
+    use_invalid_fee_payer: bool,
     transactions: Vec<SanitizedTransaction>,
 ) -> ConsumeWork<RuntimeTransaction<SanitizedTransaction>> {
     let transactions = transactions
@@ -247,5 +250,6 @@ fn transactions_to_scheduled_work(
             .map(|_| scheduler_messages::MaxAge::MAX)
             .collect(),
         use_failed_transaction_hotpath,
+        use_invalid_fee_payer,
     }
 }

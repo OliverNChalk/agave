@@ -23,11 +23,13 @@ use {
 mod attack_program_config;
 mod config_verifiers;
 mod large_nop_attack_config;
+mod non_existent_accounts_attack_config;
 
 pub use self::{
     attack_program_config::AttackProgramConfig,
     config_verifiers::{AttackConfigVerifier, VerifierRegistrationError},
     large_nop_attack_config::LargeNopAttackConfig,
+    non_existent_accounts_attack_config::NonExistentAccountsAttackConfig,
 };
 
 pub const ID: &str = "replay_stage_attack";
@@ -61,7 +63,7 @@ pub enum Attack {
     ColdProgramCache(AttackProgramConfig),
     LargeNop(LargeNopAttackConfig),
     TransferRandomWithMemo,
-    ReadNonExistentAccounts,
+    ReadNonExistentAccounts(NonExistentAccountsAttackConfig),
     CpiProgram(AttackProgramConfig),
 }
 
@@ -124,7 +126,7 @@ impl Attack {
             Attack::ColdProgramCache(_) => 11,
             Attack::LargeNop(_) => 12,
             Attack::TransferRandomWithMemo => 13,
-            Attack::ReadNonExistentAccounts => 14,
+            Attack::ReadNonExistentAccounts(_) => 14,
             Attack::CpiProgram(_) => 15,
         };
 

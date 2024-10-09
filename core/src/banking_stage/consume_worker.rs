@@ -122,6 +122,7 @@ impl<Tx: TransactionWithMeta> ConsumeWorker<Tx> {
         let output = self.consumer.process_and_record_aged_transactions(
             bank,
             work.use_failed_transaction_hotpath,
+            work.use_invalid_fee_payer,
             &work.transactions,
             &work.max_ages,
         );
@@ -932,6 +933,7 @@ mod tests {
             transactions,
             max_ages: vec![max_age],
             use_failed_transaction_hotpath: false,
+            use_invalid_fee_payer: false,
         };
         consume_sender.send(work).unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -988,6 +990,7 @@ mod tests {
             transactions,
             max_ages: vec![max_age],
             use_failed_transaction_hotpath: false,
+            use_invalid_fee_payer: false,
         };
         consume_sender.send(work).unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -1044,6 +1047,7 @@ mod tests {
                 transactions: txs,
                 max_ages: vec![max_age, max_age],
                 use_failed_transaction_hotpath: false,
+                use_invalid_fee_payer: false,
             })
             .unwrap();
 
@@ -1118,6 +1122,7 @@ mod tests {
                 transactions: txs1,
                 max_ages: vec![max_age],
                 use_failed_transaction_hotpath: false,
+                use_invalid_fee_payer: false,
             })
             .unwrap();
 
@@ -1128,6 +1133,7 @@ mod tests {
                 transactions: txs2,
                 max_ages: vec![max_age],
                 use_failed_transaction_hotpath: false,
+                use_invalid_fee_payer: false,
             })
             .unwrap();
         let consumed = consumed_receiver.recv().unwrap();
@@ -1272,6 +1278,7 @@ mod tests {
                     },
                 ],
                 use_failed_transaction_hotpath: false,
+                use_invalid_fee_payer: false,
             })
             .unwrap();
 

@@ -102,11 +102,14 @@ impl ActiveGenerator {
                 tx_generator_thread_pool,
             ),
             TransferRandomWithMemo => transfer_random_with_memo::generator(accounts, num_workers),
-            ReadNonExistentAccounts => read_non_existent_accounts::generator(
-                accounts,
-                num_workers,
-                tx_generator_thread_pool,
-            ),
+            ReadNonExistentAccounts(non_existent_accounts_config) => {
+                read_non_existent_accounts::generator(
+                    accounts,
+                    num_workers,
+                    non_existent_accounts_config,
+                    tx_generator_thread_pool,
+                )
+            }
         }
     }
 
@@ -119,6 +122,16 @@ impl ActiveGenerator {
             | Attack::RecursiveProgram(config)
             | Attack::CpiProgram(config)
             | Attack::ColdProgramCache(config) => config.use_failed_transaction_hotpath,
+            Attack::ReadNonExistentAccounts(config) => config.use_failed_transaction_hotpath,
+            _default => false,
+        }
+    }
+
+    /// Attacks that want the fee payer to be an invalid account should set this flag.  Invalidator
+    /// will then avoid both loading and charging the fee payer account.
+    pub fn use_invalid_fee_payer(&self) -> bool {
+        match &self.attack {
+            Attack::ReadNonExistentAccounts(config) => config.use_invalid_fee_payer,
             _default => false,
         }
     }

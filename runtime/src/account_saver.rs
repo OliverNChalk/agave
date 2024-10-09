@@ -1,6 +1,6 @@
 use {
     core::borrow::Borrow,
-    solana_account::AccountSharedData,
+    solana_account::{AccountSharedData, ReadableAccount as _},
     solana_pubkey::Pubkey,
     solana_svm::{
         rollback_accounts::RollbackAccounts,
@@ -12,7 +12,20 @@ use {
     solana_svm_transaction::svm_message::SVMMessage,
     solana_transaction::sanitized::SanitizedTransaction,
     solana_transaction_context::transaction_accounts::KeyedAccountSharedData,
+    std::sync::LazyLock,
 };
+
+/// This owner address is used by the invalidator, when transactions with invalid fee payer are
+/// generated.   See usages of this constant for the relevant code.
+///
+/// Value is equal to `Pubkey::from_str("invaLidFeePayer11owner11111111111111111111")`.
+pub static INVALID_PAYER_ACCOUNT_OWNER: LazyLock<Pubkey> = LazyLock::new(|| {
+    Pubkey::from([
+        0x0a, 0xb4, 0xbd, 0x40, 0xc6, 0x50, 0xe8, 0x48, 0xd8, 0x84, 0x1d, 0xe9, 0x66, 0x68, 0x7d,
+        0xaa, 0xed, 0xb7, 0xf0, 0xb6, 0xe8, 0x55, 0xfa, 0x06, 0xfe, 0x42, 0x3b, 0xf0, 0x0d, 0x60,
+        0x00, 0x00,
+    ])
+});
 
 // Used to approximate how many accounts will be calculated for storage so that
 // vectors are allocated with an appropriate capacity. Doesn't account for some
@@ -136,7 +149,9 @@ fn collect_accounts_for_failed_tx<'a>(
     rollback_accounts: &'a RollbackAccounts,
 ) {
     for (address, account) in rollback_accounts {
-        collected_accounts.push((address, account));
+        if *account.owner() != *INVALID_PAYER_ACCOUNT_OWNER {
+            collected_accounts.push((address, account));
+        }
         if let Some(collected_account_transactions) = collected_account_transactions {
             collected_account_transactions
                 .push(transaction_ref.expect("transaction ref must exist if collecting"));

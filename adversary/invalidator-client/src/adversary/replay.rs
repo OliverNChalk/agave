@@ -66,6 +66,21 @@ pub fn parse_replay_stage_attack_args(
                 config.tx_data_size = v
             })?;
         }
+        Attack::ReadNonExistentAccounts(config) => {
+            if sub_matches.is_present("use_failed_transaction_hotpath")
+                && !sub_matches.is_present("use_invalid_fee_payer")
+            {
+                return Err(
+                    "ReadNonExistentAccounts(): use_failed_transaction_hotpath requires \
+                     use_invalid_fee_payer to be set."
+                        .to_string(),
+                );
+            }
+
+            config.use_failed_transaction_hotpath =
+                sub_matches.is_present("use_failed_transaction_hotpath");
+            config.use_invalid_fee_payer = sub_matches.is_present("use_invalid_fee_payer");
+        }
         _ => {}
     }
     Ok(Some(selected_attack))

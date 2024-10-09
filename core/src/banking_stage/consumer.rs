@@ -142,6 +142,7 @@ impl Consumer {
         &self,
         bank: &Bank,
         use_failed_transaction_hotpath: bool,
+        use_invalid_fee_payer: bool,
         txs: &[impl TransactionWithMeta],
         max_ages: &[MaxAge],
     ) -> ProcessTransactionBatchOutput {
@@ -151,6 +152,7 @@ impl Consumer {
                 &self.transaction_recorder,
                 &self.committer,
                 bank,
+                use_invalid_fee_payer,
                 txs,
                 max_ages,
             );

@@ -54,6 +54,11 @@ pub struct ConsumeWork<Tx> {
     /// TODO It would be even more flexible to have an ability to provide an execution result
     /// directly, rather than just saying that it must fail.
     pub use_failed_transaction_hotpath: bool,
+
+    /// If `use_failed_transaction_hotpath` is set, this field would indicate that the transaction
+    /// is going to use an invalid fee payer.  As a result, we skip both loading and balance update
+    /// of the fee payer account locally.
+    pub use_invalid_fee_payer: bool,
 }
 
 /// Message: [Worker -> Scheduler]

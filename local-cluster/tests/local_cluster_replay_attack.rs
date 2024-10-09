@@ -8,6 +8,7 @@ use {
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{
             self, Attack, AttackProgramConfig, LargeNopAttackConfig,
+            NonExistentAccountsAttackConfig,
         },
         block_generator_config::{BlockGeneratorAccountsSource, BlockGeneratorConfig},
         send_request_verified,
@@ -305,7 +306,7 @@ mod setup {
                 | Attack::ChainTransactions
                 | Attack::AllocateRandomSmall
                 | Attack::AllocateRandomLarge
-                | Attack::ReadNonExistentAccounts => (1_000, 0, 0),
+                | Attack::ReadNonExistentAccounts(_) => (1_000, 0, 0),
                 Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => {
                     let num_max_size_accounts = TX_MAX_NUM_MAX_SIZE_ACCOUNTS * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
@@ -602,6 +603,9 @@ fn use_failed_transaction_hotpath(attack: &Attack) -> bool {
         | Attack::RecursiveProgram(attack_config)
         | Attack::CpiProgram(attack_config)
         | Attack::ColdProgramCache(attack_config) => attack_config.use_failed_transaction_hotpath,
+        Attack::ReadNonExistentAccounts(attack_config) => {
+            attack_config.use_failed_transaction_hotpath
+        }
         _ => false,
     }
 }
@@ -840,5 +844,19 @@ fn test_large_nop_generator() {
 #[test]
 #[serial]
 fn test_read_non_existent_accounts_generator() {
-    run_replay_attack(Attack::ReadNonExistentAccounts);
+    run_replay_attack(Attack::ReadNonExistentAccounts(
+        NonExistentAccountsAttackConfig::default(),
+    ));
+}
+
+#[test]
+#[serial]
+#[ignore = "Test hangs. No attack tx detected. Dead blocks don't show up in the confirmed block \
+            RPC updates."]
+fn test_read_non_existent_accounts_generator_invalid_payer_hotpath() {
+    let config = NonExistentAccountsAttackConfig {
+        use_failed_transaction_hotpath: true,
+        use_invalid_fee_payer: true,
+    };
+    run_replay_attack(Attack::ReadNonExistentAccounts(config));
 }

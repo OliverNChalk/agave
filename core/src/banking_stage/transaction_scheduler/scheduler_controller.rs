@@ -647,6 +647,7 @@ mod tests {
                     transactions: vec![],
                     max_ages: vec![],
                     use_failed_transaction_hotpath: false,
+                    use_invalid_fee_payer: false,
                 },
                 retryable_indexes: vec![],
             })

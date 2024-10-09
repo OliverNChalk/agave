@@ -434,6 +434,15 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                             "Amount of padding to add to large nop transactions. Default ensures \
                              max tx size.",
                         ),
+                )
+                .arg(
+                    Arg::with_name("use_invalid_fee_payer")
+                        .long("use-invalid-fee-payer")
+                        .takes_value(false)
+                        .help(
+                            "Uses an invalid fee payer account for transactions.  Applies only to \
+                             the 'read_non_existent_accounts' attack.",
+                        ),
                 ),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -537,7 +546,7 @@ mod tests {
         super::*,
         crate::adversary::replay::parse_replay_stage_attack_args,
         solana_adversary::adversary_feature_set::replay_stage_attack::{
-            Attack, AttackProgramConfig, LargeNopAttackConfig,
+            Attack, AttackProgramConfig, LargeNopAttackConfig, NonExistentAccountsAttackConfig,
         },
     };
 
@@ -899,10 +908,25 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_replay_stage_attack_non_existent_accounts() {
+    fn test_cli_parse_replay_stage_attack_non_existent_accounts_default_parameters() {
         check_configure_replay_stage_attack_arg_parsing(
             &["readNonExistentAccounts"],
-            Attack::ReadNonExistentAccounts,
+            Attack::ReadNonExistentAccounts(NonExistentAccountsAttackConfig::default()),
+        );
+    }
+
+    #[test]
+    fn test_cli_parse_replay_stage_attack_non_existent_accounts_invalid_payer_hotpath_parameters() {
+        check_configure_replay_stage_attack_arg_parsing(
+            &[
+                "readNonExistentAccounts",
+                "--use-failed-transaction-hotpath",
+                "--use-invalid-fee-payer",
+            ],
+            Attack::ReadNonExistentAccounts(NonExistentAccountsAttackConfig {
+                use_failed_transaction_hotpath: true,
+                use_invalid_fee_payer: true,
+            }),
         );
     }
 }

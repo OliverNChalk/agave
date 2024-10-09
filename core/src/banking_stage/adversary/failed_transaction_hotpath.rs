@@ -14,21 +14,26 @@ use {
         scheduler_messages::MaxAge,
     },
     itertools::{izip, Itertools},
-    solana_account::WritableAccount,
+    solana_account::{AccountSharedData, WritableAccount},
     solana_clock::MAX_PROCESSING_AGE,
+    solana_compute_budget::compute_budget::SVMTransactionExecutionBudget,
+    solana_fee_structure::FeeDetails,
     solana_instruction::error::InstructionError,
     solana_measure::measure_us,
+    solana_message::SanitizedMessage,
     solana_poh::transaction_recorder::{
         RecordTransactionsSummary, RecordTransactionsTimings, TransactionRecorder,
     },
     solana_program_runtime::execution_budget::SVMTransactionExecutionAndFeeBudgetLimits,
     solana_runtime::{
+        account_saver::INVALID_PAYER_ACCOUNT_OWNER,
         bank::{Bank, LoadAndExecuteTransactionsOutput, ProcessedTransactionCounts},
         transaction_batch::TransactionBatch,
     },
     solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
     solana_svm::{
-        account_loader::LoadedTransaction,
+        account_loader::{FeesOnlyTransaction, LoadedTransaction},
+        rollback_accounts::RollbackAccounts,
         transaction_balances::BalanceCollector,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
@@ -38,7 +43,10 @@ use {
     },
     solana_svm_timings::{ExecuteTimingType, ExecuteTimings},
     solana_transaction_error::TransactionError,
-    std::{collections::HashMap, num::Saturating},
+    std::{
+        collections::HashMap,
+        num::{NonZero, Saturating},
+    },
 };
 
 /// Simplified recording and committing without execution. Will only work correctly for
@@ -53,6 +61,7 @@ pub fn process_and_record_aged_transactions(
     transaction_recorder: &TransactionRecorder,
     committer: &Committer,
     bank: &Bank,
+    use_invalid_fee_payer: bool,
     transactions: &[impl TransactionWithMeta],
     _max_ages: &[MaxAge],
 ) -> ProcessTransactionBatchOutput {
@@ -91,8 +100,13 @@ pub fn process_and_record_aged_transactions(
         })
     ));
 
-    let execute_and_commit_transactions_output =
-        execute_and_commit_failed_transactions(transaction_recorder, committer, bank, &batch);
+    let execute_and_commit_transactions_output = execute_and_commit_failed_transactions(
+        transaction_recorder,
+        committer,
+        bank,
+        use_invalid_fee_payer,
+        &batch,
+    );
 
     // Once the accounts are new transactions can enter the pipeline to process them
     let (_, unlock_us) = measure_us!(drop(batch));
@@ -165,6 +179,7 @@ fn execute_and_commit_failed_transactions(
     transaction_recorder: &TransactionRecorder,
     committer: &Committer,
     bank: &Bank,
+    use_invalid_fee_payer: bool,
     batch: &TransactionBatch<impl TransactionWithMeta>,
 ) -> ExecuteAndCommitTransactionsOutput {
     let mut execute_and_commit_timings = LeaderExecuteAndCommitTimings::default();
@@ -209,6 +224,7 @@ fn execute_and_commit_failed_transactions(
     let (load_and_execute_transactions_output, load_execute_us) =
         measure_us!(load_and_execute_failed_transaction(
             bank,
+            use_invalid_fee_payer,
             batch,
             MAX_PROCESSING_AGE,
             &mut execute_and_commit_timings.execute_timings,
@@ -322,6 +338,7 @@ fn execute_and_commit_failed_transactions(
 // account.
 fn load_and_execute_failed_transaction(
     bank: &Bank,
+    use_invalid_fee_payer: bool,
     batch: &TransactionBatch<impl TransactionWithMeta>,
     max_age: usize,
     timings: &mut ExecuteTimings,
@@ -356,49 +373,24 @@ fn load_and_execute_failed_transaction(
             let tx = tx.as_sanitized_transaction();
             let message = tx.message();
 
-            let fee_payer = message.fee_payer();
-
-            let mut fee_payer_account = bank
-                .accounts()
-                .load_with_fixed_root(&bank.ancestors, fee_payer)
-                .ok_or(TransactionError::AccountNotFound)
-                .inspect_err(|_| error_metrics.account_not_found += 1)?
-                .0;
-
-            let fee = fee_details.total_fee();
-
-            fee_payer_account.checked_sub_lamports(fee).map_err(|_| {
-                error_metrics.insufficient_funds += 1;
-                TransactionError::InsufficientFundsForFee
-            })?;
-
-            let loaded_transaction = LoadedTransaction::new_for_failed_transaction_hotpath(
-                *fee_payer,
-                fee_payer_account,
-                fee_details,
-                compute_budget,
-                loaded_accounts_data_size_limit.get(),
-            );
-            let execution_details = TransactionExecutionDetails::new_for_failed_transaction_hotpath(
-                TransactionError::InstructionError(
-                    0,
-                    InstructionError::ComputationalBudgetExceeded,
-                ),
-            );
-
-            let executed_tx = ExecutedTransaction {
-                loaded_transaction,
-                execution_details,
-                programs_modified_by_tx: HashMap::new(),
+            let result = if !use_invalid_fee_payer {
+                processing_result_for_failed_transaction(
+                    error_metrics,
+                    bank,
+                    compute_budget,
+                    loaded_accounts_data_size_limit,
+                    fee_details,
+                    message,
+                )?
+            } else {
+                processing_result_for_invalid_fee_payer_transaction(error_metrics, fee_details)
             };
 
             processed_transactions_count += 1;
             processed_non_vote_transactions_count += 1;
             signature_count += u64::from(message.header().num_required_signatures);
 
-            error_metrics.instruction_error += 1;
-
-            Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
+            Ok(result)
         })
         .collect();
 
@@ -415,6 +407,75 @@ fn load_and_execute_failed_transaction(
         processed_counts,
         balance_collector,
     }
+}
+
+fn processing_result_for_failed_transaction(
+    error_metrics: &mut TransactionErrorMetrics,
+    bank: &Bank,
+    compute_budget: SVMTransactionExecutionBudget,
+    loaded_accounts_data_size_limit: NonZero<u32>,
+    fee_details: FeeDetails,
+    message: &SanitizedMessage,
+) -> Result<ProcessedTransaction, TransactionError> {
+    let fee_payer = message.fee_payer();
+
+    let mut fee_payer_account = bank
+        .accounts()
+        .load_with_fixed_root(&bank.ancestors, fee_payer)
+        .ok_or(TransactionError::AccountNotFound)
+        .inspect_err(|_| error_metrics.account_not_found += 1)?
+        .0;
+
+    let fee = fee_details.total_fee();
+
+    fee_payer_account.checked_sub_lamports(fee).map_err(|_| {
+        error_metrics.insufficient_funds += 1;
+        TransactionError::InsufficientFundsForFee
+    })?;
+
+    let loaded_transaction = LoadedTransaction::new_for_failed_transaction_hotpath(
+        *fee_payer,
+        fee_payer_account,
+        fee_details,
+        compute_budget,
+        loaded_accounts_data_size_limit.get(),
+    );
+    let execution_details = TransactionExecutionDetails::new_for_failed_transaction_hotpath(
+        TransactionError::InstructionError(0, InstructionError::ComputationalBudgetExceeded),
+    );
+
+    let executed_tx = ExecutedTransaction {
+        loaded_transaction,
+        execution_details,
+        programs_modified_by_tx: HashMap::new(),
+    };
+
+    error_metrics.instruction_error += 1;
+
+    Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
+}
+
+fn processing_result_for_invalid_fee_payer_transaction(
+    error_metrics: &mut TransactionErrorMetrics,
+    fee_details: FeeDetails,
+) -> ProcessedTransaction {
+    // When we are going to process the accounts later, we will identify the invalid fee payer
+    // account using the `owner` field.
+    let fee_payer_account =
+        AccountSharedData::create(0, vec![], *INVALID_PAYER_ACCOUNT_OWNER, false, 0);
+    error_metrics.account_not_found += 1;
+
+    let fees_only_tx = FeesOnlyTransaction {
+        load_error: TransactionError::AccountNotFound,
+        rollback_accounts: RollbackAccounts::FeePayerOnly {
+            fee_payer: (*INVALID_PAYER_ACCOUNT_OWNER, fee_payer_account),
+        },
+        fee_details,
+    };
+
+    error_metrics.instruction_error += 1;
+
+    ProcessedTransaction::FeesOnly(Box::new(fees_only_tx))
 }
 
 #[cfg(test)]
@@ -761,6 +822,7 @@ mod tests {
         consumer.process_and_record_aged_transactions(
             &bank,
             use_failed_transaction_hotpath,
+            false,
             &[tx],
             &[MaxAge::MAX; 1],
         );
@@ -820,6 +882,7 @@ mod tests {
         consumer.process_and_record_aged_transactions(
             &bank,
             use_failed_transaction_hotpath,
+            false,
             &[tx],
             &[MaxAge::MAX; 1],
         );
@@ -910,6 +973,7 @@ mod tests {
                 let processing_result = consumer.process_and_record_aged_transactions(
                     &bank,
                     use_failed_transaction_hotpath,
+                    false,
                     &txs,
                     &iter::repeat_n(MaxAge::MAX, txs.len()).collect::<Vec<_>>(),
                 );
