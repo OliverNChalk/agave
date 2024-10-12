@@ -380,6 +380,40 @@ for a successful CI result.
 git push origin --force master-next
 ```
 
+It is better to use consistent names for the CI PRs, just in case we want to
+reference them later.  Here is the name pattern used so far:
+
+```
+`2024-08-23`: CI run for `master`
+```
+
+If you have the official GitHub CLI client, you can create a PR with this name
+like this:
+
+```sh
+gh pr create \
+    --title "\`$SYNC_DATE\`: CI run for \`master\`" \
+    --body '' \
+    --no-maintainer-edit \
+    --draft \
+    --repo $( git remote -v get-url invalidator \
+        | sed -e 's/^[^:]*://; s/\.git$//' ) \
+    --base master \
+    --head $( gh api user --jq .login ):master-next
+```
+
+```fish
+gh pr create \
+    --title "`$SYNC_DATE`: CI run for `master`" \
+    --body '' \
+    --no-maintainer-edit \
+    --draft \
+    --repo $( git remote -v get-url invalidator \
+        | sed -e 's/^[^:]*://; s/\.git$//' ) \
+    --base master \
+    --head $( gh api user --jq .login ):master-next
+```
+
 ### 1.8. Publish updated `master` and `sync/*` branches
 
 ```sh
@@ -588,6 +622,30 @@ Run the CI:
 
 ```sh
 git push origin --force v1.16-next
+```
+
+```sh
+gh pr create \
+    --title "\`$SYNC_DATE\`: CI run for \`v1.16-next\`" \
+    --body '' \
+    --no-maintainer-edit \
+    --draft \
+    --repo $( git remote -v get-url invalidator \
+        | sed -e 's/^[^:]*://; s/\.git$//' ) \
+    --base v1.16 \
+    --head $( gh api user --jq .login ):v1.16-next
+```
+
+```fish
+gh pr create \
+    --title "`$SYNC_DATE`: CI run for `v1.16-next`" \
+    --body '' \
+    --no-maintainer-edit \
+    --draft \
+    --repo $( git remote -v get-url invalidator \
+        | sed -e 's/^[^:]*://; s/\.git$//' ) \
+    --base v1.16 \
+    --head $( gh api user --jq .login ):v1.16-next
 ```
 
 Publish the updates:
