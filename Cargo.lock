@@ -7500,6 +7500,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-program-test-panic-repro"
+version = "2.1.0"
+dependencies = [
+ "solana-program-test",
+ "solana-sdk",
+ "tokio",
+]
+
+[[package]]
 name = "solana-pubkey"
 version = "2.1.0"
 dependencies = [
