@@ -5844,10 +5844,10 @@ impl Bank {
     pub fn update_accounts_hash(
         &self,
         data_source: CalcAccountsHashDataSource,
-        mut debug_verify: bool,
+        debug_verify: bool,
         is_startup: bool,
     ) -> AccountsHash {
-        let (accounts_hash, total_lamports) = self
+        let (accounts_hash, _) = self
             .rc
             .accounts
             .accounts_db
@@ -5861,40 +5861,7 @@ impl Bank {
                 &self.rent_collector,
                 is_startup,
             );
-        if total_lamports != self.capitalization() {
-            datapoint_info!(
-                "capitalization_mismatch",
-                ("slot", self.slot(), i64),
-                ("calculated_lamports", total_lamports, i64),
-                ("capitalization", self.capitalization(), i64),
-            );
 
-            if !debug_verify {
-                // cap mismatch detected. It has been logged to metrics above.
-                // Run both versions of the calculation to attempt to get more info.
-                debug_verify = true;
-                self.rc
-                    .accounts
-                    .accounts_db
-                    .update_accounts_hash_with_verify_from(
-                        data_source,
-                        debug_verify,
-                        self.slot(),
-                        &self.ancestors,
-                        Some(self.capitalization()),
-                        self.epoch_schedule(),
-                        &self.rent_collector,
-                        is_startup,
-                    );
-            }
-
-            panic!(
-                "capitalization_mismatch. slot: {}, calculated_lamports: {}, capitalization: {}",
-                self.slot(),
-                total_lamports,
-                self.capitalization()
-            );
-        }
         accounts_hash
     }
 
