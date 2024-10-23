@@ -124,7 +124,7 @@ mod tests {
         setup_accounts(&mut meta, 0, BATCH_SIZE * TX_MAX_NUM_MAX_SIZE_ACCOUNTS);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteMaxAccounts),
+            selected_attack: Some(Attack::WriteMaxSizeAccounts),
         };
 
         let rsp = send_signed_request_sync(
@@ -158,7 +158,7 @@ mod tests {
         setup_accounts(&mut meta, BATCH_SIZE, 1);
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteMaxAccounts),
+            selected_attack: Some(Attack::WriteMaxSizeAccounts),
         };
 
         let rsp = send_signed_request_sync(
@@ -195,7 +195,7 @@ mod tests {
         );
 
         let config = AdversarialConfig {
-            selected_attack: Some(Attack::WriteMaxAccounts),
+            selected_attack: Some(Attack::WriteMaxSizeAccounts),
         };
         let response = send_signed_request_sync(
             meta.clone(),

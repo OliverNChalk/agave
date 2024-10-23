@@ -42,8 +42,8 @@ run_attacks_all() {
   attack_replayStage chainTransactions
   attack_replayStage readNonExistentAccounts
   # attacks that use max accounts
-  attack_replayStage readMaxAccounts
-  attack_replayStage writeMaxAccounts
+  attack_replayStage readMaxSizeAccounts
+  attack_replayStage writeMaxSizeAccounts
   # attacks that execute deployed program
   attack_replayStage largeNop
   # One tx can load up to 64MB, each account is 10MB.

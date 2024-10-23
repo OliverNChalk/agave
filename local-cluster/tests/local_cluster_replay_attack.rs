@@ -307,7 +307,7 @@ mod setup {
                 | Attack::AllocateRandomSmall
                 | Attack::AllocateRandomLarge
                 | Attack::ReadNonExistentAccounts(_) => (1_000, 0, 0),
-                Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => {
+                Attack::ReadMaxSizeAccounts | Attack::WriteMaxSizeAccounts => {
                     let num_max_size_accounts = TX_MAX_NUM_MAX_SIZE_ACCOUNTS * BATCH_SIZE;
                     (BATCH_SIZE, num_max_size_accounts, 0)
                 }
@@ -637,7 +637,7 @@ fn run_replay_attack(attack: Attack) {
         | Attack::ReadProgram(_)
         | Attack::RecursiveProgram(_)
         | Attack::CpiProgram(_) => Some(4 * 1024),
-        Attack::ReadMaxAccounts | Attack::WriteMaxAccounts => Some(1),
+        Attack::ReadMaxSizeAccounts | Attack::WriteMaxSizeAccounts => Some(1),
         _ => None,
     };
     let (accounts_file, starting_accounts) =
@@ -751,14 +751,14 @@ fn test_write_program_generator_fail_hotpath() {
 
 #[test]
 #[serial]
-fn test_read_max_accounts_generator() {
-    run_replay_attack(Attack::ReadMaxAccounts);
+fn test_read_max_size_accounts_generator() {
+    run_replay_attack(Attack::ReadMaxSizeAccounts);
 }
 
 #[test]
 #[serial]
-fn test_write_max_accounts_generator() {
-    run_replay_attack(Attack::WriteMaxAccounts);
+fn test_write_max_size_accounts_generator() {
+    run_replay_attack(Attack::WriteMaxSizeAccounts);
 }
 
 #[test]

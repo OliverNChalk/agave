@@ -630,16 +630,16 @@ mod tests {
     #[test]
     fn test_cli_parse_replay_stage_attack_read_max_accounts() {
         check_configure_replay_stage_attack_arg_parsing(
-            &["readMaxAccounts"],
-            Attack::ReadMaxAccounts,
+            &["readMaxSizeAccounts"],
+            Attack::ReadMaxSizeAccounts,
         );
     }
 
     #[test]
     fn test_cli_parse_replay_stage_attack_write_max_accounts() {
         check_configure_replay_stage_attack_arg_parsing(
-            &["writeMaxAccounts"],
-            Attack::WriteMaxAccounts,
+            &["writeMaxSizeAccounts"],
+            Attack::WriteMaxSizeAccounts,
         );
     }
     #[test]

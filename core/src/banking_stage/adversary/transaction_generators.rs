@@ -18,13 +18,13 @@ pub(super) mod cold_program_cache;
 pub(super) mod cpi_program;
 pub(super) mod create_nonce_accounts;
 pub(super) mod large_nop;
-pub(super) mod read_max_accounts;
+pub(super) mod read_max_size_accounts;
 pub(super) mod read_non_existent_accounts;
 pub(super) mod read_program;
 pub(super) mod recursive_program;
 pub(super) mod transfer_random;
 pub(super) mod transfer_random_with_memo;
-pub(super) mod write_max_accounts;
+pub(super) mod write_max_size_accounts;
 pub(super) mod write_program;
 
 /// Attacks are essentially sequences of transactions.  Each will have a function that is
@@ -81,8 +81,8 @@ impl ActiveGenerator {
             WriteProgram(write_program_config) => {
                 write_program::generator(accounts, num_workers, write_program_config)
             }
-            ReadMaxAccounts => read_max_accounts::generator(accounts, num_workers),
-            WriteMaxAccounts => write_max_accounts::generator(accounts, num_workers),
+            ReadMaxSizeAccounts => read_max_size_accounts::generator(accounts, num_workers),
+            WriteMaxSizeAccounts => write_max_size_accounts::generator(accounts, num_workers),
             ReadProgram(read_program_config) => {
                 read_program::generator(accounts, num_workers, read_program_config)
             }
