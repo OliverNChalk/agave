@@ -23,7 +23,7 @@ use {
     solana_compute_budget::compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
     solana_core::{
         banking_stage::adversary::generator_templates::{
-            max_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
+            max_size_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
         },
         validator::{InvalidatorConfig, ValidatorConfig},
     },

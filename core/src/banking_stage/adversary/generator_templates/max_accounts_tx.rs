@@ -9,12 +9,10 @@ use {
         generator_templates::rotate_accounts,
     },
     solana_adversary::accounts_file::AccountsFile,
-    solana_compute_budget::compute_budget_limits::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
     solana_keypair::Keypair,
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::PUBKEY_BYTES,
     solana_runtime::bank::Bank,
-    solana_system_interface::MAX_PERMITTED_DATA_LENGTH,
     solana_transaction::{
         sanitized::{SanitizedTransaction, MAX_TX_ACCOUNT_LOCKS},
         Transaction,
@@ -32,33 +30,24 @@ const TX_WITH_SINGLE_PAYER_SIZE_BYTES: usize = 134;
 pub const TX_MAX_ATTACK_ACCOUNTS_IN_PACKET: usize =
     (PACKET_DATA_SIZE - TX_WITH_SINGLE_PAYER_SIZE_BYTES) / PUBKEY_BYTES;
 
-// There is a limit on the amount of account data that can be loaded in a single
-// transaction. This represents the number of maximum sized accounts that can be
-// loaded up with a single tx.
-pub const TX_MAX_NUM_MAX_SIZE_ACCOUNTS: usize =
-    (MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES.get() as u64 / MAX_PERMITTED_DATA_LENGTH) as usize;
-
-// For cases where we do not have a bank yet, use `MAX_TX_ACCOUNT_LOCKS` as an
-// optimistic approximation.
-//
-// Network should be configured with this value or something smaller.  So in
-// case of a mismatch, it is possible we are sending more accounts than can
-// actually be locked and tx may fail.
-//
-// Subtract 1 for the fee payer account.
-const TX_MAX_ATTACK_ACCOUNT_LOCKS: usize = MAX_TX_ACCOUNT_LOCKS - 1;
-
+// At the moment, no generators use this template.  Remove `#[allow(unused)]` if you add a generator
+// that uses this function.
+#[allow(unused)]
 pub(crate) fn verify(
     accounts: &AccountsFile,
     target_accounts_name: &'static str,
     target_accounts_len: usize,
 ) -> Result<(), String> {
-    // Take the lowest value given the following tx constraints:
-    // 1. packet data size
-    // 2. tx account data load limit
-    // 3. tx account lock limit
-    let tx_accounts = TX_MAX_NUM_MAX_SIZE_ACCOUNTS
-        .min(TX_MAX_ATTACK_ACCOUNTS_IN_PACKET.min(TX_MAX_ATTACK_ACCOUNT_LOCKS));
+    // If the network is configured with an account limit lower than the one based on the packet
+    // size, we should use the lower value.
+    let tx_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET.min(
+        // We can not call `bank.get_transaction_account_lock_limit()` as we do not have a bank yet.
+        // So we use `MAX_TX_ACCOUNT_LOCKS` as pessimistic approximation.
+        //
+        // It is possible that the network is configured with this value.  In case of a mismatch, it
+        // is more likely that we just request more accounts than necessary, rather then less.
+        MAX_TX_ACCOUNT_LOCKS.saturating_sub(1),
+    );
 
     rotate_accounts::verify(
         accounts,
@@ -69,9 +58,9 @@ pub(crate) fn verify(
 }
 
 // [`verify()`] does not have access to a valid bank, and so it cannot call
-// [`Bank::get_transaction_account_lock_limit()`].  This function does this
-// check again, but during the generator execution, panicking if the limit was
-// indeed exceeded.
+// [`Bank::get_transaction_account_lock_limit()`].  This function performs a check similar to the
+// one done by [`verify()`], but during the generator execution, panicking if the limit was indeed
+// exceeded.
 fn verify_tx_max_accounts_during_generation(
     bank: &Bank,
     target_accounts_name: &'static str,
@@ -97,6 +86,9 @@ fn verify_tx_max_accounts_during_generation(
     }
 }
 
+// At the moment, no generators use this template.  Remove `#[allow(unused)]` if you add a generator
+// that uses this function.
+#[allow(unused)]
 pub(crate) fn generator<AccountsHolder, PopulateTransaction>(
     accounts: Arc<AccountsFile>,
     target_accounts_name: &'static str,
@@ -113,11 +105,11 @@ where
         rotate_accounts::generator(accounts, target_accounts, num_workers, populate_transaction);
 
     move |bank: &Bank| {
-        let tx_accounts = TX_MAX_NUM_MAX_SIZE_ACCOUNTS.min(TX_MAX_ATTACK_ACCOUNTS_IN_PACKET.min(
+        let tx_accounts = TX_MAX_ATTACK_ACCOUNTS_IN_PACKET.min(
             // The very first account will be our payer, while the rest can be populated by our
             // payload.
             bank.get_transaction_account_lock_limit().saturating_sub(1),
-        ));
+        );
 
         verify_tx_max_accounts_during_generation(bank, target_accounts_name, tx_accounts);
 

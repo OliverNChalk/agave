@@ -8,5 +8,6 @@
 //! might consist of a module of its own.
 
 pub mod max_accounts_tx;
+pub mod max_size_accounts_tx;
 pub mod replay_attack_program;
 pub mod rotate_accounts;

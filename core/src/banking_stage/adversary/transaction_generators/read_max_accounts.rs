@@ -1,8 +1,7 @@
 use {
     super::TransactionGenerator,
     crate::banking_stage::adversary::{
-        generator_components::cycler::{self, Cycler},
-        generator_templates::max_accounts_tx,
+        generator_components::cycler, generator_templates::max_size_accounts_tx,
     },
     solana_adversary::accounts_file::AccountsFile,
     solana_keypair::Keypair,
@@ -14,18 +13,14 @@ use {
 };
 
 pub fn verify(accounts: &AccountsFile) -> Result<(), String> {
-    max_accounts_tx::verify(accounts, "max_size", accounts.max_size.len())
+    max_size_accounts_tx::verify(accounts)
 }
 
 /// Creates transactions that use maximum number of maximum sized accounts for input.  Overloading
 /// the replay machinery IO subsystem.
 pub(super) fn generator(accounts: Arc<AccountsFile>, num_workers: usize) -> TransactionGenerator {
-    let target_accounts = Cycler::over(accounts.clone(), |accounts| accounts.max_size.iter());
-
-    Box::new(max_accounts_tx::generator(
+    Box::new(max_size_accounts_tx::generator(
         accounts,
-        "max_size",
-        target_accounts,
         num_workers,
         move |bank: &Bank, payer: &Keypair, tx_accounts: cycler::ChunkIter<'_, '_, Keypair>| {
             let blockhash = bank.last_blockhash();
@@ -63,7 +58,7 @@ mod tests {
         super::generator,
         crate::banking_stage::adversary::{
             generator_templates::{
-                max_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
+                max_size_accounts_tx::TX_MAX_NUM_MAX_SIZE_ACCOUNTS, rotate_accounts::BATCH_SIZE,
             },
             test_helpers::{create_test_bank, setup_accounts, setup_test, TestAccounts},
         },
