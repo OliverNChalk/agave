@@ -199,12 +199,12 @@ fi
 if affects .rs$ ; then
 
   ## local-cluster
-  add_step_in_docker_parallel local-cluster 60 5 3 \
-    ci/stable/run-local-cluster-partially.sh
+  parallelism=6
+  for i in $(seq 1 $parallelism); do
+    add_step_in_docker "local-cluster-partition-$i" 60 \
+      "ci/stable/run-local-cluster-partially.sh $i $parallelism" 3
+  done
 
-  ## local-cluster-replay-attack
-  add_step_in_docker local-cluster-replay-attack 60 \
-    ci/test-local-cluster-replay-attack.sh
 fi
 
 cat pipeline
