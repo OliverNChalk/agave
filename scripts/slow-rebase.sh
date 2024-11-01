@@ -8,7 +8,14 @@ set -o nounset
 set -o pipefail
 
 here=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+# Location where the script was started.  To be used when computing command in
+# user visible messages.
+runDir=$( pwd )
+# Absolute path to the cargo binary to use
 cargo=
+# Path to the `cargo` binary from `$cargo` relative to `$runDir` - for use in
+# commands suggested to be executed by the user.
+cargoRel=
 customCargo=
 
 # = Arguments =
@@ -142,6 +149,14 @@ ERROR: Expected a 'cargo' script at "$cargo"
 EOM
     exit 3
   fi
+
+  cargoRel=$( realpath --relative-to="$runDir" "$cargo" )
+
+  if [[ "$cargoRel" != .* && "$cargoRel" != /* ]]; then
+    # `realpath` does not add `./` for local paths, but we want it for an
+    # executable.
+    cargoRel="./$cargoRel"
+  fi
 }
 
 print_fixup_and_restart_commands() {
@@ -157,11 +172,11 @@ git add --update
        Install by running "cargo install git-absorb".
        Details: https://github.com/tummychow/git-absorb
 
-git absorb --force --base "sync/${branch}-upstream"
-git rebase --interactive "\$( git merge-base sync/${branch}-upstream HEAD )"
+git absorb --force --one-fixup-per-commit --base "sync/${branch}-upstream"
+git rebase --interactive --autosquash "\$( git merge-base sync/${branch}-upstream HEAD )"
 
     3.b. If you do not want to use "git absorb", add changes into a commit that
-      will be dissoled later.  You will need to run "git rebase" later to find
+      will be dissolved later.  You will need to run "git rebase" later to find
       the right spot for this change.
 
 git commit --message "DO NOT SUBMIT: Fixup for \\"$( \
@@ -245,6 +260,16 @@ run_cargo_check() {
     cat >&2 <<EOM
   Do:
     1. Fix compilation errors.
+
+       Make sure everything compiles and is formatted correctly:
+
+$cargoRel check --lib --bins --tests
+$cargoRel nightly fmt
+
+       If you changed \`programs/sbf\` or crate depedenceies also run:
+
+$cargoRel check --bins --tests programs/sbf
+$cargoRel nightly fmt programs/sbf
 
 EOM
     print_fixup_and_restart_commands --pre-check
