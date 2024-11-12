@@ -1,6 +1,8 @@
 use {
     crate::{
-        cluster::{Cluster, ClusterValidatorInfo, QuicTpuClient, ValidatorInfo},
+        cluster::{
+            Cluster, ClusterValidatorInfo, NonblockingQuicTpuClient, QuicTpuClient, ValidatorInfo,
+        },
         cluster_tests,
         integration_tests::DEFAULT_NODE_STAKE,
         validator_configs::*,
@@ -20,7 +22,7 @@ use {
     solana_epoch_schedule::EpochSchedule,
     solana_genesis_config::GenesisConfig,
     solana_gossip::{
-        contact_info::{ContactInfo, Protocol},
+        contact_info::{self, ContactInfo, Protocol},
         gossip_service::{discover, discover_validators},
         node::Node,
     },
@@ -32,8 +34,11 @@ use {
     solana_poh_config::PohConfig,
     solana_program_binaries::core_bpf_programs,
     solana_pubkey::Pubkey,
+    solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_rent::Rent,
-    solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client::{
+        nonblocking::rpc_client::RpcClient as NonblockingRpcClient, rpc_client::RpcClient,
+    },
     solana_runtime::{
         genesis_utils::{
             create_genesis_config_with_vote_accounts_and_cluster_type, GenesisConfigInfo,
@@ -66,6 +71,7 @@ use {
         iter,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::{Path, PathBuf},
+        result::Result as StdResult,
         sync::{Arc, RwLock},
         time::Duration,
     },
@@ -1150,6 +1156,36 @@ impl LocalCluster {
         }
     }
 
+    fn get_rpc_pubsub_url(&self) -> StdResult<String, contact_info::Error> {
+        Ok(format!(
+            "ws://{}/",
+            self.entry_point_info.rpc_pubsub().unwrap()
+        ))
+    }
+
+    fn get_rpc_url(&self) -> StdResult<String, contact_info::Error> {
+        Ok(format!("http://{}", self.entry_point_info.rpc().unwrap()))
+    }
+
+    fn get_quic_connection_cache(
+        &self,
+    ) -> Result<
+        &Arc<
+            solana_connection_cache::connection_cache::ConnectionCache<
+                QuicPool,
+                QuicConnectionManager,
+                QuicConfig,
+            >,
+        >,
+    > {
+        match &*self.connection_cache {
+            ConnectionCache::Quic(cache) => Ok(cache),
+            ConnectionCache::Udp(_) => {
+                Err(Error::other("Expected a Quic ConnectionCache. Got UDP"))
+            }
+        }
+    }
+
     fn build_tpu_client(
         &self,
         rpc_client: Arc<RpcClient>,
@@ -1170,6 +1206,29 @@ impl LocalCluster {
             TpuClientConfig::default(),
             cache.clone(),
         )
+        .map_err(|err| Error::other(format!("TpuSenderError: {err}")))?;
+
+        Ok(tpu_client)
+    }
+
+    async fn build_nonblocking_tpu_client<F>(
+        &self,
+        rpc_client_builder: F,
+    ) -> Result<NonblockingQuicTpuClient>
+    where
+        F: FnOnce(String) -> Arc<NonblockingRpcClient>,
+    {
+        let rpc_pubsub_url = self.get_rpc_pubsub_url().unwrap();
+        let rpc_url = self.get_rpc_url().unwrap();
+        let cache = self.get_quic_connection_cache()?;
+
+        let tpu_client = NonblockingQuicTpuClient::new_with_connection_cache(
+            rpc_client_builder(rpc_url),
+            rpc_pubsub_url.as_str(),
+            TpuClientConfig::default(),
+            cache.clone(),
+        )
+        .await
         .map_err(|err| Error::other(format!("TpuSenderError: {err}")))?;
 
         Ok(tpu_client)
@@ -1224,6 +1283,19 @@ impl Cluster for LocalCluster {
         let rpc_url = format!("http://{}", contact_info.rpc().unwrap());
         let rpc_client = Arc::new(RpcClient::new_with_commitment(rpc_url, commitment_config));
         self.build_tpu_client(rpc_client, contact_info.rpc_pubsub().unwrap())
+    }
+
+    async fn build_nonblocking_tpu_quic_client_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> Result<NonblockingQuicTpuClient> {
+        self.build_nonblocking_tpu_client(|rpc_url| {
+            Arc::new(NonblockingRpcClient::new_with_commitment(
+                rpc_url,
+                commitment_config,
+            ))
+        })
+        .await
     }
 
     fn exit_node(&mut self, pubkey: &Pubkey) -> ClusterValidatorInfo {

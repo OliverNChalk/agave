@@ -7,11 +7,15 @@ use {
     solana_pubkey::Pubkey,
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_streamer::socket::SocketAddrSpace,
-    solana_tpu_client::tpu_client::TpuClient,
-    std::{io::Result, path::PathBuf, sync::Arc},
+    solana_tpu_client::{
+        nonblocking::tpu_client::TpuClient as NonblockingTpuClient, tpu_client::TpuClient,
+    },
+    std::{future::Future, io::Result, path::PathBuf, sync::Arc},
 };
 
 pub type QuicTpuClient = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
+pub type NonblockingQuicTpuClient =
+    NonblockingTpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
 
 pub struct ValidatorInfo {
     pub keypair: Arc<Keypair>,
@@ -48,6 +52,15 @@ pub trait Cluster {
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
     ) -> Result<QuicTpuClient>;
+    fn build_nonblocking_tpu_quic_client_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> impl Future<Output = Result<NonblockingQuicTpuClient>> + Send;
+    fn build_nonblocking_tpu_quic_client(
+        &self,
+    ) -> impl Future<Output = Result<NonblockingQuicTpuClient>> + Send {
+        self.build_nonblocking_tpu_quic_client_with_commitment(CommitmentConfig::default())
+    }
     fn get_contact_info(&self, pubkey: &Pubkey) -> Option<&ContactInfo>;
     fn exit_node(&mut self, pubkey: &Pubkey) -> ClusterValidatorInfo;
     fn restart_node(
