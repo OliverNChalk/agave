@@ -1,9 +1,8 @@
 use {
     crossbeam_channel::Receiver,
-    indoc::formatdoc,
     log::{debug, error, info},
     serial_test::serial,
-    solana_account::{Account, AccountSharedData},
+    solana_account::AccountSharedData,
     solana_adversary::{
         accounts_file::AccountsFile,
         adversary_feature_set::replay_stage_attack::{
@@ -31,7 +30,8 @@ use {
     solana_keypair::Keypair,
     solana_ledger::leader_schedule::FixedSchedule,
     solana_local_cluster::{
-        cluster::Cluster,
+        account_util::{AccountsBuilder, CreateAccountConfig},
+        cluster::Cluster as _,
         cluster_tests,
         integration_tests::{create_custom_leader_schedule, DEFAULT_NODE_STAKE, RUST_LOG_FILTER},
         local_cluster::{ClusterConfig, LocalCluster},
@@ -39,22 +39,18 @@ use {
     },
     solana_pubkey::Pubkey,
     solana_pubsub_client::pubsub_client::PubsubClient,
-    solana_rent::Rent,
     solana_rpc_client_api::{
         config::{RpcBlockSubscribeConfig, RpcBlockSubscribeFilter},
         response::Response,
     },
-    solana_sdk_ids::{bpf_loader, system_program},
+    solana_sdk_ids::system_program,
     solana_signer::Signer,
-    solana_stake_interface::stake_history::Epoch,
     solana_streamer::socket::SocketAddrSpace,
     solana_transaction_status::{TransactionDetails, UiConfirmedBlock},
-    std::{iter, sync::Arc, thread::sleep, time::Duration},
-    tempfile::tempdir,
+    std::{sync::Arc, thread::sleep, time::Duration},
 };
 
 const NUM_NODES: usize = 2;
-const STRESS_TEST_PROGRAM_ID: Pubkey = Pubkey::new_from_array([7u8; 32]);
 const BLOCK_VALIDATION_COMMITMENT_LEVEL: Option<CommitmentConfig> =
     Some(CommitmentConfig::confirmed());
 
@@ -173,131 +169,6 @@ mod setup {
     pub mod account {
         use super::*;
 
-        pub fn simple_accounts(
-            num_starting_accounts: usize,
-            lamports_per_account: u64,
-            space: usize,
-            owner: &Pubkey,
-        ) -> (Arc<Vec<Keypair>>, Vec<(Pubkey, AccountSharedData)>) {
-            // Create a bunch of accounts to use as starting accounts for the generator.
-            let keypairs: Arc<Vec<Keypair>> = Arc::new(
-                iter::repeat_with(Keypair::new)
-                    .take(num_starting_accounts)
-                    .collect(),
-            );
-            let accounts: Vec<(Pubkey, AccountSharedData)> = keypairs
-                .iter()
-                .map(|k| {
-                    (
-                        k.pubkey(),
-                        AccountSharedData::new(lamports_per_account, space, owner),
-                    )
-                })
-                .collect();
-
-            (keypairs, accounts)
-        }
-
-        /// Compiles block-generator-stress-test-program in the temporary directory and
-        /// returns content of the generated so file.
-        /// Specifically, it runs the following:
-        /// cargo run --bin cargo-build-sbf --
-        ///  --sbf-sdk "sdk/sbf"
-        ///  --sbf-out-dir local-cluster/tests/program/
-        ///  --manifest-path programs/block-generator-stress-test/Cargo.toml
-        fn compile_test_program() -> Vec<u8> {
-            // create a directory inside of std::env::temp_dir(), removed when goes out of scope
-            let target_directory = tempdir().expect("temporary folder should be created");
-
-            let manifest_directory = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
-            let source_directory = manifest_directory.join("..");
-
-            let mut binding = std::process::Command::new(std::env!("CARGO"));
-            let command = binding.current_dir(&source_directory).arg("run");
-
-            if !cfg!(debug_assertions) {
-                command.arg("--release");
-            };
-
-            command.args([
-                "--bin",
-                "cargo-build-sbf",
-                "--",
-                "--sbf-sdk",
-                "sdk/sbf",
-                "--sbf-out-dir",
-                target_directory.path().to_str().unwrap(),
-                "--manifest-path",
-                "programs/block-generator-stress-test/Cargo.toml",
-            ]);
-
-            let output = command
-                .output()
-                .expect("block-generator-stress-test program should be successfully compiled");
-
-            if !output.status.success() {
-                let details = formatdoc! {"
-                    Command: {:?}
-                    Exit status: {:?}
-                    std output:
-                    {}
-                    std error:
-                    {}
-                    ",
-                    command,
-                    output.status,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr),
-                };
-                panic!("block-generator-stress-test program compilation failed:\n{details}");
-            }
-
-            let target_file_name = "block_generator_stress_test.so";
-            let target_path_name = target_directory.path().join(target_file_name);
-            std::fs::read(target_path_name)
-                .expect("Failed to read the program file.\nPath: {target_file_name}")
-        }
-
-        fn programs(num_programs: usize) -> (Arc<Vec<Pubkey>>, Vec<(Pubkey, AccountSharedData)>) {
-            // Create a bunch of accounts to use as starting accounts for the generator.
-            let pubkeys: Arc<Vec<Pubkey>> = Arc::new(if num_programs == 1 {
-                // Special case. Assign static program ID so that it can be
-                // used for verifying transactions later.
-                vec![STRESS_TEST_PROGRAM_ID]
-            } else {
-                iter::repeat_with(Keypair::new)
-                    .take(num_programs)
-                    .map(|k| k.pubkey())
-                    .collect()
-            });
-            // just use the same program repeatedly
-            let program_data = if num_programs > 0 {
-                // Only compile the program if we are going to use it. Compiling
-                // it mucks with timestamps and can force long re-compiles
-                // during development.
-                compile_test_program()
-            } else {
-                vec![]
-            };
-            let accounts: Vec<(Pubkey, AccountSharedData)> = pubkeys
-                .iter()
-                .map(|k| {
-                    (
-                        *k,
-                        AccountSharedData::from(Account {
-                            lamports: Rent::default().minimum_balance(program_data.len()).min(1),
-                            data: program_data.to_vec(),
-                            owner: bpf_loader::id(),
-                            executable: true,
-                            rent_epoch: Epoch::MAX,
-                        }),
-                    )
-                })
-                .collect();
-
-            (pubkeys, accounts)
-        }
-
         fn get_account_num_of_each_type(attack: &Attack) -> (usize, usize, usize) {
             let num_replay_threads = 4;
             match attack {
@@ -347,48 +218,39 @@ mod setup {
             attack: &Attack,
             max_account_size: Option<usize>,
         ) -> (Arc<AccountsFile>, Vec<(Pubkey, AccountSharedData)>) {
-            // 1. Determine num accounts of each type to create based on attack.
             let (num_payers_accounts, num_max_size_accounts, num_program_accounts) =
                 get_account_num_of_each_type(attack);
 
-            // 2. Create the accounts.
             let lamports_per_account = 1_000_000_000_000;
-            let (program_pubkeys, program_accounts) = programs(num_program_accounts);
-            let max_account_owner = *program_pubkeys.first().unwrap_or(&Pubkey::new_unique());
-            let (payers_keypairs, payers_accounts) = simple_accounts(
-                num_payers_accounts,
+            let mut accounts_builder = AccountsBuilder::default();
+            #[allow(deprecated)]
+            let programs =
+                accounts_builder.with_optional_stress_test_programs(num_program_accounts);
+            let max_account_owner = *programs
+                .map(|p| p.first().unwrap())
+                .unwrap_or(&Pubkey::new_unique());
+            accounts_builder.with_owner_program_id(max_account_owner);
+
+            if let Some(max_account_size) = max_account_size {
+                accounts_builder.with_max_size_accounts(CreateAccountConfig {
+                    num_accounts: num_max_size_accounts,
+                    lamports_per_account,
+                    space: max_account_size,
+                    owner: &max_account_owner,
+                });
+            }
+
+            accounts_builder.with_payers(CreateAccountConfig {
+                num_accounts: num_payers_accounts,
                 lamports_per_account,
-                0,
-                &system_program::id(),
-            );
-            let (max_size_keypairs, max_size_accounts) =
-                if let Some(max_account_size) = max_account_size {
-                    simple_accounts(
-                        num_max_size_accounts,
-                        lamports_per_account,
-                        max_account_size,
-                        &max_account_owner,
-                    )
-                } else {
-                    // No max size accounts need to be created.
-                    (Arc::new(Vec::new()), Vec::new())
-                };
+                space: 0,
+                owner: &system_program::id(),
+            });
 
-            // 3. Concatenate accounts of each type into a single vector.
-            let mut starting_accounts = Vec::new();
-            starting_accounts.extend(payers_accounts.iter().cloned());
-            starting_accounts.extend(max_size_accounts.iter().cloned());
-            starting_accounts.extend(program_accounts.iter().cloned());
+            let accounts_file = accounts_builder.as_accounts_file();
+            let starting_accounts = accounts_builder.collect_accounts();
 
-            // 4. Create struct to access accounts by type
-            let accounts_file = Arc::new(AccountsFile::new(
-                Some(max_account_owner),
-                Some(&payers_keypairs),
-                Some(&max_size_keypairs),
-                Some(&program_pubkeys),
-            ));
-
-            (accounts_file, starting_accounts)
+            (Arc::new(accounts_file), starting_accounts)
         }
     }
 }

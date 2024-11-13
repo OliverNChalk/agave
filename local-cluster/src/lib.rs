@@ -8,6 +8,7 @@
     )
 )]
 #![allow(clippy::arithmetic_side_effects)]
+pub mod account_util;
 pub mod cluster;
 pub mod cluster_tests;
 pub mod integration_tests;

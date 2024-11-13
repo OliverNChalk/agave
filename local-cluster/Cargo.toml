@@ -20,6 +20,7 @@ dev-context-only-utils = ["solana-core/dev-context-only-utils"]
 agave-reserved-account-keys = { workspace = true }
 agave-snapshots = { workspace = true }
 crossbeam-channel = { workspace = true }
+indoc = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
@@ -87,7 +88,6 @@ array-init = { workspace = true }
 assert_matches = { workspace = true }
 fs_extra = { workspace = true }
 gag = { workspace = true }
-indoc = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
