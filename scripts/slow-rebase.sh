@@ -159,6 +159,11 @@ EOM
   fi
 }
 
+print_progress() {
+  echo -n "=== Changes left: "
+  git rev-list "${branch}-next..sync/${branch}-upstream" | wc -l
+}
+
 print_fixup_and_restart_commands() {
   local extraArgs=
   [[ $# -gt 0 ]] && extraArgs=$1
@@ -344,12 +349,10 @@ EOM
   exit 1
 fi
 
-echo -n "Changes left: "
-git rev-list "${branch}-next..sync/${branch}-upstream" | wc -l
-
 [[ -n "$preCheck" ]] && run_all_checks
 
 while true; do
+  print_progress
   run_one_rebase
   run_all_checks
 done
