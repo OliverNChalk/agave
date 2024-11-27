@@ -271,10 +271,15 @@ run_cargo_check() {
 $cargoRel check --lib --bins --tests
 $cargoRel nightly fmt
 
-       If you changed \`programs/sbf\` or crate depedenceies also run:
+       If you changed \`programs/sbf\` or crate dependencies also run:
 
 $cargoRel check --bins --tests programs/sbf
 $cargoRel nightly fmt programs/sbf
+
+       If you changed \`svm/examples\` or crate dependencies also run:
+
+$cargoRel check --bins --tests svm/examples
+$cargoRel nightly fmt svm/examples
 
 EOM
     print_fixup_and_restart_commands --pre-check
@@ -326,6 +331,9 @@ run_all_checks() {
   # There are no libraries in `programs/sbf`, so `--lib` is absent.
   run_cargo_check programs/sbf --bins --tests
   run_fmt programs/sbf
+  # There are no libraries in `svm/examples`, so `--lib` is absent.
+  run_cargo_check svm/examples --bins --tests
+  run_fmt svm/examples
   if [[ -n "$runTests" ]]; then
     run_tests
   fi
