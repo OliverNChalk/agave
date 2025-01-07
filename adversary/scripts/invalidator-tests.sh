@@ -109,6 +109,20 @@ attack_tpuPacketFlood() {
   sleep "$sleeptime"
 }
 
+attack_unusedPortPacketFlood() {
+  local strategy=$1
+  shift
+  local -a extraConfig=( "$@" )
+
+  "$invalidatorClient" "${commonArgs[@]}" \
+    configure-unused-port-packet-flood --flood-strategy "$strategy" \
+    "${extraConfig[@]}"
+  sleep "$runtime"
+  "$invalidatorClient" "${commonArgs[@]}" \
+    configure-unused-port-packet-flood
+  sleep "$sleeptime"
+}
+
 attack_replayStage() {
   local attack=$1
   shift

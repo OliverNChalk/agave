@@ -33,6 +33,13 @@ run_attacks_all() {
   attack_tpuPacketFlood udpVoteOverflow \
     --iteration-duration-us 0
 
+  # if propagated to public testnet plan, update target's pubkey.
+  # This is hardcoded for the invalidator pool.
+  attack_unusedPortPacketFlood retransmit \
+    --iteration-delay-us 1000000 \
+    --packets-per-peer-per-iteration 100000 \
+    --target "tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK"
+
   # attacks that use only fee payer accounts
   attack_replayStage transferRandom
   attack_replayStage transferRandomWithMemo

@@ -450,6 +450,82 @@ pub mod delay_votes {
     }
 }
 
+pub mod flood_unused_port {
+    use {
+        strum::VariantNames,
+        strum_macros::{EnumString, EnumVariantNames},
+    };
+    pub const ID: &str = "flood_unused_port";
+    adversarial_feature_impl!(FloodUnusedPort);
+
+    #[derive(
+        Clone,
+        Debug,
+        Eq,
+        EnumString,
+        EnumVariantNames,
+        PartialEq,
+        serde::Serialize,
+        serde::Deserialize,
+    )]
+    #[serde(rename_all = "camelCase")]
+    #[strum(serialize_all = "camelCase")]
+    pub enum FloodStrategy {
+        /// Flood a specific hardcoded port.
+        HardcodedPort,
+        /// Flood retransmit port.
+        Retransmit,
+    }
+
+    #[derive(Default)]
+    pub struct FloodStrategySubtypeStatsId(i64);
+
+    impl From<FloodStrategySubtypeStatsId> for i64 {
+        fn from(stats_id: FloodStrategySubtypeStatsId) -> i64 {
+            stats_id.0
+        }
+    }
+
+    impl FloodStrategy {
+        pub const fn cli_names() -> &'static [&'static str] {
+            Self::VARIANTS
+        }
+
+        pub fn stats_id(&self) -> FloodStrategySubtypeStatsId {
+            let id = match self {
+                FloodStrategy::HardcodedPort => 1,
+                FloodStrategy::Retransmit => 2,
+            };
+
+            FloodStrategySubtypeStatsId(id)
+        }
+    }
+
+    /// Define a flood strategy which will be executed on its own thread. The thread will
+    /// continue flooding with the defined configuration until stopped.
+    #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FloodConfig {
+        /// Flood strategy to use for this configuration.
+        pub flood_strategy: FloodStrategy,
+        /// Number of packets which will be sent to each peer during each iteration.
+        pub packets_per_peer_per_iteration: u32,
+        /// Time to sleep between iterations.
+        pub iteration_delay_us: u64,
+        /// Optional target to limit the flooding to a specific peer.
+        pub target: Option<String>,
+        /// Optional target port to flood with packets.
+        pub port: Option<u16>,
+    }
+
+    /// Define a flood configuration.
+    #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AdversarialConfig {
+        pub flood_config: Option<FloodConfig>,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Enum wrapper for all adversarial feature configuration structs
@@ -478,6 +554,8 @@ pub enum AdversaryFeatureConfig {
     TpuPacketFlood(tpu_packet_flood::AdversarialConfig),
     #[serde(rename = "delayVotes")]
     DelayVotes(delay_votes::AdversarialConfig),
+    #[serde(rename = "floodUnusedPort")]
+    FloodUnusedPort(flood_unused_port::AdversarialConfig),
 }
 
 static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig>> =
@@ -550,6 +628,12 @@ static FEATURE_CONFIG_MAP: LazyLock<DashMap<&'static str, AdversaryFeatureConfig
             (
                 delay_votes::ID,
                 AdversaryFeatureConfig::DelayVotes(delay_votes::AdversarialConfig::default()),
+            ),
+            (
+                flood_unused_port::ID,
+                AdversaryFeatureConfig::FloodUnusedPort(
+                    flood_unused_port::AdversarialConfig::default(),
+                ),
             ),
         ]
         .into_iter()

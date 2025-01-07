@@ -8,12 +8,13 @@ use {
     solana_adversary::{
         adversary_context,
         adversary_feature_set::{
-            self, delay_votes, drop_turbine_votes, example, gossip_packet_flood,
+            self, delay_votes, drop_turbine_votes, example, flood_unused_port, gossip_packet_flood,
             invalidate_leader_block, packet_drop_parameters, repair_packet_flood,
             repair_parameters, replay_stage_attack, send_duplicate_blocks, shred_receiver_address,
             tpu_packet_flood, AdversaryFeatureConfig,
         },
         auth::{AuthHeader, JsonRpcAuthToken},
+        flood_unused_port::FloodUnusedPort,
         gossip::GossipPacketFlood,
         repair::RepairPacketFlood,
         tpu, verify_peer_identifier, SelectedReplayAttack,
@@ -200,6 +201,13 @@ pub trait Adversary {
         config: tpu_packet_flood::AdversarialConfig,
     ) -> Result<()>;
 
+    #[rpc(meta, name = "configureUnusedPortPacketFlood")]
+    fn configure_unused_port_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: flood_unused_port::AdversarialConfig,
+    ) -> Result<()>;
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>;
@@ -224,6 +232,7 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
     let mut gossip_packet_flood = gossip_packet_flood::FloodStrategySubtypeStatsId::default();
     let mut tpu_packet_flood = false;
     let mut delay_votes = false;
+    let mut unused_port_packet_flood = flood_unused_port::FloodStrategySubtypeStatsId::default();
 
     for adversary_feature_config in adversary_feature_configs {
         match adversary_feature_config {
@@ -296,6 +305,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
             AdversaryFeatureConfig::Example(_)
             | AdversaryFeatureConfig::RepairParameters(_)
             | AdversaryFeatureConfig::ShredReceiverAddress(_) => {}
+            AdversaryFeatureConfig::FloodUnusedPort(config) => {
+                if let Some(config) = config.flood_config {
+                    unused_port_packet_flood = config.flood_strategy.stats_id();
+                }
+            }
         }
     }
 
@@ -325,6 +339,11 @@ fn output_adversary_metrics(adversary_feature_configs: Vec<AdversaryFeatureConfi
         ("gossip_packet_flood", i64::from(gossip_packet_flood), i64),
         ("tpu_packet_flood", tpu_packet_flood, i64),
         ("delay_votes", delay_votes, i64),
+        (
+            "unused_port_packet_flood",
+            i64::from(unused_port_packet_flood),
+            i64
+        ),
     );
 }
 
@@ -564,6 +583,27 @@ impl Adversary for AdversaryImpl {
         })
     }
 
+    fn configure_unused_port_packet_flood(
+        &self,
+        meta: Self::Metadata,
+        config: flood_unused_port::AdversarialConfig,
+    ) -> Result<()> {
+        self.perform_configuration(meta.clone(), || {
+            let mut adversary_unused_port = adversary_context::ADVERSARY_CONTEXT
+                .unused_port_packet_flood
+                .write()
+                .unwrap();
+            if let Some(context) = adversary_unused_port.take() {
+                context.join().unwrap();
+            }
+            flood_unused_port::set_config(config.clone());
+            if let Some(config) = config.flood_config.clone() {
+                *adversary_unused_port = Some(FloodUnusedPort::start(meta.cluster_info(), config));
+            }
+            Ok(())
+        })
+    }
+
     fn perform_configuration<F>(&self, meta: Self::Metadata, configuration: F) -> Result<()>
     where
         F: FnOnce() -> Result<()>,
@@ -717,6 +757,11 @@ pub mod tests {
             {
                 "exampleAdversarialConfig": {
                     "exampleNum": 0,
+                },
+            },
+            {
+                "floodUnusedPort": {
+                    "floodConfig": null,
                 },
             },
             {
@@ -1210,6 +1255,73 @@ pub mod tests {
             &io,
             &keypair,
             "configurePacketDropParameters",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+    }
+
+    #[test]
+    #[serial]
+    fn test_adversary_configure_unused_port_packet_flood() {
+        let (meta, keypair, io, token) = setup_test();
+
+        // Update the config for unused_port_packet_flood, ensuring that request succeeds
+        let config = flood_unused_port::AdversarialConfig {
+            flood_config: Some(flood_unused_port::FloodConfig {
+                flood_strategy: flood_unused_port::FloodStrategy::Retransmit,
+                packets_per_peer_per_iteration: 10,
+                iteration_delay_us: 200,
+                target: Some("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string()),
+                port: None,
+            }),
+        };
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureUnusedPortPacketFlood",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, flood_unused_port::get_config());
+
+        // Update the config for unused_port_packet_flood, ensuring that request succeeds
+        let config = flood_unused_port::AdversarialConfig {
+            flood_config: Some(flood_unused_port::FloodConfig {
+                flood_strategy: flood_unused_port::FloodStrategy::HardcodedPort,
+                packets_per_peer_per_iteration: 5,
+                iteration_delay_us: 100,
+                target: Some("9h1HyLCW5dZnBVap8C5egQ9Z6pHyjsh5MNy83iPqqRuq".to_string()),
+                port: Some(8006),
+            }),
+        };
+        let rsp = send_signed_request_sync(
+            meta.clone(),
+            &io,
+            &keypair,
+            "configureUnusedPortPacketFlood",
+            &token,
+            &config,
+        );
+        let result: Value = parse_success_result(rsp);
+        assert_eq!(result, json!(null));
+
+        // Confirm that the config update is reflected internally
+        assert_eq!(config, flood_unused_port::get_config());
+
+        // Reset the config
+        let config = flood_unused_port::AdversarialConfig::default();
+        let rsp = send_signed_request_sync(
+            meta,
+            &io,
+            &keypair,
+            "configureUnusedPortPacketFlood",
             &token,
             &config,
         );

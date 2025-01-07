@@ -4,6 +4,7 @@ use {
     const_format::formatcp,
     solana_adversary::{
         adversary_feature_set::{
+            flood_unused_port::FloodStrategy as UnusedPortFloodStrategy,
             gossip_packet_flood::FloodStrategy as GossipFloodStrategy,
             invalidate_leader_block::InvalidationKind,
             repair_packet_flood::FloodStrategy as RepairFloodStrategy,
@@ -445,6 +446,61 @@ fn build_args<'a>(version: &'static str) -> App<'a, 'static> {
                         ),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("configure-unused-port-packet-flood")
+                .about("Configure flooding an unused port with packet requests")
+                .arg(
+                    Arg::with_name("flood_strategy")
+                        .long("flood-strategy")
+                        .value_name("ENUM STRING")
+                        .possible_values(UnusedPortFloodStrategy::cli_names())
+                        .help("Which strategy to use for picking a port to flood with packets")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("packets_per_peer_per_iteration")
+                        .long("packets-per-peer-per-iteration")
+                        .value_name("NUMBER")
+                        .validator(input_validators::is_parsable::<u32>)
+                        .help("Number of packets to send to each peer each iteration")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("iteration_delay_us")
+                        .long("iteration-delay-us")
+                        .value_name("MICROSECONDS")
+                        .validator(input_validators::is_parsable::<u64>)
+                        .help("Delay between iterations in microseconds")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("target")
+                        .long("target")
+                        .takes_value(true)
+                        .value_name("PUBKEY")
+                        .validator(input_validators::is_pubkey)
+                        .help("Peer to target with packets on a specific unused port.")
+                        .conflicts_with("toml_config"),
+                )
+                .arg(
+                    Arg::with_name("toml_config")
+                        .long("toml")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .help(formatcp!(
+                            "TOML input file path or \"{STDIN_TOKEN}\" for stdin."
+                        )),
+                )
+                .arg(
+                    Arg::with_name("port")
+                        .long("port")
+                        .takes_value(true)
+                        .value_name("PORT")
+                        .validator(input_validators::is_parsable::<u16>)
+                        .help("Port number to send flood packets to")
+                        .conflicts_with("toml_config"),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
 }
 
@@ -531,6 +587,13 @@ pub fn run_command() -> Result<(), String> {
         }
         ("configure-replay-stage-attack", Some(sub_matches)) => {
             crate::adversary::replay::configure_replay_stage_attack_args(
+                &rpc_endpoint_url,
+                sub_matches,
+                &rpc_adversary_keypair,
+            )
+        }
+        ("configure-unused-port-packet-flood", Some(sub_matches)) => {
+            crate::adversary::flood_unused_port::configure_unused_port_packet_flood_args(
                 &rpc_endpoint_url,
                 sub_matches,
                 &rpc_adversary_keypair,

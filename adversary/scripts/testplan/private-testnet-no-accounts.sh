@@ -31,6 +31,13 @@ run_attacks_all() {
     --iteration-delay-us 1000000 \
     --packets-per-peer-per-iteration 10000
 
+  # if propagated to public testnet plan, update target's pubkey.
+  # This is hardcoded for the invalidator pool.
+  attack_unusedPortPacketFlood retransmit \
+    --iteration-delay-us 1000000 \
+    --packets-per-peer-per-iteration 100000 \
+    --target "tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK"
+
   attack_tpuPacketFlood udpVoteOverflow \
     --iteration-duration-us 0
 
