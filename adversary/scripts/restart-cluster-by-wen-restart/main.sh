@@ -26,11 +26,17 @@ fi
 echo "Stopping agave-validator on all nodes..."
 for name in "${!nodes[@]}"; do
     ip="${nodes[$name]}"
+
+    # rotate log to make sure the log is not too old
+    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "sudo logrotate -f /etc/logrotate.d/sol"
+
     if ! ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "pidof agave-validator" >/dev/null; then
         echo "not found agave-validator process, ($name, $ip). skip..."
         continue
+    else
+        echo "found agave-validator process, ($name, $ip). killing..."
+        ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "pkill agave-validator"
     fi
-    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "pkill agave-validator"
 done
 
 # setting all nodes into wen-restart mode
@@ -69,7 +75,7 @@ while true; do
 
     for name in "${!nodes[@]}"; do
         ip="${nodes[$name]}"
-        if ssh "${SSH_CONFIG_ARGS[@]}" sol@"$ip" "tail -n 100 | grep 'Wen start finished' /home/sol/invalidator/logs/agave-validator.log* > /dev/null 2>&1"; then
+        if ssh "${SSH_CONFIG_ARGS[@]}" sol@"$ip" "grep 'Wen start finished' /home/sol/invalidator/logs/agave-validator.log > /dev/null 2>&1"; then
             found_nodes=$((found_nodes + 1))
         fi
     done
@@ -137,7 +143,7 @@ while true; do
 
     for name in "${!nodes[@]}"; do
         ip="${nodes[$name]}"
-        if ssh "${SSH_CONFIG_ARGS[@]}" sol@"$ip" "tail -n 100 | grep 'new root' /home/sol/invalidator/logs/agave-validator.log* > /dev/null 2>&1"; then
+        if ssh "${SSH_CONFIG_ARGS[@]}" sol@"$ip" "grep 'new root' /home/sol/invalidator/logs/agave-validator.log > /dev/null 2>&1"; then
             found_nodes=$((found_nodes + 1))
         fi
     done

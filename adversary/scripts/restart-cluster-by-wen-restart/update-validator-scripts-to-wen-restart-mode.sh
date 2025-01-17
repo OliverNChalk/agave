@@ -3,7 +3,7 @@
 set -o errexit
 
 wen_restart_path="/home/sol/invalidator/wen-restart"
-rm "$wen_restart_path" &> /dev/null
+rm "$wen_restart_path" &> /dev/null || true
 
 scripts=(
   "/home/sol/invalidator/scripts/validator.sh"
@@ -12,6 +12,10 @@ scripts=(
 
 for script_path in "${scripts[@]}"; do
   sed -i '/wait-for-supermajority/d' "$script_path"
+  sed -i '/expected-shred-version/d' "$script_path"
+  sed -i '/expected-bank-hash/d' "$script_path"
+  sed -i '/wen-restart/d' "$script_path"
+
   sed -i "/nohup agave-validator/a\  --wen-restart $wen_restart_path \\\\" "$script_path"
   # shellcheck disable=SC1003
   sed -i '/nohup agave-validator/a\  --wen-restart-coordinator tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK \\' "$script_path"
