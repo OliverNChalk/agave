@@ -6,19 +6,19 @@ set -o pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-declare -A nodes
-
 SSH_CONFIG_ARGS=(-o StrictHostKeyChecking=no)
 
-# get nodes from gossip
-echo "Fetching nodes from gossip..."
-while IFS="=" read -r identityPubkey ipAddress; do
-    nodes["${identityPubkey:0:4}"]=$ipAddress
-done < <(/home/sol/invalidator/bin/solana -ul gossip --output json | jq -r '.[] | "\(.identityPubkey)=\(.ipAddress)"')
-
-# assert getting 10 nodes
-if [[ "${#nodes[@]}" != 10 ]]; then
-    echo "expected to get 10 nodes" >&2
+declare -A nodes
+if [ -f /home/sol/invalidator/.env ]; then
+    # shellcheck disable=SC1091
+    source /home/sol/invalidator/.env
+    for i in {0..9}; do
+        ip=${IPS[$i]}
+        pubkey=${PUBKEYS[$i]:0:4}
+        nodes["$pubkey"]="$ip"
+    done
+else
+    echo "/home/sol/invalidator/.env file not found. please ensure you deploy the cluster with the latest infra-invalidator" >&2
     exit 1
 fi
 
