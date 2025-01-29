@@ -17,7 +17,7 @@ for script_path in "${scripts[@]}"; do
   sed -i '/expected-shred-version/d' "$script_path"
   sed -i '/wait-for-supermajority/d' "$script_path"
 
-  sed -i "/nohup agave-validator/a\  --expected-bank-hash $BANK_HASH \\\\" "$script_path"
-  sed -i "/nohup agave-validator/a\  --expected-shred-version $SHRED_VERSION \\\\" "$script_path"
-  sed -i "/nohup agave-validator/a\  --wait-for-supermajority $SLOT \\\\" "$script_path"
+  sed -i "/ARGS=/a\  --expected-bank-hash $BANK_HASH \\\\" "$script_path"
+  sed -i "/ARGS=/a\  --expected-shred-version $SHRED_VERSION \\\\" "$script_path"
+  sed -i "/ARGS=/a\  --wait-for-supermajority $SLOT \\\\" "$script_path"
 done

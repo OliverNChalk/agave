@@ -16,7 +16,7 @@ for script_path in "${scripts[@]}"; do
   sed -i '/expected-bank-hash/d' "$script_path"
   sed -i '/wen-restart/d' "$script_path"
 
-  sed -i "/nohup agave-validator/a\  --wen-restart $wen_restart_path \\\\" "$script_path"
+  sed -i "/ARGS=/a\  --wen-restart $wen_restart_path \\\\" "$script_path"
   # shellcheck disable=SC1003
-  sed -i '/nohup agave-validator/a\  --wen-restart-coordinator tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK \\' "$script_path"
+  sed -i '/ARGS=/a\  --wen-restart-coordinator tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK \\' "$script_path"
 done
