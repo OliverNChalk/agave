@@ -22,8 +22,15 @@ else
     exit 1
 fi
 
+# Check if the sleep parameter is passed.
+if [ -n "$1" ]; then
+    sleep_between_validator_stops="$1"
+else
+    sleep_between_validator_stops=0
+fi
+
 # stop all agave-validator
-echo "Stopping agave-validator on all nodes..."
+echo "Stopping agave-validator on all nodes with sleep interval $sleep_between_validator_stops..."
 for name in "${!nodes[@]}"; do
     ip="${nodes[$name]}"
 
@@ -37,6 +44,8 @@ for name in "${!nodes[@]}"; do
         echo "found agave-validator process, ($name, $ip). killing..."
         ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "pkill agave-validator"
     fi
+
+    sleep "$sleep_between_validator_stops"
 done
 
 # setting all nodes into wen-restart mode
