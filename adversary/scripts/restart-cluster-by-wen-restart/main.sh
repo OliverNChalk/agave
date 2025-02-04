@@ -54,7 +54,8 @@ done
 
 # HACK: restart bootstrap node first because we're using it as the entrypoint
 echo "Restarting bootstrap validators"
-ssh "${SSH_CONFIG_ARGS[@]}" sol@"${nodes[tiv1]}" /home/sol/invalidator/scripts/bootstrap-validator.sh
+# shellcheck disable=SC2029
+ssh "${SSH_CONFIG_ARGS[@]}" sol@"${nodes[tiv1]}" "/home/sol/invalidator/scripts/bootstrap-validator.sh $BINARY_COLLECTION"
 
 echo "Waiting 10s for bootstrap node startup"
 sleep 10
@@ -65,7 +66,8 @@ for name in "${!nodes[@]}"; do
         continue
     fi
     ip="${nodes[$name]}"
-    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" /home/sol/invalidator/scripts/validator.sh
+    # shellcheck disable=SC2029
+    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "/home/sol/invalidator/scripts/validator.sh $BINARY_COLLECTION"
 done
 
 echo "Waiting for all nodes to see wen restart completion"
@@ -117,7 +119,8 @@ scp -p "$here/update-validator-scripts-to-wait-for-supermajority.sh" "sol@$ip":"
 ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "pkill agave-validator" # bootstrap validator won't be killed by the wen restart script. do it manually.
 # shellcheck disable=SC2029
 ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "BANK_HASH=$bank_hash SHRED_VERSION=$shred_version SLOT=$slot $target_path"
-ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" /home/sol/invalidator/scripts/bootstrap-validator.sh
+# shellcheck disable=SC2029
+ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "/home/sol/invalidator/scripts/bootstrap-validator.sh $BINARY_COLLECTION"
 
 echo "Waiting 60s for bootstrap node startup"
 sleep 60
@@ -133,7 +136,8 @@ for name in "${!nodes[@]}"; do
     scp -p "$here/update-validator-scripts-to-wait-for-supermajority.sh" "sol@$ip":"$target_path"
     # shellcheck disable=SC2029
     ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "BANK_HASH=\"$bank_hash\" SHRED_VERSION=\"$shred_version\" SLOT=\"$slot\" $target_path"
-    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" /home/sol/invalidator/scripts/validator.sh
+    # shellcheck disable=SC2029
+    ssh "${SSH_CONFIG_ARGS[@]}" "sol@$ip" "/home/sol/invalidator/scripts/validator.sh $BINARY_COLLECTION"
 done
 
 echo "Waiting for all nodes to see new root"
