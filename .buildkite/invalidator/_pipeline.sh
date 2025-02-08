@@ -95,7 +95,7 @@ add_step() {
     command: "$command"
     timeout_in_minutes: $timeout_in_minutes
     agents:
-      queue: "invalidator"
+      queue: "default"
 EOF
 
   if [[ $retry -gt 0 ]]; then
@@ -119,7 +119,7 @@ add_step_parallel() {
     command: "$command"
     timeout_in_minutes: $timeout_in_minutes
     agents:
-      queue: "invalidator"
+      queue: "default"
     parallelism: $parallelism
     retry:
       automatic:
