@@ -1,5 +1,8 @@
 //! Meta error which wraps all the submodule errors.
-use thiserror::Error;
+use {
+    solana_tpu_client_next::{leader_updater::LeaderUpdaterError, ConnectionWorkersSchedulerError},
+    thiserror::Error,
+};
 
 #[derive(Debug, Error)]
 pub enum BenchClientError {
@@ -7,7 +10,7 @@ pub enum BenchClientError {
     AccountsCreatorError(#[from] crate::accounts_creator::AccountsCreatorError),
 
     #[error(transparent)]
-    ConnectionTasksSchedulerError(#[from] crate::network::ConnectionWorkersSchedulerError),
+    ConnectionTasksSchedulerError(#[from] ConnectionWorkersSchedulerError),
 
     #[error("Failed to read keypair file")]
     KeypairReadFailure,
@@ -19,5 +22,5 @@ pub enum BenchClientError {
     FindValidatorIdentityFailure,
 
     #[error("Leader updater failed")]
-    LeaderUpdaterFailure,
+    LeaderUpdaterError(#[from] LeaderUpdaterError),
 }

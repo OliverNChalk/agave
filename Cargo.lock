@@ -11761,6 +11761,7 @@ dependencies = [
  "solana-time-utils",
  "solana-tls-utils",
  "solana-tpu-client",
+ "solana-tpu-client-next",
  "solana-transaction",
  "thiserror 2.0.17",
  "tokio",

@@ -7,16 +7,23 @@ use {
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
     solana_signer::{EncodableKey, Signer},
     solana_streamer::nonblocking::quic::{compute_max_allowed_uni_streams, ConnectionPeerType},
+    solana_tpu_client_next::{
+        connection_workers_scheduler::{
+            BindTarget, ConnectionWorkersSchedulerConfig, Fanout, StakeIdentity,
+        },
+        leader_updater::create_leader_updater,
+        ConnectionWorkersScheduler,
+    },
     solana_transaction_bench::{
         accounts_creator::AccountsCreator,
         accounts_file::{read_accounts_file, write_accounts_file, AccountsFile},
+        backpressured_broadcaster::BackpressuredBroadcaster,
         blockhash_updater::BlockhashUpdater,
         cli::{
             build_cli_parameters, ClientCliParameters, Command, ExecutionParams, TransactionParams,
         },
         error::BenchClientError,
         generator::TransactionGenerator,
-        network::{leader_updater::create_leader_updater, ConnectionWorkersScheduler},
         validate_accounts::validate,
     },
     std::{fmt::Debug, sync::Arc},
@@ -27,11 +34,20 @@ use {
     tokio_util::sync::CancellationToken,
 };
 
-/// Specifies the number of slots ahead to establish connections with scheduled peers.
-/// This constant determines how far in advance connections are created, not the number
-/// of peers to which transactions are sent.
-const LOOKAHEAD_SLOTS: u64 = 8;
 const GENERATOR_CHANNEL_SIZE: usize = 32;
+
+/// Empirically chosen size of the connection worker channel. Lower/higher values gives
+/// significantly smaller txs blocks on testnet.
+const WORKER_CHANNEL_SIZE: usize = 20;
+/// Number of reconnection attempts, a reasonable value that have been chosen,
+/// doesn't affect TPS.
+const MAX_RECONNECT_ATTEMPTS: usize = 5;
+/// Fanout for sending and creating new connections. Lower values affect TPS but
+/// higher values do not.
+const FANOUT: Fanout = Fanout {
+    send: 2,
+    connect: 4,
+};
 
 fn main() {
     solana_logger::setup_with_default("solana=info");
@@ -242,22 +258,32 @@ async fn run_client(
 
     let scheduler_handle: JoinHandle<Result<(), BenchClientError>> = tokio::spawn(async move {
         let leader_updater =
-            create_leader_updater(rpc_client, websocket_url, LOOKAHEAD_SLOTS, pinned_address)
-                .await?;
+            create_leader_updater(rpc_client, websocket_url, pinned_address).await?;
 
         // TODO It would be good to connect the `cancel` token to the Ctrl+C and other interrupt
         // handlers.
         let cancel = CancellationToken::new();
 
-        ConnectionWorkersScheduler::run(
-            bind,
-            validator_identity,
+        let config = ConnectionWorkersSchedulerConfig {
+            bind: BindTarget::Address(bind),
+            stake_identity: validator_identity.map(|ident| StakeIdentity::new(&ident)),
+            num_connections: num_max_open_connections,
+            worker_channel_size: WORKER_CHANNEL_SIZE,
+            max_reconnect_attempts: MAX_RECONNECT_ATTEMPTS,
+            leaders_fanout: FANOUT,
+            skip_check_transaction_age: false,
+        };
+
+        let (_, update_identity_receiver) = watch::channel(None);
+        let scheduler = ConnectionWorkersScheduler::new(
             leader_updater,
-            cancel,
             transaction_receiver,
-            num_max_open_connections,
-        )
-        .await?;
+            update_identity_receiver,
+            cancel,
+        );
+        scheduler
+            .run_with_broadcaster::<BackpressuredBroadcaster>(config)
+            .await?;
         Ok(())
     });
 

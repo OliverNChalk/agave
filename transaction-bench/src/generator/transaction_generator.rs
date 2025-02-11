@@ -15,7 +15,7 @@ use {
     solana_message::Message,
     solana_pubkey::Pubkey,
     solana_signer::Signer,
-    solana_time_utils::timestamp,
+    solana_tpu_client_next::transaction_batch::TransactionBatch,
     solana_transaction::Transaction,
     std::sync::Arc,
     thiserror::Error,
@@ -29,35 +29,6 @@ use {
 /// The max size of the JoinSet container used to execute futures concurrently and in parallel.
 /// It should be well-tuned because we don't want to generate more transactions than we can send.
 const MAX_JOIN_SET_SIZE: usize = 4;
-
-/// Batch of generated transactions
-/// timestamp is used to discard batches which are too old
-/// to have valid blockhash.
-#[derive(Clone, PartialEq)]
-pub struct TransactionBatch {
-    wired_transactions: Vec<Vec<u8>>,
-    timestamp: u64,
-}
-
-impl IntoIterator for TransactionBatch {
-    type Item = Vec<u8>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.wired_transactions.into_iter()
-    }
-}
-
-impl TransactionBatch {
-    pub fn new(wired_transactions: Vec<Vec<u8>>) -> Self {
-        Self {
-            wired_transactions,
-            timestamp: timestamp(),
-        }
-    }
-    pub fn get_timestamp(&self) -> u64 {
-        self.timestamp
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum TransactionGeneratorError {
