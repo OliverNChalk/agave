@@ -88,4 +88,3 @@ the internet on staked, mainnet-beta validators.
 |----------|---------------------|----------|---------|--------------------------------------------------------|
 | RPC user | your validator's IP | TCP      | 8899    | JSONRPC over HTTP. Change with `--rpc-port RPC_PORT`   |
 | RPC user | your validator's IP | TCP      | 8900    | JSONRPC over Websockets. Derived. Uses  `RPC_PORT + 1` |
-
