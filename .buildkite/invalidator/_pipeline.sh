@@ -192,7 +192,8 @@ fi
 
 ## docs
 if affects .rs$ ^ci/rust-version.sh ^ci/test-docs.sh ; then
-  add_step doctest 15 \
+  # run in container due to libclang-dev dependencies for rocksdb.
+  add_step_in_docker doctest 15 \
     ci/test-docs.sh
 fi
 
