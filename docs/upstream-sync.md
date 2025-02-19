@@ -226,16 +226,12 @@ a complete rebase is done, I do another run like this:
 git rebase --interactive \
     --reschedule-failed-exec \
     --exec "./cargo check --lib --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
-    --exec "./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
-            --deny=warnings \
-            --deny=clippy::default_trait_access \
-            --deny=clippy::arithmetic_side_effects \
-            --deny=clippy::manual_let_else \
-            --deny=clippy::used_underscore_binding \
-            --allow=clippy::redundant_clone" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
+    --exec "cd svm/examples \
+        && ../../cargo check --bins --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
 
@@ -353,7 +349,7 @@ where `itertools` was updated:
 
 ```bash
 git log -Gitertools --oneline upstream/master..master-next -- \
-    Cargo.lock programs/sbf/Cargo.lock
+    Cargo.lock programs/sbf/Cargo.lock svm/examples/Cargo.lock
 ```
 
 This list would often be quite short.  Now run an interactive rebase:
@@ -368,6 +364,7 @@ dependency:
 ```gitrebase
 exec ./cargo check --lib --bins --tests
 exec cd programs/sbf/ && ../../cargo check --bins --tests
+exec cd svm/examples/ && ../../cargo check --bins --tests
 ```
 
 `cargo check` will update any versions to their up to date state and, as a
@@ -571,16 +568,12 @@ commits in the `invalidator/master` branch from time to time:
 git rebase --interactive \
     --reschedule-failed-exec \
     --exec "./cargo check --lib --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
-    --exec "./cargo nightly clippy --workspace --all-targets --features dummy-for-ci-check -- \
-            --deny=warnings \
-            --deny=clippy::default_trait_access \
-            --deny=clippy::arithmetic_side_effects \
-            --deny=clippy::manual_let_else \
-            --deny=clippy::used_underscore_binding \
-            --allow=clippy::redundant_clone" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
+    --exec "cd svm/examples \
+        && ../../cargo check --bins --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
 
@@ -689,9 +682,12 @@ In case you created any "DO NOT SUBMIT: Fixup" commits:
 git rebase --interactive \
     --reschedule-failed-exec \
     --exec "./cargo check --lib --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
+    --exec "cd svm/examples \
+        && ../../cargo check --bins --tests" \
+    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/v1.16-upstream HEAD )"
 ```
 
