@@ -21,6 +21,7 @@ use {
         blockhash_updater::BlockhashUpdater,
         cli::{
             build_cli_parameters, ClientCliParameters, Command, ExecutionParams, TransactionParams,
+            WorkloadParams,
         },
         error::BenchClientError,
         generator::TransactionGenerator,
@@ -88,6 +89,7 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
             transaction_params,
             account_params,
             execution_params,
+            workload_params,
         } => {
             let accounts_creator =
                 AccountsCreator::new(rpc_client.clone(), authority, account_params);
@@ -103,6 +105,7 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
                 accounts,
                 transaction_params,
                 execution_params,
+                workload_params,
             )
             .await?;
         }
@@ -110,6 +113,7 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
             accounts_file,
             transaction_params,
             execution_params,
+            workload_params,
         } => {
             let accounts = read_accounts_file(accounts_file);
             run_client(
@@ -118,6 +122,7 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
                 accounts,
                 transaction_params,
                 execution_params,
+                workload_params,
             )
             .await?;
         }
@@ -213,6 +218,7 @@ async fn run_client(
         pinned_address,
         num_max_open_connections,
     }: ExecutionParams,
+    workload_params: WorkloadParams,
 ) -> Result<(), BenchClientError> {
     let validator_identity = if let Some(staked_identity_file) = staked_identity_file {
         Some(
@@ -249,6 +255,7 @@ async fn run_client(
         blockhash_receiver,
         transaction_sender,
         transaction_params,
+        workload_params,
         send_batch_size,
         duration,
     );

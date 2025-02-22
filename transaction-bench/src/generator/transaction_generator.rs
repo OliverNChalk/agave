@@ -1,7 +1,8 @@
 //! Service generating serialized transactions in batches.
 use {
     crate::{
-        accounts_file::AccountsFile, cli::TransactionParams,
+        accounts_file::AccountsFile,
+        cli::{ReadAccountsTxParams, SimpleTransferTxParams, TransactionParams, WorkloadParams},
         generator::chunked_accounts_iterator::ChunkedAccountsIterator,
     },
     client_test_program::ClientTestProgramInstruction,
@@ -15,9 +16,13 @@ use {
     solana_message::Message,
     solana_pubkey::Pubkey,
     solana_signer::Signer,
+    solana_system_transaction as system_transaction,
     solana_tpu_client_next::transaction_batch::TransactionBatch,
     solana_transaction::Transaction,
-    std::sync::Arc,
+    std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     thiserror::Error,
     tokio::{
         sync::{mpsc::Sender, watch},
@@ -44,6 +49,7 @@ pub struct TransactionGenerator {
     blockhash_receiver: watch::Receiver<Hash>,
     transactions_sender: Sender<TransactionBatch>,
     transaction_params: TransactionParams,
+    workload_params: WorkloadParams,
     send_batch_size: usize,
     run_duration: Option<Duration>,
 }
@@ -54,6 +60,7 @@ impl TransactionGenerator {
         blockhash_receiver: watch::Receiver<Hash>,
         transactions_sender: Sender<TransactionBatch>,
         transaction_params: TransactionParams,
+        workload_params: WorkloadParams,
         send_batch_size: usize,
         duration: Option<Duration>,
     ) -> Self {
@@ -62,6 +69,7 @@ impl TransactionGenerator {
             blockhash_receiver,
             transactions_sender,
             transaction_params,
+            workload_params,
             send_batch_size,
             run_duration: duration,
         }
@@ -83,9 +91,13 @@ impl TransactionGenerator {
         let len_accounts_meta = accounts_meta.len();
         let payers = Arc::new(self.accounts.payers);
         let len_payers = payers.len();
-        let mut index_payer = 0;
+        let mut index_payer: usize = 0;
         let mut accounts_begin: usize = 0;
         let mut futures = JoinSet::new();
+        let read_accounts_count = Arc::new(AtomicUsize::new(0));
+        let transfer_count = Arc::new(AtomicUsize::new(0));
+        let read_accounts_limit = self.workload_params.transaction_mix.read_accounts_pct;
+        let transfer_limit = self.workload_params.transaction_mix.simple_transfer_pct;
 
         let start = Instant::now();
         loop {
@@ -110,20 +122,31 @@ impl TransactionGenerator {
                 let payers = payers.clone();
                 let owner_program_id = self.accounts.owner_program_id;
                 let transactions_sender = self.transactions_sender.clone();
+                let read_accounts_count = read_accounts_count.clone();
+                let transfer_count = transfer_count.clone();
 
                 let num_accounts_in_tx: Vec<usize> = (0..send_batch_size)
-                    .map(|_| self.transaction_params.num_accounts_per_tx.uniform())
+                    .map(|_| {
+                        self.transaction_params
+                            .read_accounts_tx_params
+                            .num_accounts_per_tx
+                            .uniform()
+                    })
                     .collect();
                 let num_batch_accounts: usize = num_accounts_in_tx.iter().sum();
                 let accounts_end = accounts_begin.saturating_add(num_batch_accounts);
                 futures.spawn(async move {
                     let wire_tx_batch = Self::generate_transaction_batch(
-                        accounts_meta.clone(),
+                        read_accounts_count,
+                        read_accounts_limit,
+                        transfer_count,
+                        transfer_limit,
+                        accounts_meta,
                         accounts_begin,
-                        payers.clone(),
+                        payers,
                         index_payer,
                         blockhash,
-                        transaction_params.clone(),
+                        transaction_params,
                         owner_program_id,
                         send_batch_size,
                         num_accounts_in_tx,
@@ -157,17 +180,73 @@ impl TransactionGenerator {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn generate_transaction_batch(
+        read_accounts_count: Arc<AtomicUsize>,
+        read_accounts_limit: usize,
+        transfer_count: Arc<AtomicUsize>,
+        transfer_limit: usize,
+        accounts_meta: Arc<Vec<AccountMeta>>,
+        accounts_begin: usize,
+        payers: Arc<Vec<Keypair>>,
+        index_payer: usize,
+        blockhash: Hash,
+        transaction_params: TransactionParams,
+        owner_program_id: Pubkey,
+        send_batch_size: usize,
+        num_accounts_in_tx: Vec<usize>,
+    ) -> JoinHandle<Vec<Vec<u8>>> {
+        let mut read_accounts_tx_limits_reached =
+            read_accounts_count.load(Ordering::Relaxed) >= read_accounts_limit;
+        let mut transfer_tx_limits_reached =
+            transfer_count.load(Ordering::Relaxed) >= transfer_limit;
+
+        // Start over when both limits are reached.
+        if read_accounts_tx_limits_reached && transfer_tx_limits_reached {
+            read_accounts_count.store(0, Ordering::Relaxed);
+            transfer_count.store(0, Ordering::Relaxed);
+            read_accounts_tx_limits_reached = read_accounts_limit == 0;
+            transfer_tx_limits_reached = transfer_limit == 0;
+        }
+
+        if !read_accounts_tx_limits_reached {
+            read_accounts_count.fetch_add(1, Ordering::Relaxed);
+            Self::generate_read_accounts_transaction_batch(
+                accounts_meta.clone(),
+                accounts_begin,
+                payers.clone(),
+                index_payer,
+                blockhash,
+                transaction_params.read_accounts_tx_params,
+                owner_program_id,
+                send_batch_size,
+                num_accounts_in_tx,
+            )
+        } else if !transfer_tx_limits_reached {
+            transfer_count.fetch_add(1, Ordering::Relaxed);
+            Self::generate_transfer_transaction_batch(
+                payers.clone(),
+                index_payer,
+                blockhash,
+                transaction_params.simple_transfer_tx_params,
+                send_batch_size,
+            )
+        } else {
+            panic!("All transaction types limits were reached and incorrectly not reset.");
+        }
+    }
+
     /// Generate transaction batch in a spawn_blocking task.
     /// We need to spawn_blocking because signing and serializing transactions
     /// is computationally expensive (~26us per tx).
     #[allow(clippy::arithmetic_side_effects)]
-    fn generate_transaction_batch(
+    fn generate_read_accounts_transaction_batch(
         accounts_meta: Arc<Vec<AccountMeta>>,
         accounts_begin: usize,
         payers: Arc<Vec<Keypair>>,
         mut payer_index: usize,
         blockhash: Hash,
-        transaction_params: TransactionParams,
+        transaction_params: ReadAccountsTxParams,
         program_id: Pubkey,
         send_batch_size: usize,
         num_accounts_per_tx: Vec<usize>,
@@ -193,6 +272,46 @@ impl TransactionGenerator {
             measure_generate.stop();
             debug!(
                 "Time to generate transaction batch: {} us, num transactions in batches: {}",
+                measure_generate.as_us(),
+                send_batch_size
+            );
+            txs
+        })
+    }
+
+    /// Generate transaction batch in a spawn_blocking task.
+    /// We need to spawn_blocking because signing and serializing transactions
+    /// is computationally expensive (~26us per tx).
+    #[allow(clippy::arithmetic_side_effects)]
+    fn generate_transfer_transaction_batch(
+        payers: Arc<Vec<Keypair>>,
+        mut payer_index: usize,
+        blockhash: Hash,
+        transaction_params: SimpleTransferTxParams,
+        send_batch_size: usize,
+    ) -> JoinHandle<Vec<Vec<u8>>> {
+        tokio::task::spawn_blocking(move || {
+            let mut measure_generate = Measure::start("generate transfer transaction batch");
+            let mut txs: Vec<Vec<u8>> = Vec::with_capacity(send_batch_size);
+            for _ in 0..send_batch_size {
+                let payer = &payers[payer_index];
+                payer_index = (payer_index + 1) % payers.len();
+
+                let receiver = &payers[payer_index];
+                payer_index = (payer_index + 1) % payers.len();
+
+                let tx = system_transaction::transfer(
+                    payer,
+                    &receiver.pubkey(),
+                    transaction_params.lamports_to_transfer,
+                    blockhash,
+                );
+                txs.push(bincode::serialize(&tx).expect("serialize Transaction in send_batch"));
+            }
+            measure_generate.stop();
+            debug!(
+                "Time to generate transfer transaction batch: {} us, num transactions in batches: \
+                 {}",
                 measure_generate.as_us(),
                 send_batch_size
             );

@@ -72,6 +72,9 @@ pub enum Command {
 
         #[clap(flatten)]
         transaction_params: TransactionParams,
+
+        #[clap(flatten)]
+        workload_params: WorkloadParams,
     },
 
     #[clap(about = "Read accounts from provided accounts file and run")]
@@ -84,6 +87,9 @@ pub enum Command {
 
         #[clap(flatten)]
         transaction_params: TransactionParams,
+
+        #[clap(flatten)]
+        workload_params: WorkloadParams,
     },
 
     #[clap(about = "Create accounts and save them to a file, skipping the execution")]
@@ -126,9 +132,42 @@ pub struct ExecutionParams {
     pub num_max_open_connections: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransactionType {
+    ReadAccounts,
+    SimpleTransfer,
+}
+
+// Holds the transaction mix in percentages for the transaction generator
+// to produce in each batch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactionMix {
+    pub read_accounts_pct: usize,
+    pub simple_transfer_pct: usize,
+}
+
+impl TransactionMix {
+    pub fn new(read_accounts_pct: usize, simple_transfer_pct: usize) -> Self {
+        Self {
+            read_accounts_pct,
+            simple_transfer_pct,
+        }
+    }
+}
+
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
 #[clap(rename_all = "kebab-case")]
 pub struct TransactionParams {
+    #[clap(flatten)]
+    pub read_accounts_tx_params: ReadAccountsTxParams,
+
+    #[clap(flatten)]
+    pub simple_transfer_tx_params: SimpleTransferTxParams,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+pub struct ReadAccountsTxParams {
     #[clap(
         long,
         default_value = "1",
@@ -140,6 +179,29 @@ pub struct TransactionParams {
 
     #[clap(long, default_value = "20000", help = "Transaction CU budget.")]
     pub transaction_cu_budget: u32,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+pub struct SimpleTransferTxParams {
+    #[clap(
+        long,
+        default_value = "1",
+        help = "Number of lamports to transfer in a transfer transaction."
+    )]
+    pub lamports_to_transfer: u64,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+pub struct WorkloadParams {
+    #[clap(
+        long,
+        default_value = "read-accounts=100",
+        parse(try_from_str = parse_transaction_mix),
+        help = "Transaction mix, e.g. '--transaction-mix read-accounts=70,simple-transfer=30'."
+    )]
+    pub transaction_mix: TransactionMix,
 }
 
 #[derive(Args, Copy, Clone, Debug, PartialEq, Eq)]
@@ -202,6 +264,31 @@ fn validate_num_accounts_per_tx(range: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn parse_transaction_mix(transaction_mix: &str) -> Result<TransactionMix, String> {
+    let mut result = TransactionMix::new(0, 0);
+    for part in transaction_mix.split(',') {
+        let (tx_type_str, tx_pct_str) = part
+            .split_once('=')
+            .ok_or(format!("tx spec is missing an '=': {part}"))?;
+        let tx_pct = tx_pct_str
+            .parse::<usize>()
+            .map_err(|err| format!("{tx_type_str} percentage is not a number: {err}"))?;
+        match tx_type_str {
+            "read-accounts" => result.read_accounts_pct = tx_pct,
+            "simple-transfer" => result.simple_transfer_pct = tx_pct,
+            _ => return Err(format!("invalid transaction type: {tx_type_str}")),
+        }
+    }
+    let sum_pct = result
+        .read_accounts_pct
+        .saturating_add(result.simple_transfer_pct);
+    if sum_pct != 100 {
+        return Err(format!("percentages should add up to 100%: got: {sum_pct}"));
+    }
+
+    Ok(result)
 }
 
 pub fn build_cli_parameters() -> ClientCliParameters {
@@ -275,6 +362,10 @@ mod tests {
             "[1,10]",
             "--transaction-cu-budget",
             "2000",
+            "--lamports-to-transfer",
+            "10",
+            "--transaction-mix",
+            "read-accounts=70,simple-transfer=30",
         ];
         let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
         args.extend(exec_args.iter());
@@ -286,8 +377,19 @@ mod tests {
             commitment_config: CommitmentConfig::confirmed(),
             command: Command::Run {
                 transaction_params: TransactionParams {
-                    num_accounts_per_tx: Range { min: 1, max: 10 },
-                    transaction_cu_budget: 2000,
+                    read_accounts_tx_params: ReadAccountsTxParams {
+                        num_accounts_per_tx: Range { min: 1, max: 10 },
+                        transaction_cu_budget: 2000,
+                    },
+                    simple_transfer_tx_params: SimpleTransferTxParams {
+                        lamports_to_transfer: 10,
+                    },
+                },
+                workload_params: WorkloadParams {
+                    transaction_mix: TransactionMix {
+                        read_accounts_pct: 70,
+                        simple_transfer_pct: 30,
+                    },
                 },
                 account_params,
                 execution_params,
@@ -317,6 +419,8 @@ mod tests {
             "[1,10]",
             "--transaction-cu-budget",
             "2000",
+            "--transaction-mix",
+            "read-accounts=50,simple-transfer=50",
         ];
         let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
         args.extend(exec_args.iter());
@@ -327,8 +431,19 @@ mod tests {
             command: Command::ReadAccountsRun {
                 accounts_file: accounts_file_name.into(),
                 transaction_params: TransactionParams {
-                    num_accounts_per_tx: Range { min: 1, max: 10 },
-                    transaction_cu_budget: 2000,
+                    read_accounts_tx_params: ReadAccountsTxParams {
+                        num_accounts_per_tx: Range { min: 1, max: 10 },
+                        transaction_cu_budget: 2000,
+                    },
+                    simple_transfer_tx_params: SimpleTransferTxParams {
+                        lamports_to_transfer: 1,
+                    },
+                },
+                workload_params: WorkloadParams {
+                    transaction_mix: TransactionMix {
+                        read_accounts_pct: 50,
+                        simple_transfer_pct: 50,
+                    },
                 },
                 execution_params,
             },
