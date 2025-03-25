@@ -11,11 +11,30 @@ interact with validators but uses alternative client network layer implementatio
 ### To run with solana-test-validator
 
 1. Build and deploy program
-
+  * On a cluster with loader v4 support.
 ```shell
-cd programs/client-test-program
+pushd programs/client-test-program > /dev/null
 cargo build-sbf
-solana -ul program deploy client_test_program.so
+popd > /dev/null
+solana -ul program-v4 deploy target/deploy/client_test_program.so \
+  --program-keypair target/deploy/client_test_program-keypair.json
+```
+
+To redeploy a program, you must use '--program-id' instead of '--program-keypair'.
+```shell
+solana -ul program-v4 deploy target/deploy/client_test_program.so \
+  --program-id \<program_id\>
+```
+
+  * On a cluster with loader v3 support.
+
+Same command for initial program deployment and redeployment.
+```shell
+pushd programs/client-test-program > /dev/null
+cargo build-sbf
+popd > /dev/null
+solana -ul program deploy target/deploy/client_test_program.so \
+  --program-id target/deploy/client_test_program-keypair.json
 ```
 
 2. Run the tool:
