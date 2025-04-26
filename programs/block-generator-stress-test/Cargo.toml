@@ -1,4 +1,3 @@
-
 [package]
 name = "solana-sbf-block-generator-stress-test"
 description = "Program to stress test replay stage"

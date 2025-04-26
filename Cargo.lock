@@ -9424,7 +9424,6 @@ dependencies = [
  "crossbeam-channel",
  "fs_extra",
  "gag",
- "indoc",
  "itertools 0.12.1",
  "log",
  "rand 0.8.5",
@@ -9469,6 +9468,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-runtime",
+ "solana-sbf-block-generator-stress-test-bin",
  "solana-sdk-ids",
  "solana-shred-version",
  "solana-signer",
@@ -10684,6 +10684,13 @@ dependencies = [
  "solana-program-test",
  "solana-pubkey",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "solana-sbf-block-generator-stress-test-bin"
+version = "3.1.0"
+dependencies = [
+ "solana-sbf-block-generator-stress-test",
 ]
 
 [[package]]

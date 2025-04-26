@@ -6,82 +6,19 @@
 //! the [`AccountsFile`] and the `starting_accounts` parameter of the
 //! [`crate::local_cluster::ClusterConfig`] constructor.
 use {
-    indoc::formatdoc,
     solana_account::{Account, AccountSharedData},
     solana_adversary::accounts_file::AccountsFile,
     solana_clock::Epoch,
     solana_keypair::Keypair,
     solana_pubkey::Pubkey,
     solana_rent::Rent,
+    solana_sbf_block_generator_stress_test_bin::BLOCK_GENERATOR_STRESS_TEST_PROGRAM_BYTES,
     solana_sdk_ids::bpf_loader,
     solana_signer::Signer,
-    std::{iter, sync::LazyLock},
-    tempfile::tempdir,
+    std::iter,
 };
 
 pub const STATIC_STRESS_TEST_PROGRAM_ID: Pubkey = Pubkey::new_from_array([7u8; 32]);
-
-/// Compiles block-generator-stress-test-program in the temporary directory and
-/// returns content of the generated so file.
-/// Specifically, it runs the following:
-/// cargo run --bin cargo-build-sbf --
-///  --sbf-sdk "platform-tools-sdk/sbf"
-///  --sbf-out-dir local-cluster/tests/program/
-///  --manifest-path programs/block-generator-stress-test/Cargo.toml
-fn compile_stress_test_program() -> Vec<u8> {
-    // create a directory inside of std::env::temp_dir(), removed when goes out of scope
-    let target_directory = tempdir().expect("temporary folder should be created");
-
-    let manifest_directory = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
-    let source_directory = manifest_directory.join("..");
-
-    let mut binding = std::process::Command::new(std::env!("CARGO"));
-    let command = binding.current_dir(&source_directory).arg("run");
-
-    if !cfg!(debug_assertions) {
-        command.arg("--release");
-    };
-
-    command.args([
-        "--bin",
-        "cargo-build-sbf",
-        "--",
-        "--sbf-sdk",
-        "platform-tools-sdk/sbf",
-        "--sbf-out-dir",
-        target_directory.path().to_str().unwrap(),
-        "--manifest-path",
-        "programs/block-generator-stress-test/Cargo.toml",
-    ]);
-
-    let output = command
-        .output()
-        .expect("block-generator-stress-test program should be successfully compiled");
-
-    if !output.status.success() {
-        let details = formatdoc! {"
-                    Command: {:?}
-                    Exit status: {:?}
-                    std output:
-                    {}
-                    std error:
-                    {}
-                    ",
-            command,
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        };
-        panic!("block-generator-stress-test program compilation failed:\n{details}");
-    }
-
-    let target_file_name = "block_generator_stress_test.so";
-    let target_path_name = target_directory.path().join(target_file_name);
-    std::fs::read(target_path_name)
-        .expect("Failed to read the program file.\nPath: {target_file_name}")
-}
-
-static STRESS_TEST_PROGRAM_BYTES: LazyLock<Vec<u8>> = LazyLock::new(compile_stress_test_program);
 
 pub struct CreateAccountConfig<'a> {
     pub num_accounts: usize,
@@ -113,11 +50,11 @@ struct TestAccounts {
 }
 
 fn create_stress_test_account_shared_data() -> AccountSharedData {
+    let program_data = BLOCK_GENERATOR_STRESS_TEST_PROGRAM_BYTES;
+
     AccountSharedData::from(Account {
-        lamports: Rent::default()
-            .minimum_balance(STRESS_TEST_PROGRAM_BYTES.len())
-            .min(1),
-        data: STRESS_TEST_PROGRAM_BYTES.to_vec(),
+        lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+        data: program_data.to_vec(),
         owner: bpf_loader::id(),
         executable: true,
         rent_epoch: Epoch::MAX,

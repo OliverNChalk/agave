@@ -1,0 +1,27 @@
+[package]
+name = "solana-sbf-block-generator-stress-test-bin"
+description = "A library holding bytes for compiled solana-sbf-block-generator-stress-test program"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+#
+# TODO Not sure why I can not specify `solana-cargo-build-sbf` as a dependency.
+# It is a member of the workspace, though it produces a binary.
+# solana-cargo-build-sbf = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[build-dependencies]
+# While we are not using the program itself, we want to make sure it compiles
+# successfully.
+#
+# But, maybe dependency on `solana-sbf-block-generator-stress-test` is
+# unnecessary.
+solana-sbf-block-generator-stress-test = { path = "../../programs/block-generator-stress-test" }
+
+[lints]
+workspace = true

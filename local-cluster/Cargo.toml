@@ -20,7 +20,6 @@ dev-context-only-utils = ["solana-core/dev-context-only-utils"]
 agave-reserved-account-keys = { workspace = true }
 agave-snapshots = { workspace = true }
 crossbeam-channel = { workspace = true }
-indoc = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
@@ -59,6 +58,7 @@ solana-rent = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
+solana-sbf-block-generator-stress-test-bin = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-shred-version = { workspace = true }
 solana-signer = { workspace = true }
