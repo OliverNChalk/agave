@@ -220,6 +220,7 @@ async fn run_client(
         duration,
         pinned_address,
         num_max_open_connections,
+        workers_pull_size,
     }: ExecutionParams,
     workload_params: WorkloadParams,
 ) -> Result<(), BenchClientError> {
@@ -261,6 +262,7 @@ async fn run_client(
         workload_params,
         send_batch_size,
         duration,
+        workers_pull_size,
     );
 
     let transaction_generator_task_handle =

@@ -31,10 +31,6 @@ use {
     },
 };
 
-/// The max size of the JoinSet container used to execute futures concurrently and in parallel.
-/// It should be well-tuned because we don't want to generate more transactions than we can send.
-const MAX_JOIN_SET_SIZE: usize = 4;
-
 #[derive(Error, Debug)]
 pub enum TransactionGeneratorError {
     #[error("Transactions receiver has been dropped unexpectedly.")]
@@ -52,6 +48,7 @@ pub struct TransactionGenerator {
     workload_params: WorkloadParams,
     send_batch_size: usize,
     run_duration: Option<Duration>,
+    workers_pull_size: usize,
 }
 
 impl TransactionGenerator {
@@ -63,6 +60,7 @@ impl TransactionGenerator {
         workload_params: WorkloadParams,
         send_batch_size: usize,
         duration: Option<Duration>,
+        workers_pull_size: usize,
     ) -> Self {
         Self {
             accounts,
@@ -72,6 +70,7 @@ impl TransactionGenerator {
             workload_params,
             send_batch_size,
             run_duration: duration,
+            workers_pull_size,
         }
     }
 
@@ -118,7 +117,7 @@ impl TransactionGenerator {
             }
             let blockhash = *self.blockhash_receiver.borrow();
 
-            while futures.len() < MAX_JOIN_SET_SIZE {
+            while futures.len() < self.workers_pull_size {
                 let send_batch_size = self.send_batch_size;
                 let transaction_params = self.transaction_params.clone();
                 let accounts_meta = accounts_meta.clone();

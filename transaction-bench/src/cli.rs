@@ -130,6 +130,14 @@ pub struct ExecutionParams {
         help = "Max number of connections to keep open."
     )]
     pub num_max_open_connections: usize,
+
+    #[clap(
+        long,
+        default_value_t = 8,
+        help = "Size of the workers pull, controls how many transactions batches are generated in \
+                parallel."
+    )]
+    pub workers_pull_size: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,6 +335,7 @@ mod tests {
                     8009,
                 )),
                 num_max_open_connections: 16,
+                workers_pull_size: 8,
             },
         )
     }
