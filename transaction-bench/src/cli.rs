@@ -1,6 +1,6 @@
 use {
     crate::range::Range,
-    clap::{crate_description, crate_name, crate_version, Args, Parser, Subcommand},
+    clap::{crate_description, crate_name, crate_version, value_parser, Args, Parser, Subcommand},
     solana_clap_v3_utils::{
         input_parsers::parse_url_or_moniker, input_validators::normalize_to_url_if_moniker,
     },
@@ -177,8 +177,8 @@ pub struct ReadAccountsTxParams {
     )]
     pub num_accounts_per_tx: Range,
 
-    #[clap(long, default_value = "20000", help = "Transaction CU budget.")]
-    pub transaction_cu_budget: u32,
+    #[clap(long, default_value = "600", help = "Transaction CU budget.")]
+    pub read_tx_cu_budget: u32,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -186,10 +186,15 @@ pub struct ReadAccountsTxParams {
 pub struct SimpleTransferTxParams {
     #[clap(
         long,
-        default_value = "1",
-        help = "Number of lamports to transfer in a transfer transaction."
+        default_value = "513",
+         value_parser = value_parser!(u64).range(513..),
+        help = "Max lamports to transfer in a transfer transaction, we select a random value in the range [0, this value]\n\
+                to provide more entropy for transactions.\n"
     )]
     pub lamports_to_transfer: u64,
+
+    #[clap(long, default_value = "600", help = "Transaction CU budget.")]
+    pub transfer_tx_cu_budget: u32,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -209,12 +214,12 @@ pub struct WorkloadParams {
 pub struct AccountParams {
     #[clap(
         long,
-        default_value = "1024",
+        default_value = "2048",
         help = "Number of sized accounts to create."
     )]
     pub num_accounts: usize,
 
-    #[clap(long, default_value = "256", help = "Number of payer accounts.")]
+    #[clap(long, default_value = "1024", help = "Number of payer accounts.")]
     pub num_payers: usize,
 
     #[clap(
@@ -360,10 +365,10 @@ mod tests {
             "run",
             "--num-accounts-per-tx",
             "[1,10]",
-            "--transaction-cu-budget",
+            "--read-tx-cu-budget",
             "2000",
             "--lamports-to-transfer",
-            "10",
+            "1000",
             "--transaction-mix",
             "read-accounts=70,simple-transfer=30",
         ];
@@ -379,10 +384,11 @@ mod tests {
                 transaction_params: TransactionParams {
                     read_accounts_tx_params: ReadAccountsTxParams {
                         num_accounts_per_tx: Range { min: 1, max: 10 },
-                        transaction_cu_budget: 2000,
+                        read_tx_cu_budget: 2000,
                     },
                     simple_transfer_tx_params: SimpleTransferTxParams {
-                        lamports_to_transfer: 10,
+                        lamports_to_transfer: 1000,
+                        transfer_tx_cu_budget: 600,
                     },
                 },
                 workload_params: WorkloadParams {
@@ -417,8 +423,10 @@ mod tests {
             accounts_file_name,
             "--num-accounts-per-tx",
             "[1,10]",
-            "--transaction-cu-budget",
+            "--read-tx-cu-budget",
             "2000",
+            "--transfer-tx-cu-budget",
+            "1000",
             "--transaction-mix",
             "read-accounts=50,simple-transfer=50",
         ];
@@ -433,10 +441,11 @@ mod tests {
                 transaction_params: TransactionParams {
                     read_accounts_tx_params: ReadAccountsTxParams {
                         num_accounts_per_tx: Range { min: 1, max: 10 },
-                        transaction_cu_budget: 2000,
+                        read_tx_cu_budget: 2000,
                     },
                     simple_transfer_tx_params: SimpleTransferTxParams {
-                        lamports_to_transfer: 1,
+                        lamports_to_transfer: 513,
+                        transfer_tx_cu_budget: 1000,
                     },
                 },
                 workload_params: WorkloadParams {

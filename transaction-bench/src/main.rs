@@ -27,7 +27,7 @@ use {
         generator::TransactionGenerator,
         validate_accounts::validate,
     },
-    std::{fmt::Debug, sync::Arc},
+    std::{fmt::Debug, sync::Arc, time::Duration},
     tokio::{
         sync::{mpsc, watch},
         task::JoinHandle,
@@ -49,6 +49,9 @@ const FANOUT: Fanout = Fanout {
     send: 2,
     connect: 4,
 };
+
+/// How often tpu-client-next reports network metrics.
+const METRICS_REPORTING_INTERVAL: Duration = Duration::from_secs(1);
 
 fn main() {
     solana_logger::setup_with_default("solana=info");
@@ -286,8 +289,15 @@ async fn run_client(
             leader_updater,
             transaction_receiver,
             update_identity_receiver,
-            cancel,
+            cancel.clone(),
         );
+        // leaking handle to this task, as it will run until the cancel signal is received
+        tokio::spawn(scheduler.get_stats().report_to_influxdb(
+            "transaction-bench-network",
+            METRICS_REPORTING_INTERVAL,
+            cancel,
+        ));
+
         scheduler
             .run_with_broadcaster::<BackpressuredBroadcaster>(config)
             .await?;

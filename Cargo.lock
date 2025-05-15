@@ -11765,7 +11765,6 @@ dependencies = [
  "solana-signer",
  "solana-streamer",
  "solana-system-interface",
- "solana-system-transaction",
  "solana-time-utils",
  "solana-tls-utils",
  "solana-tpu-client",
