@@ -140,25 +140,21 @@ pub struct ExecutionParams {
     pub workers_pull_size: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TransactionType {
-    ReadAccounts,
-    SimpleTransfer,
-}
-
 // Holds the transaction mix in percentages for the transaction generator
 // to produce in each batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransactionMix {
     pub read_accounts_pct: usize,
     pub simple_transfer_pct: usize,
+    pub mint_pct: usize,
 }
 
 impl TransactionMix {
-    pub fn new(read_accounts_pct: usize, simple_transfer_pct: usize) -> Self {
+    pub fn new(read_accounts_pct: usize, simple_transfer_pct: usize, mint_pct: usize) -> Self {
         Self {
             read_accounts_pct,
             simple_transfer_pct,
+            mint_pct,
         }
     }
 }
@@ -171,6 +167,9 @@ pub struct TransactionParams {
 
     #[clap(flatten)]
     pub simple_transfer_tx_params: SimpleTransferTxParams,
+
+    #[clap(flatten)]
+    pub mint_tx_params: MintTxParams,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -185,7 +184,7 @@ pub struct ReadAccountsTxParams {
     )]
     pub num_accounts_per_tx: Range,
 
-    #[clap(long, default_value = "600", help = "Transaction CU budget.")]
+    #[clap(long, default_value = "600", help = "Read transaction CU budget.")]
     pub read_tx_cu_budget: u32,
 }
 
@@ -201,8 +200,28 @@ pub struct SimpleTransferTxParams {
     )]
     pub lamports_to_transfer: u64,
 
-    #[clap(long, default_value = "600", help = "Transaction CU budget.")]
+    #[clap(long, default_value = "600", help = "Transfer transaction CU budget.")]
     pub transfer_tx_cu_budget: u32,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+pub struct MintTxParams {
+    #[clap(
+        long,
+        default_value = "1",
+        help = "Number of decimals for a mint transaction."
+    )]
+    pub decimals: u8,
+    #[clap(
+        long,
+        default_value = "10",
+        help = "initial supply of tokens for a mint transaction."
+    )]
+    pub initial_supply: u64,
+
+    #[clap(long, default_value = "30000", help = "Mint transaction CU budget.")]
+    pub mint_tx_cu_budget: u32,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -212,7 +231,7 @@ pub struct WorkloadParams {
         long,
         default_value = "read-accounts=100",
         parse(try_from_str = parse_transaction_mix),
-        help = "Transaction mix, e.g. '--transaction-mix read-accounts=70,simple-transfer=30'."
+        help = "Transaction mix, e.g. '--transaction-mix read-accounts=70,simple-transfer=29,mint=1'."
     )]
     pub transaction_mix: TransactionMix,
 }
@@ -280,7 +299,7 @@ fn validate_num_accounts_per_tx(range: &str) -> Result<(), String> {
 }
 
 fn parse_transaction_mix(transaction_mix: &str) -> Result<TransactionMix, String> {
-    let mut result = TransactionMix::new(0, 0);
+    let mut result = TransactionMix::new(0, 0, 0);
     for part in transaction_mix.split(',') {
         let (tx_type_str, tx_pct_str) = part
             .split_once('=')
@@ -291,12 +310,14 @@ fn parse_transaction_mix(transaction_mix: &str) -> Result<TransactionMix, String
         match tx_type_str {
             "read-accounts" => result.read_accounts_pct = tx_pct,
             "simple-transfer" => result.simple_transfer_pct = tx_pct,
+            "mint" => result.mint_pct = tx_pct,
             _ => return Err(format!("invalid transaction type: {tx_type_str}")),
         }
     }
     let sum_pct = result
         .read_accounts_pct
-        .saturating_add(result.simple_transfer_pct);
+        .saturating_add(result.simple_transfer_pct)
+        .saturating_add(result.mint_pct);
     if sum_pct != 100 {
         return Err(format!("percentages should add up to 100%: got: {sum_pct}"));
     }
@@ -379,7 +400,7 @@ mod tests {
             "--lamports-to-transfer",
             "1000",
             "--transaction-mix",
-            "read-accounts=70,simple-transfer=30",
+            "read-accounts=69,simple-transfer=30,mint=1",
         ];
         let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
         args.extend(exec_args.iter());
@@ -399,11 +420,17 @@ mod tests {
                         lamports_to_transfer: 1000,
                         transfer_tx_cu_budget: 600,
                     },
+                    mint_tx_params: MintTxParams {
+                        decimals: 1,
+                        initial_supply: 10,
+                        mint_tx_cu_budget: 30_000,
+                    },
                 },
                 workload_params: WorkloadParams {
                     transaction_mix: TransactionMix {
-                        read_accounts_pct: 70,
+                        read_accounts_pct: 69,
                         simple_transfer_pct: 30,
+                        mint_pct: 1,
                     },
                 },
                 account_params,
@@ -437,7 +464,13 @@ mod tests {
             "--transfer-tx-cu-budget",
             "1000",
             "--transaction-mix",
-            "read-accounts=50,simple-transfer=50",
+            "read-accounts=51,simple-transfer=45,mint=4",
+            "--decimals",
+            "5",
+            "--initial-supply",
+            "3000000000",
+            "--mint-tx-cu-budget",
+            "40000",
         ];
         let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
         args.extend(exec_args.iter());
@@ -456,11 +489,17 @@ mod tests {
                         lamports_to_transfer: 513,
                         transfer_tx_cu_budget: 1000,
                     },
+                    mint_tx_params: MintTxParams {
+                        decimals: 5,
+                        initial_supply: 3_000_000_000,
+                        mint_tx_cu_budget: 40_000,
+                    },
                 },
                 workload_params: WorkloadParams {
                     transaction_mix: TransactionMix {
-                        read_accounts_pct: 50,
-                        simple_transfer_pct: 50,
+                        read_accounts_pct: 51,
+                        simple_transfer_pct: 45,
+                        mint_pct: 4,
                     },
                 },
                 execution_params,

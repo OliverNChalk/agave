@@ -33,8 +33,10 @@ solana-logger = { workspace = true }
 solana-measure = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
+solana-program-pack = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-quic-definitions = { workspace = true }
+solana-rent = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-sbf-client-test-program = { workspace = true }
@@ -49,6 +51,8 @@ solana-tls-utils = { workspace = true }
 solana-tpu-client = { workspace = true }
 solana-tpu-client-next = { workspace = true }
 solana-transaction = { workspace = true }
+spl-associated-token-account-interface = { workspace = true }
+spl-token-interface = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

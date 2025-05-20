@@ -2,26 +2,27 @@
 use {
     crate::{
         accounts_file::AccountsFile,
-        cli::{ReadAccountsTxParams, SimpleTransferTxParams, TransactionParams, WorkloadParams},
+        cli::{
+            MintTxParams, ReadAccountsTxParams, SimpleTransferTxParams, TransactionParams,
+            WorkloadParams,
+        },
         generator::{
             chunked_accounts_iterator::ChunkedAccountsIterator,
+            transaction_builder::{
+                create_read_transaction, create_token_mint_transaction, create_transfer_transaction,
+            },
             transaction_type::{generate_tx_type_sequence, TransactionType},
         },
     },
-    client_test_program::ClientTestProgramInstruction,
     log::*,
-    rand::{seq::IteratorRandom, thread_rng, RngCore},
-    solana_compute_budget_interface::ComputeBudgetInstruction,
+    rand::{seq::IteratorRandom, thread_rng},
     solana_hash::Hash,
-    solana_instruction::{AccountMeta, Instruction},
+    solana_instruction::AccountMeta,
     solana_keypair::Keypair,
     solana_measure::measure::Measure,
-    solana_message::Message,
     solana_pubkey::Pubkey,
     solana_signer::Signer,
-    solana_system_interface::instruction as system_instruction,
     solana_tpu_client_next::transaction_batch::TransactionBatch,
-    solana_transaction::Transaction,
     std::sync::Arc,
     thiserror::Error,
     tokio::{
@@ -97,6 +98,7 @@ impl TransactionGenerator {
         let tx_type_sequence = generate_tx_type_sequence(
             self.workload_params.transaction_mix.read_accounts_pct,
             self.workload_params.transaction_mix.simple_transfer_pct,
+            self.workload_params.transaction_mix.mint_pct,
         );
         debug!("Transaction type sequence: {tx_type_sequence:?}");
         let mut tx_type_iter = tx_type_sequence.iter().copied().cycle();
@@ -155,7 +157,7 @@ impl TransactionGenerator {
                                 )
                                 .await
                             else {
-                                warn!("Failed to generate txs batch!");
+                                warn!("Failed to generate readAccounts txs batch!");
                                 return;
                             };
 
@@ -175,7 +177,7 @@ impl TransactionGenerator {
                             )
                             .await
                             else {
-                                warn!("Failed to generate txs batch!");
+                                warn!("Failed to generate transfer txs batch!");
                                 return;
                             };
 
@@ -187,6 +189,25 @@ impl TransactionGenerator {
                         // Note, that sized accounts are not used so there is no reason to increment this counter.
                         index_payer =
                             index_payer.saturating_add(2 * self.send_batch_size) % len_payers;
+                    }
+                    TransactionType::Mint => {
+                        futures.spawn(async move {
+                            let Ok(wired_tx_batch) = Self::generate_mint_batch(
+                                payers,
+                                index_payer,
+                                blockhash,
+                                transaction_params.mint_tx_params,
+                                send_batch_size,
+                            )
+                            .await
+                            else {
+                                warn!("Failed to generate mint txs batch!");
+                                return;
+                            };
+
+                            send_batch(wired_tx_batch, transactions_sender).await;
+                        });
+                        index_payer = index_payer.saturating_add(self.send_batch_size) % len_payers;
                     }
                 }
             }
@@ -218,13 +239,13 @@ impl TransactionGenerator {
                 .map(|tx_accounts| {
                     let payer = &payers[payer_index];
                     payer_index = (payer_index + 1) % payers.len();
-                    let message = create_read_message(
+                    let tx = create_read_transaction(
                         payer,
                         &program_id,
+                        blockhash,
                         tx_accounts,
                         transaction_params.read_tx_cu_budget,
                     );
-                    let tx = Transaction::new(&[payer], message, blockhash);
                     bincode::serialize(&tx).expect("serialize Transaction in send_batch")
                 })
                 .collect();
@@ -258,13 +279,13 @@ impl TransactionGenerator {
                 let receiver = &payers[payer_index];
                 payer_index = (payer_index + 1) % payers.len();
 
-                let message = create_transfer_message(
+                let tx = create_transfer_transaction(
                     payer,
                     &receiver.pubkey(),
+                    blockhash,
                     params.transfer_tx_cu_budget,
                     lamports,
                 );
-                let tx = Transaction::new(&[payer], message, blockhash);
 
                 txs.push(bincode::serialize(&tx).expect("serialize Transaction in send_batch"));
             }
@@ -278,49 +299,45 @@ impl TransactionGenerator {
             txs
         })
     }
-}
 
-fn create_read_message(
-    payer: &Keypair,
-    program_id: &Pubkey,
-    accounts_meta: Vec<AccountMeta>,
-    transaction_cu_budget: u32,
-) -> Message {
-    let data = ClientTestProgramInstruction::ReadAccounts {
-        random: thread_rng().next_u64(),
-    };
+    #[allow(clippy::arithmetic_side_effects)]
+    fn generate_mint_batch(
+        payers: Arc<Vec<Keypair>>,
+        mut payer_index: usize,
+        blockhash: Hash,
+        params: MintTxParams,
+        send_batch_size: usize,
+    ) -> JoinHandle<Vec<Vec<u8>>> {
+        tokio::task::spawn_blocking(move || {
+            let mut measure_generate = Measure::start("generate mint transaction batch");
+            let mut txs: Vec<Vec<u8>> = Vec::with_capacity(send_batch_size);
+            for _ in 0..send_batch_size {
+                let payer = &payers[payer_index];
+                payer_index = (payer_index + 1) % payers.len();
 
-    // Explicitly specify the CU budget to avoid dropping some transactions on the CU check side.
-    // The constraint is that 48M/64 > CU limit.
-    // To maximize number of txs in the block, it is beneficial to set CU limit to be close to the
-    // real CU consumption.
-    // Default is 200k.
-    let set_cu_instruction =
-        ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget);
+                let mint_account = Keypair::new();
+                let mint_authority = Keypair::new();
 
-    let read_instruction = Instruction::new_with_borsh(*program_id, &data, accounts_meta);
-    Message::new(
-        &[set_cu_instruction, read_instruction],
-        Some(&payer.pubkey()),
-    )
-}
-
-fn create_transfer_message(
-    payer: &Keypair,
-    receiver: &Pubkey,
-    transfer_tx_cu_budget: u32,
-    lamports_to_transfer: u64,
-) -> Message {
-    let set_cu_instruction =
-        ComputeBudgetInstruction::set_compute_unit_limit(transfer_tx_cu_budget);
-    // We don't set_loaded_accounts_data_size_limit because it costs 150 CU but doesn't save any.
-
-    let transfer_instruction =
-        system_instruction::transfer(&payer.pubkey(), receiver, lamports_to_transfer);
-    Message::new(
-        &[set_cu_instruction, transfer_instruction],
-        Some(&payer.pubkey()),
-    )
+                let tx = create_token_mint_transaction(
+                    payer,
+                    &mint_account,
+                    &mint_authority,
+                    blockhash,
+                    params.decimals,
+                    params.initial_supply,
+                    params.mint_tx_cu_budget,
+                );
+                txs.push(bincode::serialize(&tx).expect("serialize Transaction in send_batch"));
+            }
+            measure_generate.stop();
+            debug!(
+                "Time to generate mint transaction batch: {} us, num transactions in batches: {}",
+                measure_generate.as_us(),
+                txs.len(),
+            );
+            txs
+        })
+    }
 }
 
 async fn send_batch(wired_txs_batch: Vec<Vec<u8>>, transactions_sender: Sender<TransactionBatch>) {
