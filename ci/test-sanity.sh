@@ -73,7 +73,7 @@ fi
 
 # Disallow (re)introduction of solana sdk dependencies
 (
-  if git diff "$target" | grep -v '+++' | grep '^+.*solana[-_]sdk[: =]'; then
+  if git diff "$target" -- . ':(exclude)clippy.toml' | grep -v '+++' | grep '^+.*solana[-_]sdk[: =]'; then
     cat <<'EOF' 1>&2
 
 Error: solana sdk crate dependencies (re)introduced.
