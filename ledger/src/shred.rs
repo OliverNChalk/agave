@@ -382,6 +382,9 @@ impl Shred {
     dispatch!(pub fn payload(&self) -> &Payload);
     dispatch!(pub fn sanitize(&self) -> Result<(), Error>);
 
+    // Only for invalidator
+    dispatch!(pub fn set_slot(&mut self, slot: Slot));
+
     #[cfg(any(test, feature = "dev-context-only-utils"))]
     pub fn copy_to_packet(&self, packet: &mut Packet) {
         let payload = self.payload();

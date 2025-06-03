@@ -174,3 +174,13 @@ attack_unloadProgramInvocation() {
     --skip-program-cleanup
   sleep "$sleeptime"
 }
+
+attack_floodInvalidShreds() {
+  local -a extraConfig=( "$@" )
+
+  "$inimica" --json-rpc-url l attack flood-shreds \
+    invalid-shreds \
+    --total-duration "$runtime"s \
+    "${extraConfig[@]}"
+  sleep "$sleeptime"
+}

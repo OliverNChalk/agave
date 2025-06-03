@@ -29,6 +29,9 @@ impl ShredData {
     #[cfg(any(test, feature = "dev-context-only-utils"))]
     dispatch!(pub(super) fn set_signature(&mut self, signature: Signature));
 
+    // Only for invalidator
+    dispatch!(pub(super) fn set_slot(&mut self, slot: Slot));
+
     pub(super) fn signed_data(&self) -> Result<Hash, Error> {
         let Self::Merkle(shred) = self;
         shred.signed_data()

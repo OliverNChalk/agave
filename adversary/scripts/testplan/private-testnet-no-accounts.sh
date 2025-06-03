@@ -45,4 +45,10 @@ run_attacks_all() {
 
   attack_sendDuplicateBlocks
   attack_sendDuplicateLeafNodes
+
+  # if propagated to public testnet plan, update target's pubkey.
+  # This is hardcoded for the invalidator pool.
+  attack_floodInvalidShreds \
+    --broadcast-threads 6 \
+    --target-validator "tiv1zkpDdumabxfZisVjuQgDzGcVSVDTEaHJD6ueVuK"
 }

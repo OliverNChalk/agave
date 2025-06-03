@@ -47,6 +47,17 @@ macro_rules! impl_shred_common {
             self.payload.as_mut()[..SIZE_OF_SIGNATURE].copy_from_slice(signature.as_ref());
             self.common_header.signature = signature;
         }
+
+        // Only for invalidator.
+        fn set_slot(&mut self, slot: solana_clock::Slot) {
+            match self.common_header.shred_variant {
+                ShredVariant::MerkleCode { .. } | ShredVariant::MerkleData { .. } => {
+                    self.common_header.slot = slot;
+                    let mut payload = self.payload.as_mut();
+                    bincode::serialize_into(&mut payload[..], &self.common_header).unwrap();
+                }
+            }
+        }
     };
 }
 

@@ -7,6 +7,7 @@ use {
         CodingShredHeader, Error, ShredCommonHeader, ShredType, DATA_SHREDS_PER_FEC_BLOCK,
         MAX_CODE_SHREDS_PER_SLOT, MAX_DATA_SHREDS_PER_SLOT, SIZE_OF_NONCE,
     },
+    solana_clock::Slot,
     solana_hash::Hash,
     solana_packet::PACKET_DATA_SIZE,
     solana_signature::Signature,
@@ -32,6 +33,9 @@ impl ShredCode {
     dispatch!(pub(super) fn sanitize(&self) -> Result<(), Error>);
     #[cfg(any(test, feature = "dev-context-only-utils"))]
     dispatch!(pub(super) fn set_signature(&mut self, signature: Signature));
+
+    // Only for invalidator
+    dispatch!(pub(super) fn set_slot(&mut self, slot: Slot));
 
     pub(super) fn signed_data(&self) -> Result<Hash, Error> {
         let Self::Merkle(shred) = self;
