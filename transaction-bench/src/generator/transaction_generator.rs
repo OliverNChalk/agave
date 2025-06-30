@@ -157,6 +157,9 @@ impl TransactionGenerator {
                         accounts_begin = accounts_end % len_accounts_meta;
                     }
                     TransactionType::Transfer => {
+                        let num_send_instructions_per_tx = transaction_params
+                            .simple_transfer_tx_params
+                            .num_send_instructions_per_tx;
                         futures.spawn(async move {
                             let Ok(wired_tx_batch) = generate_transfer_transaction_batch(
                                 payers,
@@ -177,8 +180,9 @@ impl TransactionGenerator {
                         // we form transactions as follows: p1 -> p2, p3 -> p4,
                         // etc.
                         // Note, that sized accounts are not used so there is no reason to increment this counter.
-                        index_payer =
-                            index_payer.saturating_add(2 * self.send_batch_size) % len_payers;
+                        index_payer = index_payer.saturating_add(
+                            2 * num_send_instructions_per_tx * self.send_batch_size,
+                        ) % len_payers;
                     }
                     TransactionType::Mint => {
                         futures.spawn(async move {

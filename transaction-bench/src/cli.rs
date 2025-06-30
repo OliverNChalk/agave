@@ -202,6 +202,13 @@ pub struct SimpleTransferTxParams {
 
     #[clap(long, default_value = "600", help = "Transfer transaction CU budget.")]
     pub transfer_tx_cu_budget: u32,
+
+    #[clap(
+        long,
+        default_value = "1",
+        help = "Number of send instructions per transaction."
+    )]
+    pub num_send_instructions_per_tx: usize,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -419,6 +426,7 @@ mod tests {
                     simple_transfer_tx_params: SimpleTransferTxParams {
                         lamports_to_transfer: 1000,
                         transfer_tx_cu_budget: 600,
+                        num_send_instructions_per_tx: 1,
                     },
                     mint_tx_params: MintTxParams {
                         decimals: 1,
@@ -471,6 +479,8 @@ mod tests {
             "3000000000",
             "--mint-tx-cu-budget",
             "40000",
+            "--num-send-instructions-per-tx",
+            "2",
         ];
         let (exec_args, execution_params) = get_common_execution_params(keypair_file_name);
         args.extend(exec_args.iter());
@@ -488,6 +498,7 @@ mod tests {
                     simple_transfer_tx_params: SimpleTransferTxParams {
                         lamports_to_transfer: 513,
                         transfer_tx_cu_budget: 1000,
+                        num_send_instructions_per_tx: 2,
                     },
                     mint_tx_params: MintTxParams {
                         decimals: 5,

@@ -3,14 +3,12 @@ use {
         cli::SimpleTransferTxParams,
         generator::{
             transaction_batch_utils::spawn_blocking_transaction_batch_generation,
-            transaction_builder::create_serialized_signed_transaction,
+            transaction_builder::create_serialized_transfers,
         },
     },
     rand::{seq::IteratorRandom, thread_rng},
     solana_hash::Hash,
     solana_keypair::Keypair,
-    solana_signer::Signer,
-    solana_system_interface::instruction as system_instruction,
     std::sync::Arc,
     tokio::task::JoinHandle,
 };
@@ -19,35 +17,38 @@ use {
 #[allow(clippy::arithmetic_side_effects)]
 pub(crate) fn generate_transfer_transaction_batch(
     payers: Arc<Vec<Keypair>>,
-    mut payer_index: usize,
+    payer_index: usize,
     blockhash: Hash,
-    params: SimpleTransferTxParams,
+    SimpleTransferTxParams {
+        lamports_to_transfer,
+        transfer_tx_cu_budget,
+        num_send_instructions_per_tx,
+    }: SimpleTransferTxParams,
     send_batch_size: usize,
 ) -> JoinHandle<Vec<Vec<u8>>> {
     spawn_blocking_transaction_batch_generation("generate transfer transaction batch", move || {
         let mut txs: Vec<Vec<u8>> = Vec::with_capacity(send_batch_size);
-        let lamports_to_transfer =
-            unique_random_numbers(send_batch_size, params.lamports_to_transfer);
-        for lamports in lamports_to_transfer.into_iter() {
-            let payer = &payers[payer_index];
-            payer_index = (payer_index + 1) % payers.len();
-
-            let receiver = &payers[payer_index];
-            payer_index = (payer_index + 1) % payers.len();
-
-            let tx = create_serialized_signed_transaction(
-                payer,
+        let lamports_to_transfer = unique_random_numbers(
+            num_send_instructions_per_tx * send_batch_size,
+            lamports_to_transfer,
+        );
+        let mut payer = payers.iter().cycle().skip(payer_index);
+        let mut lamports = lamports_to_transfer.iter();
+        let mut instructions = Vec::with_capacity(num_send_instructions_per_tx);
+        let mut signers: Vec<&Keypair> = Vec::with_capacity(num_send_instructions_per_tx);
+        for _ in 0..send_batch_size {
+            let tx = create_serialized_transfers(
+                &mut payer,
+                &mut lamports,
                 blockhash,
-                vec![system_instruction::transfer(
-                    &payer.pubkey(),
-                    &receiver.pubkey(),
-                    lamports,
-                )],
-                vec![],
-                params.transfer_tx_cu_budget,
+                &mut instructions,
+                &mut signers,
+                num_send_instructions_per_tx,
+                transfer_tx_cu_budget,
             );
-
             txs.push(tx);
+            instructions.clear();
+            signers.clear();
         }
         txs
     })
@@ -56,7 +57,7 @@ pub(crate) fn generate_transfer_transaction_batch(
 fn unique_random_numbers(count: usize, lamports_to_transfer: u64) -> Vec<u64> {
     assert!(
         count as u64 <= lamports_to_transfer,
-        "Not enough unique values in range"
+        "Not enough unique values in range: {count} > {lamports_to_transfer}"
     );
 
     let mut rng = thread_rng();
