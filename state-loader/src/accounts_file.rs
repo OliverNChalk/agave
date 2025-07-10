@@ -1,10 +1,17 @@
 //! Structure used for serializing and deserializing created accounts.
 use {
+    crate::{
+        accounts_creator::AccountsCreator,
+        cli::{AccountParams, WriteAccounts},
+        error::StateLoaderError,
+        validate_accounts::validate,
+    },
     serde::{Deserialize, Serialize},
+    solana_client::nonblocking::rpc_client::RpcClient,
     solana_keypair::Keypair,
     solana_pubkey::Pubkey,
     solana_signer::Signer,
-    std::{fs::File, io::Write, path::PathBuf, str::FromStr},
+    std::{fs::File, io::Write, path::PathBuf, str::FromStr, sync::Arc},
 };
 
 #[derive(Default, Debug, PartialEq)]
@@ -47,6 +54,40 @@ pub fn write_accounts_file(path: PathBuf, accounts: AccountsFile) {
                  {err}\nContent:\n{file_content}"
             )
         });
+}
+
+pub async fn create_ephemeral_accounts(
+    rpc_client: Arc<RpcClient>,
+    authority: Keypair,
+    account_params: AccountParams,
+    validate_accounts: bool,
+) -> Result<AccountsFile, StateLoaderError> {
+    let accounts_creator = AccountsCreator::new(rpc_client.clone(), authority, account_params);
+    let accounts = accounts_creator.create().await?;
+    if validate_accounts && !validate(&accounts, rpc_client, account_params).await? {
+        return Err(StateLoaderError::AccountsValidationFailure);
+    }
+
+    Ok(accounts)
+}
+
+pub async fn create_file_persisted_accounts(
+    rpc_client: Arc<RpcClient>,
+    authority: solana_keypair::Keypair,
+    write_accounts: WriteAccounts,
+    validate_accounts: bool,
+) -> Result<(), crate::error::StateLoaderError> {
+    let accounts = create_ephemeral_accounts(
+        rpc_client,
+        authority,
+        write_accounts.account_params,
+        validate_accounts,
+    )
+    .await?;
+
+    write_accounts_file(write_accounts.accounts_file, accounts);
+
+    Ok(())
 }
 
 impl From<AccountsFileRaw> for AccountsFile {
@@ -105,7 +146,8 @@ struct KeypairRaw {
 
 impl From<KeypairRaw> for Keypair {
     fn from(raw: KeypairRaw) -> Self {
-        Self::try_from(raw.secret_key.as_ref()).unwrap()
+        assert_eq!(raw.secret_key.len(), 64);
+        Self::new_from_array(raw.secret_key[..32].try_into().unwrap())
     }
 }
 

@@ -6,6 +6,9 @@ use {
     solana_pubkey::Pubkey,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
     solana_signer::{EncodableKey, Signer},
+    solana_state_loader::accounts_file::{
+        create_ephemeral_accounts, create_file_persisted_accounts, read_accounts_file, AccountsFile,
+    },
     solana_streamer::nonblocking::quic::{compute_max_allowed_uni_streams, ConnectionPeerType},
     solana_tpu_client_next::{
         connection_workers_scheduler::{
@@ -15,8 +18,6 @@ use {
         ConnectionWorkersScheduler,
     },
     solana_transaction_bench::{
-        accounts_creator::AccountsCreator,
-        accounts_file::{read_accounts_file, write_accounts_file, AccountsFile},
         backpressured_broadcaster::BackpressuredBroadcaster,
         blockhash_updater::BlockhashUpdater,
         cli::{
@@ -25,7 +26,6 @@ use {
         },
         error::BenchClientError,
         generator::TransactionGenerator,
-        validate_accounts::validate,
     },
     std::{fmt::Debug, sync::Arc, time::Duration},
     tokio::{
@@ -94,14 +94,13 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
             execution_params,
             workload_params,
         } => {
-            let accounts_creator =
-                AccountsCreator::new(rpc_client.clone(), authority, account_params);
-            let accounts = accounts_creator.create().await?;
-            if parameters.validate_accounts
-                && !validate(&accounts, rpc_client.clone(), account_params).await?
-            {
-                return Err(BenchClientError::AccountsValidationFailure);
-            }
+            let accounts = create_ephemeral_accounts(
+                rpc_client.clone(),
+                authority,
+                account_params,
+                parameters.validate_accounts,
+            )
+            .await?;
             run_client(
                 rpc_client,
                 websocket_url,
@@ -113,12 +112,12 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
             .await?;
         }
         Command::ReadAccountsRun {
-            accounts_file,
+            read_accounts,
             transaction_params,
             execution_params,
             workload_params,
         } => {
-            let accounts = read_accounts_file(accounts_file);
+            let accounts = read_accounts_file(read_accounts.accounts_file.clone());
             run_client(
                 rpc_client,
                 websocket_url,
@@ -129,19 +128,14 @@ async fn run(parameters: ClientCliParameters) -> Result<(), BenchClientError> {
             )
             .await?;
         }
-        Command::WriteAccounts {
-            accounts_file,
-            account_params,
-        } => {
-            let accounts_creator =
-                AccountsCreator::new(rpc_client.clone(), authority, account_params);
-            let accounts = accounts_creator.create().await?;
-            if parameters.validate_accounts
-                && !validate(&accounts, rpc_client.clone(), account_params).await?
-            {
-                return Err(BenchClientError::AccountsValidationFailure);
-            }
-            write_accounts_file(accounts_file, accounts);
+        Command::WriteAccounts(write_accounts) => {
+            create_file_persisted_accounts(
+                rpc_client.clone(),
+                authority,
+                write_accounts,
+                parameters.validate_accounts,
+            )
+            .await?;
         }
     }
 

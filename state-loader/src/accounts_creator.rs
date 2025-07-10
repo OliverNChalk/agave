@@ -305,8 +305,8 @@ async fn create_accounts(
         let num_created_accounts = created_accounts.len();
         if num_continuous_failed_attempts >= max_continuos_failed_attempts {
             error!(
-                "Failed to create accounts. num_send_batch_attempts: {num_created_accounts}, \
-                 num_created_accounts: {num_send_batch_attempts}."
+                "Failed to create accounts. num_send_batch_attempts: {num_send_batch_attempts}, \
+                 num_created_accounts: {num_created_accounts}."
             );
             break;
         }

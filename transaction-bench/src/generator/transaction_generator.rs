@@ -1,7 +1,6 @@
 //! Service generating serialized transactions in batches.
 use {
     crate::{
-        accounts_file::AccountsFile,
         cli::{TransactionParams, WorkloadParams},
         generator::{
             mints_generator::generate_mint_batch,
@@ -15,6 +14,7 @@ use {
     solana_hash::Hash,
     solana_instruction::AccountMeta,
     solana_signer::Signer,
+    solana_state_loader::accounts_file::AccountsFile,
     solana_tpu_client_next::transaction_batch::TransactionBatch,
     std::sync::Arc,
     thiserror::Error,

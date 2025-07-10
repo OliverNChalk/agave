@@ -1,13 +1,16 @@
 use {
-    crate::range::Range,
     clap::{crate_description, crate_name, crate_version, value_parser, Args, Parser, Subcommand},
     solana_clap_v3_utils::{
         input_parsers::parse_url_or_moniker, input_validators::normalize_to_url_if_moniker,
     },
     solana_commitment_config::CommitmentConfig,
-    solana_pubkey::Pubkey,
-    solana_sdk_ids::system_program,
-    solana_system_interface::MAX_PERMITTED_DATA_LENGTH,
+    solana_state_loader::{
+        cli::{
+            AccountParams, ReadAccounts as StateLoaderReadAccounts,
+            WriteAccounts as StateLoaderWriteAccounts,
+        },
+        range::Range,
+    },
     std::{net::SocketAddr, path::PathBuf},
     tokio::time::Duration,
 };
@@ -79,8 +82,8 @@ pub enum Command {
 
     #[clap(about = "Read accounts from provided accounts file and run")]
     ReadAccountsRun {
-        #[clap(long, help = "File with saved accounts")]
-        accounts_file: PathBuf,
+        #[clap(flatten)]
+        read_accounts: StateLoaderReadAccounts,
 
         #[clap(flatten)]
         execution_params: ExecutionParams,
@@ -93,13 +96,7 @@ pub enum Command {
     },
 
     #[clap(about = "Create accounts and save them to a file, skipping the execution")]
-    WriteAccounts {
-        #[clap(long, help = "File to save the created accounts into")]
-        accounts_file: PathBuf,
-
-        #[clap(flatten)]
-        account_params: AccountParams,
-    },
+    WriteAccounts(StateLoaderWriteAccounts),
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -243,57 +240,10 @@ pub struct WorkloadParams {
     pub transaction_mix: TransactionMix,
 }
 
-#[derive(Args, Copy, Clone, Debug, PartialEq, Eq)]
-#[clap(rename_all = "kebab-case")]
-pub struct AccountParams {
-    #[clap(
-        long,
-        default_value = "2048",
-        help = "Number of sized accounts to create."
-    )]
-    pub num_accounts: usize,
-
-    #[clap(long, default_value = "1024", help = "Number of payer accounts.")]
-    pub num_payers: usize,
-
-    #[clap(
-        long,
-        default_value = "1",
-        validator = validate_account_size,
-        help = "Account size (bytes) in the format '<value>|[<value>,<value>]'.\n\
-                If interval is specified, the uniform distribution will be used.\n"
-    )]
-    pub account_size: Range,
-
-    #[clap(
-        long,
-        default_value = "1",
-        help = "Payer account balance in SOL,\nused to fund creation of other accounts and for \
-                transactions.\n"
-    )]
-    pub payer_account_balance: u64,
-
-    #[clap(
-        long,
-        default_value_t = system_program::id(),
-        help = "Program that owns sized accounts, by default system program.\n"
-    )]
-    pub account_owner: Pubkey,
-}
-
 fn parse_duration(s: &str) -> Result<Duration, &'static str> {
     s.parse::<u64>()
         .map(Duration::from_secs)
         .map_err(|_| "failed to parse duration")
-}
-
-fn validate_account_size(range: &str) -> Result<(), String> {
-    let range: Range = range.parse()?;
-    if range.max > MAX_PERMITTED_DATA_LENGTH as usize {
-        Err("Account size cannot be greater than 10MB".to_string())
-    } else {
-        Ok(())
-    }
 }
 
 fn validate_num_accounts_per_tx(range: &str) -> Result<(), String> {
@@ -341,6 +291,7 @@ mod tests {
     use {
         super::*,
         clap::Parser,
+        solana_state_loader::cli::get_common_account_params,
         std::net::{IpAddr, Ipv4Addr},
     };
 
@@ -364,28 +315,6 @@ mod tests {
                 )),
                 num_max_open_connections: 16,
                 workers_pull_size: 8,
-            },
-        )
-    }
-
-    fn get_common_account_params() -> (Vec<&'static str>, AccountParams) {
-        (
-            vec![
-                "--num-payers",
-                "256",
-                "--num-accounts",
-                "1024",
-                "--account-size",
-                "[128,512]",
-                "--payer-account-balance",
-                "1",
-            ],
-            AccountParams {
-                num_accounts: 1024,
-                num_payers: 256,
-                account_size: Range { min: 128, max: 512 },
-                payer_account_balance: 1,
-                account_owner: system_program::id(),
             },
         )
     }
@@ -489,7 +418,9 @@ mod tests {
             json_rpc_url: "http://localhost:8899".to_string(),
             commitment_config: CommitmentConfig::confirmed(),
             command: Command::ReadAccountsRun {
-                accounts_file: accounts_file_name.into(),
+                read_accounts: StateLoaderReadAccounts {
+                    accounts_file: accounts_file_name.into(),
+                },
                 transaction_params: TransactionParams {
                     read_accounts_tx_params: ReadAccountsTxParams {
                         num_accounts_per_tx: Range { min: 1, max: 10 },
@@ -546,10 +477,10 @@ mod tests {
         let expected_parameters = ClientCliParameters {
             json_rpc_url: "http://localhost:8899".to_string(),
             commitment_config: CommitmentConfig::confirmed(),
-            command: Command::WriteAccounts {
+            command: Command::WriteAccounts(StateLoaderWriteAccounts {
                 accounts_file: accounts_file_name.into(),
                 account_params,
-            },
+            }),
             authority: Some(PathBuf::from(&keypair_file_name)),
             validate_accounts: false,
         };

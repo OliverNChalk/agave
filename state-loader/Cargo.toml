@@ -1,5 +1,6 @@
 [package]
-name = "solana-transaction-bench"
+name = "solana-state-loader"
+description = "Initializes accounts with data and programs, to be used by functional and performance tests"
 version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
@@ -10,63 +11,73 @@ edition = { workspace = true }
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+[lib]
+name = "solana_state_loader"
+path = "src/lib.rs"
+
+[[bin]]
+name = "solana-state-loader"
+path = "src/main.rs"
+
+[features]
+dev-context-only-utils = []
+
 [dependencies]
 async-trait = { workspace = true }
 bincode = { workspace = true }
-borsh = { workspace = true }
 chrono = { workspace = true }
 clap = { version = "3.2.23", features = ["derive", "cargo"] }
+crossbeam-channel = { workspace = true }
 futures = { workspace = true }
-itertools = { workspace = true }
+indicatif = { workspace = true }
 log = { workspace = true }
-lru = { workspace = true }
-quinn = { workspace = true }
 rand = { workspace = true }
-rand_chacha = { workspace = true }
-rustls = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+solana-accounts-db = { workspace = true }
 solana-clap-v3-utils = { workspace = true }
 solana-cli-config = { workspace = true }
+solana-client = { workspace = true }
 solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
-solana-connection-cache = { workspace = true }
 solana-core = { workspace = true }
+solana-faucet = { workspace = true }
+solana-genesis = { workspace = true }
+solana-gossip = { workspace = true }
 solana-hash = { workspace = true }
-solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
+solana-ledger = { workspace = true }
 solana-logger = { workspace = true }
 solana-measure = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
-solana-program-pack = { workspace = true }
+solana-net-utils = { workspace = true }
+solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
-solana-quic-definitions = { workspace = true }
-solana-rent = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
-solana-sbf-client-test-program = { workspace = true }
+solana-runtime = { workspace = true }
 solana-sdk-ids = { workspace = true }
-solana-sha256-hasher = { workspace = true }
+solana-send-transaction-service = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-solana-state-loader = { workspace = true }
 solana-streamer = { workspace = true }
 solana-system-interface = { workspace = true }
-solana-time-utils = { workspace = true }
-solana-tls-utils = { workspace = true }
+solana-test-validator = { workspace = true }
 solana-tpu-client = { workspace = true }
 solana-tpu-client-next = { workspace = true }
 solana-transaction = { workspace = true }
-spl-associated-token-account-interface = { workspace = true }
+solana-transaction-status = { workspace = true }
+solana-unified-scheduler-logic = { workspace = true }
+solana-version = { workspace = true }
+solana-vote-program = { workspace = true }
+spl-token-2022-interface = { workspace = true }
 spl-token-interface = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
-crossbeam-channel = { workspace = true }
-solana-state-loader = { workspace = true, features = ["dev-context-only-utils"] }
-solana-streamer = { workspace = true, features = ["dev-context-only-utils"] }
+assert_matches = { workspace = true }
+solana-state-loader = { path = ".", features = [ "dev-context-only-utils" ] }
+tempfile = { workspace = true }

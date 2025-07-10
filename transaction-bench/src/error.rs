@@ -1,5 +1,6 @@
 //! Meta error which wraps all the submodule errors.
 use {
+    solana_state_loader::{accounts_creator::AccountsCreatorError, error::StateLoaderError},
     solana_tpu_client_next::{leader_updater::LeaderUpdaterError, ConnectionWorkersSchedulerError},
     thiserror::Error,
 };
@@ -7,10 +8,13 @@ use {
 #[derive(Debug, Error)]
 pub enum BenchClientError {
     #[error(transparent)]
-    AccountsCreatorError(#[from] crate::accounts_creator::AccountsCreatorError),
+    AccountsCreatorError(#[from] AccountsCreatorError),
 
     #[error(transparent)]
     ConnectionTasksSchedulerError(#[from] ConnectionWorkersSchedulerError),
+
+    #[error(transparent)]
+    StateLoaderError(#[from] StateLoaderError),
 
     #[error("Failed to read keypair file")]
     KeypairReadFailure,
