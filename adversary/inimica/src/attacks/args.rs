@@ -1,16 +1,23 @@
 use {
-    super::{flood_shreds::args::FloodShredsCli, program_runtime::args::ProgramRuntimeCli},
+    super::{
+        gossip::args::GossipCli, program_runtime::args::ProgramRuntimeCli,
+        turbine::args::TurbineCli,
+    },
     clap::Subcommand,
 };
 
 #[derive(Subcommand, Debug)]
 #[command(name = "attack")]
 pub enum AttackCli {
+    /// Run an attack targeting gossip
+    #[command(subcommand)]
+    Gossip(GossipCli),
+
     /// Run an attack that targets the program runtime.
     #[command(subcommand)]
     ProgramRuntime(ProgramRuntimeCli),
 
-    /// Run an attack that floods a validator with shreds
+    /// Run an attack that targets the turbine
     #[command(subcommand)]
-    FloodShreds(FloodShredsCli),
+    Turbine(TurbineCli),
 }

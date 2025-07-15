@@ -9133,6 +9133,7 @@ dependencies = [
  "solana-clap-v3-utils",
  "solana-clock",
  "solana-commitment-config",
+ "solana-gossip",
  "solana-hash",
  "solana-instruction",
  "solana-keypair",

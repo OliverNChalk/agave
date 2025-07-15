@@ -178,8 +178,7 @@ attack_unloadProgramInvocation() {
 attack_floodInvalidShreds() {
   local -a extraConfig=( "$@" )
 
-  "$inimica" --json-rpc-url l attack flood-shreds \
-    invalid-shreds \
+  "$inimica" --json-rpc-url l attack turbine flood-sigverify \
     --total-duration "$runtime"s \
     "${extraConfig[@]}"
   sleep "$sleeptime"

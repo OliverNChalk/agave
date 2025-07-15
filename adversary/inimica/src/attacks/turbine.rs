@@ -1,23 +1,23 @@
-//! Attacks shred flooding
+//! Attack related to the turbine
 
 use {crate::report_attack_execution, solana_metrics::metrics::MetricsSender};
 
 pub mod args;
-pub mod invalid_shreds;
+pub mod flood_sigverify;
 
-use args::FloodShredsCli;
+use args::TurbineCli;
 
 pub async fn run(
     metrics: &impl MetricsSender,
     json_rpc_url: &str,
-    args: FloodShredsCli,
+    args: TurbineCli,
 ) -> Result<(), String> {
     match args {
-        FloodShredsCli::InvalidShreds(args) => {
+        TurbineCli::FloodSigverify(args) => {
             report_attack_execution(
                 metrics,
-                "invalid-shred",
-                invalid_shreds::run(json_rpc_url, args),
+                "turbine_flood_sigverify",
+                flood_sigverify::run(json_rpc_url, args),
             )
             .await
         }

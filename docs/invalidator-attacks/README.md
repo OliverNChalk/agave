@@ -2,11 +2,11 @@
 
 [Replay attacks](./replay-attacks.md)
 
-## Shred flood attacks
+## Flood attacks
 
-Spamming attacks targetting shred processing pipelines.
+Spamming attacks targetting validator ports
 
-### Sigverify-based shred flood
+### Shred sigverify flood
 
 Attack flood validator TVU port with invalid shreds in an attempt to increase memory load
 and potentially cause an OOM.
@@ -33,3 +33,26 @@ above.
 
 With enough load, this will exhaust the target validator's sigverify capacity, requiring the
 input channel to either block or load-shed if bounded, or grow without bound otherwise.
+
+### Gossip sigverify flood
+
+Attack floods validator gossip port with gossip messages containing valid CrdsValues in an attempt
+to overwhelm the gossip signature verification pipeline and potentially cause resource exhaustion.
+
+The attack creates properly structured gossip Protocol::PullResponse messages containing multiple
+CrdsValues of type EpochSlots. Each CrdsValue is cryptographically signed with a unique keypair,
+making them pass initial structural validation but consuming significant CPU resources during
+signature verification.
+
+Key characteristics:
+1. Targets the validator's gossip port (typically 8000/UDP)
+2. Uses Protocol::PullResponse messages which are processed without immediate filtering
+3. Each packet contains 10 valid CrdsValues to maximize verification overhead per packet
+4. CrdsValues use EpochSlots data type because they all packing more signatures
+5. Uses unique keypairs per CrdsValue to avoid simple deduplication
+
+With sufficient load, this exhausts the target validator's gossip signature verification capacity,
+potentially causing:
+- Gossip message processing delays
+- Resource exhaustion in the gossip service threads, which may bleed into other validator components
+- Degraded network synchronization with legitimate peers
