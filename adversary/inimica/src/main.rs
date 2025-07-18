@@ -1,5 +1,5 @@
 use {
-    clap::Parser,
+    clap_v4::Parser,
     core::future::Future,
     log::{error, Level},
     solana_metrics::{

@@ -1,5 +1,7 @@
 use {
-    crate::attacks::turbine::flood_sigverify::FloodSigverifyArgs, clap::Subcommand, std::fmt::Debug,
+    crate::attacks::turbine::flood_sigverify::FloodSigverifyArgs,
+    clap_v4::{self as clap, Subcommand},
+    std::fmt::Debug,
 };
 
 #[derive(Subcommand, Debug)]

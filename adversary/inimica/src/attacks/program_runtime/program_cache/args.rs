@@ -1,4 +1,7 @@
-use {super::unloaded_program_invocation::args::UnloadedProgramInvocationArgs, clap::Subcommand};
+use {
+    super::unloaded_program_invocation::args::UnloadedProgramInvocationArgs,
+    clap_v4::{self as clap, Subcommand},
+};
 
 #[derive(Subcommand, Debug)]
 #[command(name = "program-cache")]

@@ -3,7 +3,7 @@ use {
         gossip::args::GossipCli, program_runtime::args::ProgramRuntimeCli,
         turbine::args::TurbineCli,
     },
-    clap::Subcommand,
+    clap_v4::{self as clap, Subcommand},
 };
 
 #[derive(Subcommand, Debug)]

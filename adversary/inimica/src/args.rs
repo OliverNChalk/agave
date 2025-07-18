@@ -1,6 +1,6 @@
 use {
     crate::attacks::args::AttackCli,
-    clap::{Parser, Subcommand},
+    clap_v4::{self as clap, Parser, Subcommand},
 };
 
 pub mod accounts_file;

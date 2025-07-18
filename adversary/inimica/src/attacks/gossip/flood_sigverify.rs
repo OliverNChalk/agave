@@ -1,5 +1,5 @@
 use {
-    clap::Args,
+    clap_v4::{self as clap, Args},
     humantime::Duration,
     log::info,
     solana_commitment_config::CommitmentConfig,

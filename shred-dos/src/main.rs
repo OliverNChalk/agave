@@ -3,7 +3,7 @@ use {
         forwarder::{ShredDeduper, ShredMetrics, DEDUPER_NUM_BITS},
         gossip::get_top_staked_tvu_addrs,
     },
-    clap::{arg, Parser},
+    clap_v4::{self as clap, arg, Parser},
     crossbeam_channel::{Receiver, RecvError, Sender},
     gethostname::gethostname,
     log::*,

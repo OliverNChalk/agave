@@ -1,4 +1,7 @@
-use {super::program_cache::args::ProgramCacheCli, clap::Subcommand};
+use {
+    super::program_cache::args::ProgramCacheCli,
+    clap_v4::{self as clap, Subcommand},
+};
 
 #[derive(Subcommand, Debug)]
 #[command(name = "program-runtime")]

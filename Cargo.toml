@@ -243,6 +243,7 @@ cfg_eval = "0.1.2"
 chrono = { version = "0.4.42", default-features = false }
 chrono-humanize = "0.2.3"
 clap = "2.33.1"
+clap-v4 = { package = "clap", version = "4.5.41" }
 # Remove this dependency when procedural macros will support non-inline modules.
 conditional-mod = "0.1.0"
 console = "0.16.1"

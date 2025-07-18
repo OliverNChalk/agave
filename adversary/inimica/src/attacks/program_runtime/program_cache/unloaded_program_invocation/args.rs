@@ -1,6 +1,6 @@
 use {
     crate::{args::AccountsFileArgs, programs::KnownPrograms},
-    clap::{Args, ValueEnum},
+    clap_v4::{self as clap, Args, ValueEnum},
     humantime::Duration,
     std::time::Duration as StdDuration,
     strum_macros::Display,

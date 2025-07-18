@@ -1,5 +1,6 @@
 use {
-    clap::{
+    clap_v4::{
+        self as clap,
         builder::{OsStringValueParser, TypedValueParser},
         error::{Error, ErrorKind, Result},
         Arg, Args, Command,

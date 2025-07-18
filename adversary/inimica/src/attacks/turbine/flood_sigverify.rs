@@ -22,7 +22,7 @@
 //! above.
 
 use {
-    clap::Args,
+    clap_v4::{self as clap, Args},
     humantime::Duration,
     log::info,
     rand::{
