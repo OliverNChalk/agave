@@ -1,6 +1,9 @@
 use {
     crate::range::Range,
-    clap::{crate_description, crate_name, crate_version, Args, Parser, Subcommand},
+    clap_v4::{
+        self as clap, crate_description, crate_name, crate_version, value_parser, Args, Parser,
+        Subcommand,
+    },
     solana_clap_v3_utils::{
         input_parsers::parse_url_or_moniker, input_validators::normalize_to_url_if_moniker,
     },
@@ -11,8 +14,11 @@ use {
     std::path::PathBuf,
 };
 
-fn normalize_to_url(addr: &str) -> Result<String, &'static str> {
-    Ok(normalize_to_url_if_moniker(addr))
+fn parse_and_normalize_url(addr: &str) -> Result<String, String> {
+    match parse_url_or_moniker(addr) {
+        Ok(parsed) => Ok(normalize_to_url_if_moniker(&parsed)),
+        Err(e) => Err(format!("Invalid URL or moniker: {e}")),
+    }
 }
 
 #[derive(Parser, Debug, PartialEq, Eq)]
@@ -25,8 +31,7 @@ pub struct StateLoaderCliParameters {
     #[clap(
         long = "url",
         short = 'u',
-        validator = parse_url_or_moniker,
-        value_parser = normalize_to_url,
+        value_parser = parse_and_normalize_url,
         help = "URL for Solana's JSON RPC or moniker (or their first letter):\n\
         [mainnet-beta, testnet, devnet, localhost]"
     )]
@@ -35,8 +40,9 @@ pub struct StateLoaderCliParameters {
     #[clap(
         long,
         default_value = "confirmed",
-        possible_values = &["processed", "confirmed", "finalized"],
-        help = "Block commitment config for getting latest blockhash.\n"
+        value_parser = value_parser!(CommitmentConfig),
+        help = "Block commitment config for getting latest blockhash.\n\
+        [possible values: processed, confirmed, finalized]"
     )]
     pub commitment_config: CommitmentConfig,
 
@@ -92,7 +98,7 @@ pub struct AccountParams {
     #[clap(
         long,
         default_value = "1",
-        validator = validate_account_size,
+        value_parser = validate_account_size,
         help = "Account size (bytes) in the format '<value>|[<value>,<value>]'.\n\
                 If interval is specified, the uniform distribution will be used.\n"
     )]
@@ -126,12 +132,12 @@ pub fn build_cli_parameters() -> StateLoaderCliParameters {
     StateLoaderCliParameters::parse()
 }
 
-fn validate_account_size(range: &str) -> Result<(), String> {
-    let range: Range = range.parse()?;
+fn validate_account_size(range: &str) -> Result<Range, String> {
+    let range = range.parse::<Range>().map_err(|e| e.to_string())?;
     if range.max > MAX_PERMITTED_DATA_LENGTH as usize {
         Err("Account size cannot be greater than 10MB".to_string())
     } else {
-        Ok(())
+        Ok(range)
     }
 }
 
@@ -160,7 +166,7 @@ pub fn get_common_account_params() -> (Vec<&'static str>, AccountParams) {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, clap::Parser};
+    use {super::*, clap_v4::Parser};
 
     #[test]
     fn test_write_accounts_command() {

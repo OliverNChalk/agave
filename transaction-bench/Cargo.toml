@@ -15,7 +15,7 @@ async-trait = { workspace = true }
 bincode = { workspace = true }
 borsh = { workspace = true }
 chrono = { workspace = true }
-clap = { version = "3.2.23", features = ["derive", "cargo"] }
+clap-v4 = { workspace = true, features = ["derive", "cargo"] }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

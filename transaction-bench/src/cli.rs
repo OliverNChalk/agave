@@ -1,5 +1,8 @@
 use {
-    clap::{crate_description, crate_name, crate_version, value_parser, Args, Parser, Subcommand},
+    clap_v4::{
+        self as clap, crate_description, crate_name, crate_version, value_parser, Args, Parser,
+        Subcommand,
+    },
     solana_clap_v3_utils::{
         input_parsers::parse_url_or_moniker, input_validators::normalize_to_url_if_moniker,
     },
@@ -15,8 +18,11 @@ use {
     tokio::time::Duration,
 };
 
-fn normalize_to_url(addr: &str) -> Result<String, &'static str> {
-    Ok(normalize_to_url_if_moniker(addr))
+fn parse_and_normalize_url(addr: &str) -> Result<String, String> {
+    match parse_url_or_moniker(addr) {
+        Ok(parsed) => Ok(normalize_to_url_if_moniker(&parsed)),
+        Err(e) => Err(format!("Invalid URL or moniker: {e}")),
+    }
 }
 
 #[derive(Parser, Debug, PartialEq, Eq)]
@@ -29,8 +35,7 @@ pub struct ClientCliParameters {
     #[clap(
         long = "url",
         short = 'u',
-        validator = parse_url_or_moniker,
-        parse(try_from_str = normalize_to_url),
+        value_parser = parse_and_normalize_url,
         help = "URL for Solana's JSON RPC or moniker (or their first letter):\n\
         [mainnet-beta, testnet, devnet, localhost]"
     )]
@@ -39,8 +44,9 @@ pub struct ClientCliParameters {
     #[clap(
         long,
         default_value = "confirmed",
-        possible_values = &["processed", "confirmed", "finalized"],
-        help = "Block commitment config for getting latest blockhash.\n"
+        value_parser = value_parser!(CommitmentConfig),
+        help = "Block commitment config for getting latest blockhash.\n\
+        [possible values: processed, confirmed, finalized]"
     )]
     pub commitment_config: CommitmentConfig,
 
@@ -113,7 +119,7 @@ pub struct ExecutionParams {
 
     #[clap(
         long,
-        parse(try_from_str = parse_duration),
+        value_parser = parse_duration,
         help = "If specified, limits the benchmark execution to the specified duration."
     )]
     pub duration: Option<Duration>,
@@ -175,7 +181,7 @@ pub struct ReadAccountsTxParams {
     #[clap(
         long,
         default_value = "1",
-        validator = validate_num_accounts_per_tx,
+        value_parser = validate_num_accounts_per_tx,
         help = "Number of sized accounts in transaction in format '<value>|[<value>,<value>]'.\n\
                 If interval is specified, the uniform distribution will be used.\n"
     )]
@@ -234,7 +240,7 @@ pub struct WorkloadParams {
     #[clap(
         long,
         default_value = "read-accounts=100",
-        parse(try_from_str = parse_transaction_mix),
+        value_parser = parse_transaction_mix,
         help = "Transaction mix, e.g. '--transaction-mix read-accounts=70,simple-transfer=29,mint=1'."
     )]
     pub transaction_mix: TransactionMix,
@@ -246,12 +252,12 @@ fn parse_duration(s: &str) -> Result<Duration, &'static str> {
         .map_err(|_| "failed to parse duration")
 }
 
-fn validate_num_accounts_per_tx(range: &str) -> Result<(), String> {
-    let range: Range = range.parse()?;
+fn validate_num_accounts_per_tx(range: &str) -> Result<Range, String> {
+    let range = range.parse::<Range>().map_err(|e| e.to_string())?;
     if range.max > 62 {
         Err("One transaction cannot have more than 62 accounts without using ALT.".to_string())
     } else {
-        Ok(())
+        Ok(range)
     }
 }
 
@@ -290,7 +296,7 @@ pub fn build_cli_parameters() -> ClientCliParameters {
 mod tests {
     use {
         super::*,
-        clap::Parser,
+        clap_v4::Parser,
         solana_state_loader::cli::get_common_account_params,
         std::net::{IpAddr, Ipv4Addr},
     };
