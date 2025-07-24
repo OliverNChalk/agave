@@ -48,8 +48,23 @@ where
         0,
         ComputeBudgetInstruction::set_compute_unit_limit(transaction_cu_budget),
     );
-    let tx_payer = &payer.next().unwrap().pubkey();
-    for _ in 0..num_send_instructions_per_tx {
+
+    // The first keypair in payers batch is both the transaction payer and the
+    // first transfer sender. This is desirable so the payers iterator management
+    // can rely on batch size to deduce how much to forward the payer index across batches.
+    let tx_payer_kp = payer.next().unwrap();
+    let tx_payer = &tx_payer_kp.pubkey();
+    signers.push(tx_payer_kp);
+
+    // First transfer: sender is tx_payer_kp
+    let receiver = payer.next().unwrap();
+    instructions.push(system_instruction::transfer(
+        tx_payer,
+        &receiver.pubkey(),
+        *lamports.next().unwrap(),
+    ));
+
+    for _ in 1..num_send_instructions_per_tx {
         let fee_payer: &Keypair = payer.next().unwrap();
         signers.push(fee_payer);
 

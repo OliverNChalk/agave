@@ -1,7 +1,7 @@
 //! Service generating serialized transactions in batches.
 use {
     crate::{
-        cli::{TransactionParams, WorkloadParams},
+        cli::{SimpleTransferTxParams, TransactionParams, WorkloadParams},
         generator::{
             mints_generator::generate_mint_batch,
             read_accounts_generator::generate_read_accounts_transaction_batch,
@@ -24,6 +24,9 @@ use {
         time::{Duration, Instant},
     },
 };
+
+const COMPUTE_BUDGET_INSTRUCTION_CU_COST: u32 = 150;
+const SIMPLE_TRANSFER_INSTRUCTION_CU_COST: u32 = 150;
 
 #[derive(Error, Debug)]
 pub enum TransactionGeneratorError {
@@ -94,6 +97,28 @@ impl TransactionGenerator {
         );
         debug!("Transaction type sequence: {tx_type_sequence:?}");
         let mut tx_type_iter = tx_type_sequence.iter().copied().cycle();
+
+        // Validate inputs that couldn't be done in CLI due to interdependency between two CLI args.
+        // Ensure CU budget is sufficient for multi-instruction transfer transactions.
+        if self.workload_params.transaction_mix.simple_transfer_pct > 0 {
+            let &SimpleTransferTxParams {
+                num_send_instructions_per_tx,
+                transfer_tx_cu_budget,
+                ..
+            } = &self.transaction_params.simple_transfer_tx_params;
+
+            let transfer_tx_min_cu_budget = COMPUTE_BUDGET_INSTRUCTION_CU_COST
+                + SIMPLE_TRANSFER_INSTRUCTION_CU_COST * num_send_instructions_per_tx as u32;
+
+            if transfer_tx_cu_budget < transfer_tx_min_cu_budget {
+                error!(
+                    "Insufficient CU budget for transfer transaction: set to \
+                     {transfer_tx_cu_budget}, need at least {transfer_tx_min_cu_budget}.\nSet cli \
+                     argument --transfer_tx_cu_budget to {transfer_tx_min_cu_budget}",
+                );
+                return Err(TransactionGeneratorError::GenerateTxBatchFailure);
+            }
+        }
 
         let start = Instant::now();
         loop {
