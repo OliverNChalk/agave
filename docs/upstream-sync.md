@@ -183,22 +183,48 @@ git switch --create master-next --no-track sync/master-local
 
 ## 5. Apply history edits in the invalidator `master`
 
-***TODO***  This section is incomplete at the moment.  You may skip it for now.
+***TODO***  This section still needs more work, but you can use it as a starting
+point
 
-We are still working on the process of cleaning up the `invalidator` history, in
-order to both simplify it, and to make conflicts easier to resolve.  As part of
-this process `master` branch may contain `fixup!`, `squash!` and `amend!` tags
-that `git rebase --autosquash` recognizes.  They should be applied, verifying
-that the end state in `master-next` is identical to the `invalidator/master` it
-started with, except for merge resolutions.
+We are still working on the process of cleaning up the `invalidator` history.
+The goal is to both simplify it, and to make conflicts easier to resolve.  As
+part of this process, we expect people to submit PRs with titles that may
+contain `fixup!`, `squash!` and `amend!` tags that `git rebase --autosquash`
+recognizes.  These PRs will be applied to older changes in the `master` branch
+history, verifying that the end state in `master-next` is identical to
+`invalidator/master`, it started with, except for merge resolutions.
 
-We might need to apply more complex history rewrites.  Those are marked with
-`SQUASH`, `FIXUP` and `AMEND` tags in the commits titles.  These tags indicate
-that an operation similar to the one automatically performed by `git
-rebase` should be done, but the details need to be described in the
-corresponding commit message.  These edits should be applied next.  Again, the
-final state in `master-next` should not be different from `invalidator/master`,
-except for merge resolutions.
+However, some rewrites are more complex and can not be done completely
+automatically.  Those are marked with `SQUASH`, `FIXUP` and `AMEND` tags in the
+commits titles.  These tags indicate that it is an operation similar to the one
+automatically performed by `git rebase`, but the details need to be described in
+the corresponding commit message.  These edits should be applied next.  Again,
+the final state in `master-next` should not be different from
+`invalidator/master`, except for merge resolutions.
+
+When you are applying changes in the history, it is a good habit to check the
+state of the branch before the change you are modifying and after the change you
+are modifying.  When running `git rebase --interactive` I always add the
+following, just before any changes affected by a `fixup!` or a `squash!` and
+just after the `fixup!` or the `squash!` application:
+
+```gitrebase
+exec ./cargo check --lib --bins --tests
+exec cd programs/sbf/ && ../../cargo check --bins --tests
+exec ./scripts/cargo-for-all-lock-files.sh -- +"$(bash -c 'source ci/rust-version.sh; echo $rust_nightly')" fmt --all
+exec ./scripts/cargo-clippy-nightly.sh
+```
+
+If the commands fail in the pre-check, I can fix the issues and run `git absorb`
+to create a new `fixup!`.  And if the commands fail in the post-check, then `git
+commit --amend` can be used to fix issues.
+
+Any new `fixup!`s will need to be applied in another round of an interactive
+rebase, with the same `exec`s run before and after the application.
+
+This approach greatly speeds up application of the changes from the tip of the
+branch into the correct spots in the branch history, without recompiling the
+whole branch.
 
 ## 6. Rebase `master-next` on top of the new sync point
 
