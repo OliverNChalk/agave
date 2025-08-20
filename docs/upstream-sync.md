@@ -228,7 +228,8 @@ git rebase --interactive \
     --exec "./cargo check --lib --bins --tests" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-for-all-lock-files.sh -- \
+        +$(bash -c 'source ci/rust-version.sh; echo $rust_nightly') fmt --all" \
     --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
@@ -362,6 +363,8 @@ dependency:
 ```gitrebase
 exec ./cargo check --lib --bins --tests
 exec cd programs/sbf/ && ../../cargo check --bins --tests
+exec ./scripts/cargo-for-all-lock-files.sh -- +"$(bash -c 'source ci/rust-version.sh; echo $rust_nightly')" fmt --all
+exec ./scripts/cargo-clippy-nightly.sh
 ```
 
 `cargo check` will update any versions to their up to date state and, as a
@@ -567,7 +570,8 @@ git rebase --interactive \
     --exec "./cargo check --lib --bins --tests" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-for-all-lock-files.sh -- \
+        +$(bash -c 'source ci/rust-version.sh; echo $rust_nightly') fmt --all" \
     --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/master-upstream HEAD )"
 ```
@@ -679,7 +683,8 @@ git rebase --interactive \
     --exec "./cargo check --lib --bins --tests" \
     --exec "cd programs/sbf \
         && ../../cargo check --bins --tests" \
-    --exec "./scripts/cargo-fmt.sh" \
+    --exec "./scripts/cargo-for-all-lock-files.sh -- \
+        +$(bash -c 'source ci/rust-version.sh; echo $rust_nightly') fmt --all" \
     --exec "./scripts/cargo-clippy-nightly.sh" \
     "$( git merge-base sync/v1.16-upstream HEAD )"
 ```
