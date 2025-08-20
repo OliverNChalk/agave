@@ -262,6 +262,14 @@ run_cargo_check() {
     else
       echo "Failed: cd \"$where\" && $cargo check" "${check_args[@]}"
     fi
+
+    local programs_sbf_rel
+    local programs_sbf_cargo
+    local programs_sbf_back
+    programs_sbf_rel=$( realpath --relative-to="$runDir" programs/sbf )
+    programs_sbf_cargo=$( realpath --relative-to="programs/sbf" "$cargo" )
+    programs_sbf_back=$( realpath --relative-to="programs/sbf" "$runDir" )
+
     cat >&2 <<EOM
   Do:
     1. Fix compilation errors.
@@ -273,8 +281,12 @@ $cargoRel nightly fmt
 
        If you changed \`programs/sbf\` or crate dependencies also run:
 
-$cargoRel check --bins --tests programs/sbf
-$cargoRel nightly fmt programs/sbf
+(
+  cd $programs_sbf_rel
+  $programs_sbf_cargo check --bins --tests
+  $programs_sbf_cargo nightly fmt
+  cd $programs_sbf_back
+)
 
 EOM
     print_fixup_and_restart_commands --pre-check
