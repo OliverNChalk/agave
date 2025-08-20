@@ -494,11 +494,24 @@ Run the following to find the right branch, if you do not want to use `git log`:
 ```sh
 git switch your-pr-branch
 
-for base in $(
-    git branch --list --no-column 'invalidator/sync/master/local/*' | sed -e 's@^\s*@@'
-); do
-    echo "$( git log --oneline $base..HEAD | wc -l ) $base";
-done \
+git branch --list --remote --no-column 'invalidator/sync/master/local/*' \
+    | sed -e 's@^\s*@@' \
+    | while read -e base; do
+        echo "$( git log --oneline $base..HEAD | wc -l ) $base";
+      done \
+    | sort -n \
+    | head -n 1 \
+    | cut -d " " -f 2-
+```
+
+```fish
+git switch your-pr-branch
+
+git branch --list --remote --no-column 'invalidator/sync/master/local/*' \
+    | sed -e 's@^\s*@@' \
+    | while read --local base
+        echo ( git log --oneline $base..HEAD | wc -l ) $base
+      end \
     | sort -n \
     | head -n 1 \
     | cut -d " " -f 2-
