@@ -28,6 +28,7 @@ use {
     solana_svm::{
         account_loader::TransactionCheckResult, transaction_error_metrics::TransactionErrorMetrics,
     },
+    solana_svm_transaction::svm_message::SVMMessage,
     solana_time_utils::timestamp,
     solana_transaction::sanitized::SanitizedTransaction,
     solana_transaction_error::TransactionError,
@@ -279,7 +280,7 @@ impl VoteWorker {
         &self,
         bank: &Bank,
         reached_end_of_slot: &mut bool,
-        sanitized_transactions: &mut Vec<RuntimeTransaction<SanitizedTransaction>>,
+        sanitized_transactions: &mut Vec<Arc<RuntimeTransaction<SanitizedTransaction>>>,
         banking_stage_stats: &BankingStageStats,
         consumed_buffered_packets_count: &mut usize,
         rebuffered_packet_count: &mut usize,
@@ -511,10 +512,10 @@ impl VoteWorker {
 fn consume_scan_should_process_packet(
     bank: &Bank,
     banking_stage_stats: &BankingStageStats,
-    packet: &RuntimeTransactionView,
+    packet: &Arc<RuntimeTransactionView>,
     reached_end_of_slot: bool,
     error_counters: &mut TransactionErrorMetrics,
-    sanitized_transactions: &mut Vec<RuntimeTransaction<SanitizedTransaction>>,
+    sanitized_transactions: &mut Vec<Arc<RuntimeTransaction<SanitizedTransaction>>>,
     slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
 ) -> bool {
     // If end of the slot, return should process (quick loop after reached end of slot)
@@ -524,41 +525,37 @@ fn consume_scan_should_process_packet(
 
     // Try to sanitize the packet. Ignore deactivation slot since we are
     // immediately attempting to process the transaction.
-    let (maybe_sanitized_transaction, sanitization_time_us) = measure_us!(packet
-        .build_sanitized_transaction(
-            bank.vote_only_bank(),
-            bank,
-            bank.get_reserved_account_keys(),
-        )
-        .map(|(tx, _deactivation_slot)| tx));
+    // let (maybe_sanitized_transaction, sanitization_time_us) = measure_us!(packet
+    //     .build_sanitized_transaction(
+    //         bank.vote_only_bank(),
+    //         bank,
+    //         bank.get_reserved_account_keys(),
+    //     )
+    //     .map(|(tx, _deactivation_slot)| tx));
 
-    slot_metrics_tracker.increment_transactions_from_packets_us(sanitization_time_us);
-    banking_stage_stats
-        .packet_conversion_elapsed
-        .fetch_add(sanitization_time_us, Ordering::Relaxed);
+    // slot_metrics_tracker.increment_transactions_from_packets_us(sanitization_time_us);
+    // banking_stage_stats
+    //     .packet_conversion_elapsed
+    //     .fetch_add(sanitization_time_us, Ordering::Relaxed);
 
-    if let Some(sanitized_transaction) = maybe_sanitized_transaction {
-        let message = sanitized_transaction.message();
+    // let message = sanitized_transaction.message();
 
-        // Check the number of locks and whether there are duplicates
-        if validate_account_locks(
-            message.account_keys(),
-            bank.get_transaction_account_lock_limit(),
-        )
-        .is_err()
-        {
-            return false;
-        }
-
-        if Consumer::check_fee_payer_unlocked(bank, &sanitized_transaction, error_counters).is_err()
-        {
-            return false;
-        }
-        sanitized_transactions.push(sanitized_transaction);
-        true
-    } else {
-        false
+    // Check the number of locks and whether there are duplicates
+    if validate_account_locks(
+        packet.account_keys(),
+        bank.get_transaction_account_lock_limit(),
+    )
+    .is_err()
+    {
+        return false;
     }
+
+    if Consumer::check_fee_payer_unlocked(bank, packet, error_counters).is_err() {
+        return false;
+    }
+    sanitized_transactions.push(packet.clone());
+
+    true
 }
 
 #[cfg(test)]
