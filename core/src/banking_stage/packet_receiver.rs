@@ -1,32 +1,39 @@
 use {
     super::{
-        immutable_deserialized_packet::ImmutableDeserializedPacket,
-        latest_validator_vote_packet::VoteSource,
-        leader_slot_metrics::LeaderSlotMetricsTracker,
-        packet_deserializer::{PacketDeserializer, ReceivePacketResults},
-        vote_storage::VoteStorage,
-        BankingStageStats,
+        latest_validator_vote_packet::VoteSource, leader_slot_metrics::LeaderSlotMetricsTracker,
+        vote_storage::VoteStorage, BankingStageStats,
+    },
+    crate::banking_stage::{
+        packet_deserializer::PacketReceiverStats,
+        transaction_scheduler::transaction_state_container::RuntimeTransactionView,
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
+    agave_transaction_view::transaction_view::SanitizedTransactionView,
     crossbeam_channel::RecvTimeoutError,
     solana_measure::{measure::Measure, measure_us},
-    std::{num::Saturating, sync::atomic::Ordering, time::Duration},
+    solana_runtime::bank::Bank,
+    std::{
+        num::Saturating,
+        sync::atomic::Ordering,
+        time::{Duration, Instant},
+    },
 };
 
 pub struct PacketReceiver {
-    packet_deserializer: PacketDeserializer,
+    banking_packet_receiver: BankingPacketReceiver,
 }
 
 impl PacketReceiver {
     pub fn new(banking_packet_receiver: BankingPacketReceiver) -> Self {
         Self {
-            packet_deserializer: PacketDeserializer::new(banking_packet_receiver),
+            banking_packet_receiver,
         }
     }
 
     /// Receive incoming packets, push into unprocessed buffer with packet indexes
     pub fn receive_and_buffer_packets(
         &mut self,
+        current_bank: &Bank,
         vote_storage: &mut VoteStorage,
         banking_stage_stats: &mut BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
@@ -35,12 +42,12 @@ impl PacketReceiver {
         let (result, recv_time_us) = measure_us!({
             let recv_timeout = Self::get_receive_timeout(vote_storage);
             let mut recv_and_buffer_measure = Measure::start("recv_and_buffer");
-            self.packet_deserializer
-                .receive_packets(recv_timeout, vote_storage.max_receive_size())
+            self.receive_until(current_bank, recv_timeout, vote_storage.max_receive_size())
                 // Consumes results if Ok, otherwise we keep the Err
-                .map(|receive_packet_results| {
+                .map(|(packets, stats)| {
                     self.buffer_packets(
-                        receive_packet_results,
+                        packets,
+                        stats,
                         vote_storage,
                         vote_source,
                         banking_stage_stats,
@@ -60,6 +67,68 @@ impl PacketReceiver {
         result
     }
 
+    // Copied from packet_deserializer.rs.
+    fn receive_until(
+        &self,
+        current_bank: &Bank,
+        recv_timeout: Duration,
+        packet_count_upperbound: usize,
+    ) -> Result<(Vec<RuntimeTransactionView>, PacketReceiverStats), RecvTimeoutError> {
+        let start = Instant::now();
+
+        let packet_batches = self.banking_packet_receiver.recv_timeout(recv_timeout)?;
+        let mut num_packets_received = packet_batches
+            .iter()
+            .map(|batch| batch.len())
+            .sum::<usize>();
+        let mut messages = vec![packet_batches];
+
+        while let Ok(packet_batches) = self.banking_packet_receiver.try_recv() {
+            trace!("got more packet batches in packet deserializer");
+            num_packets_received += packet_batches
+                .iter()
+                .map(|batch| batch.len())
+                .sum::<usize>();
+            messages.push(packet_batches);
+
+            if start.elapsed() >= recv_timeout || num_packets_received >= packet_count_upperbound {
+                break;
+            }
+        }
+
+        // Parse & collect transaction views.
+        let mut packet_stats = PacketReceiverStats::default();
+        let mut errors = Saturating::<usize>(0);
+        let parsed_packets: Vec<_> = messages
+            .iter()
+            .flat_map(|batch| batch.iter())
+            .flat_map(|banking_batch| banking_batch.iter())
+            .filter_map(|pkt| {
+                match SanitizedTransactionView::try_new_sanitized(
+                    pkt.data(..)?,
+                    current_bank
+                        .feature_set
+                        .is_active(&agave_feature_set::static_instruction_limit::id()),
+                ) {
+                    Ok(pkt) => Some(pkt),
+                    Err(_) => {
+                        errors += 1;
+                        // TODO:
+                        // packet_stats.increment_error_count(&err);
+                        None
+                    }
+                }
+            })
+            .collect();
+        let Saturating(errors) = errors;
+        packet_stats.passed_sigverify_count += errors.saturating_add(parsed_packets.len()) as u64;
+        packet_stats.failed_sigverify_count += num_packets_received
+            .saturating_sub(parsed_packets.len())
+            .saturating_sub(errors) as u64;
+
+        todo!()
+    }
+
     fn get_receive_timeout(vote_storage: &VoteStorage) -> Duration {
         if !vote_storage.is_empty() {
             // If there are buffered packets, run the equivalent of try_recv to try reading more
@@ -75,29 +144,25 @@ impl PacketReceiver {
 
     fn buffer_packets(
         &self,
-        ReceivePacketResults {
-            deserialized_packets,
-            packet_stats,
-        }: ReceivePacketResults,
+        parsed_packets: Vec<RuntimeTransactionView>,
+        packet_stats: PacketReceiverStats,
         vote_storage: &mut VoteStorage,
         vote_source: VoteSource,
         banking_stage_stats: &mut BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) {
-        let packet_count = deserialized_packets.len();
+        let packet_count = parsed_packets.len();
 
         slot_metrics_tracker.increment_received_packet_counts(packet_stats);
 
         let mut dropped_packets_count = Saturating(0);
         let mut newly_buffered_packets_count = 0;
-        let mut newly_buffered_forwarded_packets_count = 0;
         Self::push_unprocessed(
             vote_storage,
             vote_source,
-            deserialized_packets,
+            parsed_packets,
             &mut dropped_packets_count,
             &mut newly_buffered_packets_count,
-            &mut newly_buffered_forwarded_packets_count,
             banking_stage_stats,
             slot_metrics_tracker,
         );
@@ -127,28 +192,23 @@ impl PacketReceiver {
     fn push_unprocessed(
         vote_storage: &mut VoteStorage,
         vote_source: VoteSource,
-        deserialized_packets: Vec<ImmutableDeserializedPacket>,
+        parsed_packets: Vec<RuntimeTransactionView>,
         dropped_packets_count: &mut Saturating<usize>,
         newly_buffered_packets_count: &mut usize,
-        newly_buffered_forwarded_packets_count: &mut usize,
         banking_stage_stats: &mut BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) {
-        if !deserialized_packets.is_empty() {
+        if !parsed_packets.is_empty() {
             let _ = banking_stage_stats
                 .batch_packet_indexes_len
-                .increment(deserialized_packets.len() as u64);
+                .increment(parsed_packets.len() as u64);
 
-            *newly_buffered_packets_count += deserialized_packets.len();
-            *newly_buffered_forwarded_packets_count += deserialized_packets
-                .iter()
-                .filter(|p| p.forwarded())
-                .count();
+            *newly_buffered_packets_count += parsed_packets.len();
             slot_metrics_tracker
-                .increment_newly_buffered_packets_count(deserialized_packets.len() as u64);
+                .increment_newly_buffered_packets_count(parsed_packets.len() as u64);
 
             let vote_batch_insertion_metrics =
-                vote_storage.insert_batch(vote_source, deserialized_packets.into_iter());
+                vote_storage.insert_batch(vote_source, parsed_packets.into_iter());
             slot_metrics_tracker
                 .accumulate_vote_batch_insertion_metrics(&vote_batch_insertion_metrics);
             *dropped_packets_count += vote_batch_insertion_metrics.total_dropped_packets();

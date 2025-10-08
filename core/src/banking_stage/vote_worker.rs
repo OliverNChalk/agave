@@ -98,7 +98,9 @@ impl VoteWorker {
             }
 
             // Check for new packets from the tpu receiver
+            let current_bank = self.bank_forks.read().unwrap().working_bank();
             match self.tpu_receiver.receive_and_buffer_packets(
+                &current_bank,
                 &mut self.storage,
                 &mut banking_stage_stats,
                 &mut slot_metrics_tracker,
@@ -109,6 +111,7 @@ impl VoteWorker {
             }
             // Check for new packets from the gossip receiver
             match self.gossip_receiver.receive_and_buffer_packets(
+                &current_bank,
                 &mut self.storage,
                 &mut banking_stage_stats,
                 &mut slot_metrics_tracker,
