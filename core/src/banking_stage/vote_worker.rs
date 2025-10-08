@@ -22,15 +22,12 @@ use {
     solana_measure::{measure::Measure, measure_us},
     solana_poh::poh_recorder::PohRecorderError,
     solana_runtime::{bank::Bank, bank_forks::BankForks},
-    solana_runtime_transaction::{
-        runtime_transaction::RuntimeTransaction, transaction_with_meta::TransactionWithMeta,
-    },
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
     solana_svm::{
         account_loader::TransactionCheckResult, transaction_error_metrics::TransactionErrorMetrics,
     },
     solana_svm_transaction::svm_message::SVMMessage,
     solana_time_utils::timestamp,
-    solana_transaction::sanitized::SanitizedTransaction,
     solana_transaction_error::TransactionError,
     std::{
         sync::{
@@ -280,7 +277,7 @@ impl VoteWorker {
         &self,
         bank: &Bank,
         reached_end_of_slot: &mut bool,
-        sanitized_transactions: &mut Vec<Arc<RuntimeTransaction<SanitizedTransaction>>>,
+        sanitized_transactions: &mut Vec<Arc<RuntimeTransactionView>>,
         banking_stage_stats: &BankingStageStats,
         consumed_buffered_packets_count: &mut usize,
         rebuffered_packet_count: &mut usize,
@@ -515,7 +512,7 @@ fn consume_scan_should_process_packet(
     packet: &Arc<RuntimeTransactionView>,
     reached_end_of_slot: bool,
     error_counters: &mut TransactionErrorMetrics,
-    sanitized_transactions: &mut Vec<Arc<RuntimeTransaction<SanitizedTransaction>>>,
+    sanitized_transactions: &mut Vec<Arc<RuntimeTransactionView>>,
     slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
 ) -> bool {
     // If end of the slot, return should process (quick loop after reached end of slot)
@@ -550,7 +547,7 @@ fn consume_scan_should_process_packet(
         return false;
     }
 
-    if Consumer::check_fee_payer_unlocked(bank, packet, error_counters).is_err() {
+    if Consumer::check_fee_payer_unlocked(bank, &**packet, error_counters).is_err() {
         return false;
     }
     sanitized_transactions.push(packet.clone());
