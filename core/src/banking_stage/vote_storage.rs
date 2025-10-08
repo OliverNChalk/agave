@@ -1,8 +1,6 @@
 use {
-    super::{
-        immutable_deserialized_packet::ImmutableDeserializedPacket,
-        latest_validator_vote_packet::{LatestValidatorVotePacket, VoteSource},
-    },
+    super::latest_validator_vote_packet::{LatestValidatorVotePacket, VoteSource},
+    crate::banking_stage::transaction_scheduler::transaction_state_container::RuntimeTransactionView,
     agave_feature_set as feature_set,
     ahash::HashMap,
     itertools::Itertools,
@@ -94,13 +92,13 @@ impl VoteStorage {
     pub(crate) fn insert_batch(
         &mut self,
         vote_source: VoteSource,
-        deserialized_packets: impl Iterator<Item = ImmutableDeserializedPacket>,
+        packets: impl Iterator<Item = RuntimeTransactionView>,
     ) -> VoteBatchInsertionMetrics {
         let should_deprecate_legacy_vote_ixs = self.deprecate_legacy_vote_ixs;
         self.insert_batch_with_replenish(
-            deserialized_packets.filter_map(|deserialized_packet| {
-                LatestValidatorVotePacket::new_from_immutable(
-                    deserialized_packet,
+            packets.filter_map(|packet| {
+                LatestValidatorVotePacket::new_from_view(
+                    packet,
                     vote_source,
                     should_deprecate_legacy_vote_ixs,
                 )
@@ -113,12 +111,12 @@ impl VoteStorage {
     // Re-insert re-tryable packets.
     pub(crate) fn reinsert_packets(
         &mut self,
-        packets: impl Iterator<Item = ImmutableDeserializedPacket>,
+        packets: impl Iterator<Item = RuntimeTransactionView>,
     ) {
         let should_deprecate_legacy_vote_ixs = self.deprecate_legacy_vote_ixs;
         self.insert_batch_with_replenish(
             packets.filter_map(|packet| {
-                LatestValidatorVotePacket::new_from_immutable(
+                LatestValidatorVotePacket::new_from_view(
                     packet,
                     VoteSource::Tpu, // incorrect, but this bug has been here w/o issue for a long time.
                     should_deprecate_legacy_vote_ixs,
@@ -129,7 +127,7 @@ impl VoteStorage {
         );
     }
 
-    pub fn drain_unprocessed(&mut self, bank: &Bank) -> Vec<ImmutableDeserializedPacket> {
+    pub fn drain_unprocessed(&mut self, bank: &Bank) -> Vec<RuntimeTransactionView> {
         let slot_hashes = bank
             .get_account(&sysvar::slot_hashes::id())
             .and_then(|account| from_account::<SlotHashes, _>(&account));

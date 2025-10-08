@@ -1,7 +1,8 @@
 #[cfg(test)]
 use solana_perf::packet::PacketRef;
 use {
-    super::immutable_deserialized_packet::{DeserializedPacketError, ImmutableDeserializedPacket},
+    super::immutable_deserialized_packet::DeserializedPacketError,
+    crate::banking_stage::transaction_scheduler::transaction_state_container::RuntimeTransactionView,
     solana_bincode::limited_deserialize,
     solana_clock::{Slot, UnixTimestamp},
     solana_hash::Hash,
@@ -21,20 +22,19 @@ pub enum VoteSource {
 pub struct LatestValidatorVotePacket {
     vote_source: VoteSource,
     vote_pubkey: Pubkey,
-    vote: Option<ImmutableDeserializedPacket>,
+    vote: Option<RuntimeTransactionView>,
     slot: Slot,
     hash: Hash,
     timestamp: Option<UnixTimestamp>,
 }
 
 impl LatestValidatorVotePacket {
-    pub fn new_from_immutable(
-        vote: ImmutableDeserializedPacket,
+    pub fn new_from_view(
+        vote: RuntimeTransactionView,
         vote_source: VoteSource,
         deprecate_legacy_vote_ixs: bool,
     ) -> Result<Self, DeserializedPacketError> {
-        let message = vote.transaction().get_message();
-        let (_, instruction) = message
+        let (_, instruction) = vote
             .program_instructions_iter()
             .next()
             .ok_or(DeserializedPacketError::VoteTransactionError)?;
@@ -59,8 +59,7 @@ impl LatestValidatorVotePacket {
                     .first()
                     .copied()
                     .ok_or(DeserializedPacketError::VoteTransactionError)?;
-                let vote_pubkey = message
-                    .message
+                let vote_pubkey = vote
                     .static_account_keys()
                     .get(vote_account_index as usize)
                     .copied()
@@ -120,7 +119,7 @@ impl LatestValidatorVotePacket {
         self.vote.is_none()
     }
 
-    pub fn take_vote(&mut self) -> Option<ImmutableDeserializedPacket> {
+    pub fn take_vote(&mut self) -> Option<RuntimeTransactionView> {
         self.vote.take()
     }
 }
