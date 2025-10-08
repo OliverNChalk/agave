@@ -9,6 +9,7 @@ use {
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
     solana_vote_program::vote_instruction::VoteInstruction,
+    std::sync::Arc,
 };
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -22,7 +23,7 @@ pub enum VoteSource {
 pub struct LatestValidatorVotePacket {
     vote_source: VoteSource,
     vote_pubkey: Pubkey,
-    vote: Option<RuntimeTransactionView>,
+    vote: Option<Arc<RuntimeTransactionView>>,
     slot: Slot,
     hash: Hash,
     timestamp: Option<UnixTimestamp>,
@@ -30,7 +31,7 @@ pub struct LatestValidatorVotePacket {
 
 impl LatestValidatorVotePacket {
     pub fn new_from_view(
-        vote: RuntimeTransactionView,
+        vote: Arc<RuntimeTransactionView>,
         vote_source: VoteSource,
         deprecate_legacy_vote_ixs: bool,
     ) -> Result<Self, DeserializedPacketError> {
@@ -119,7 +120,7 @@ impl LatestValidatorVotePacket {
         self.vote.is_none()
     }
 
-    pub fn take_vote(&mut self) -> Option<RuntimeTransactionView> {
+    pub fn take_vote(&mut self) -> Option<Arc<RuntimeTransactionView>> {
         self.vote.take()
     }
 }

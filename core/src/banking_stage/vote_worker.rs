@@ -2,7 +2,6 @@ use {
     super::{
         consumer::Consumer,
         decision_maker::{BufferedPacketsDecision, DecisionMaker},
-        immutable_deserialized_packet::ImmutableDeserializedPacket,
         latest_validator_vote_packet::VoteSource,
         leader_slot_metrics::{
             CommittedTransactionsCounts, LeaderSlotMetricsTracker, ProcessTransactionsSummary,
@@ -11,8 +10,9 @@ use {
         vote_storage::VoteStorage,
         BankingStageStats, SLOT_BOUNDARY_CHECK_PERIOD,
     },
-    crate::banking_stage::consumer::{
-        ExecuteAndCommitTransactionsOutput, ProcessTransactionBatchOutput,
+    crate::banking_stage::{
+        consumer::{ExecuteAndCommitTransactionsOutput, ProcessTransactionBatchOutput},
+        transaction_scheduler::transaction_state_container::RuntimeTransactionView,
     },
     arrayvec::ArrayVec,
     crossbeam_channel::RecvTimeoutError,
@@ -233,7 +233,7 @@ impl VoteWorker {
         let mut sanitized_transactions = Vec::with_capacity(UNPROCESSED_BUFFER_STEP_SIZE);
         let mut error_counters: TransactionErrorMetrics = TransactionErrorMetrics::default();
         let mut vote_packets =
-            ArrayVec::<ImmutableDeserializedPacket, UNPROCESSED_BUFFER_STEP_SIZE>::new();
+            ArrayVec::<RuntimeTransactionView, UNPROCESSED_BUFFER_STEP_SIZE>::new();
         for chunk in Itertools::chunks(all_vote_packets.into_iter(), UNPROCESSED_BUFFER_STEP_SIZE)
             .into_iter()
         {
@@ -489,9 +489,9 @@ impl VoteWorker {
     }
 
     fn extract_retryable(
-        vote_packets: &mut ArrayVec<ImmutableDeserializedPacket, 16>,
+        vote_packets: &mut ArrayVec<RuntimeTransactionView, 16>,
         retryable_vote_indices: Vec<usize>,
-    ) -> impl Iterator<Item = ImmutableDeserializedPacket> + '_ {
+    ) -> impl Iterator<Item = RuntimeTransactionView> + '_ {
         debug_assert!(retryable_vote_indices.is_sorted());
         let mut retryable_vote_indices = retryable_vote_indices.into_iter().peekable();
 
@@ -511,7 +511,7 @@ impl VoteWorker {
 fn consume_scan_should_process_packet(
     bank: &Bank,
     banking_stage_stats: &BankingStageStats,
-    packet: &ImmutableDeserializedPacket,
+    packet: &RuntimeTransactionView,
     reached_end_of_slot: bool,
     error_counters: &mut TransactionErrorMetrics,
     sanitized_transactions: &mut Vec<RuntimeTransaction<SanitizedTransaction>>,
