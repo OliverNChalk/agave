@@ -14,7 +14,7 @@ use {
     solana_runtime::bank::Bank,
     std::{
         num::Saturating,
-        sync::{atomic::Ordering, Arc},
+        sync::atomic::Ordering,
         time::{Duration, Instant},
     },
 };
@@ -126,6 +126,7 @@ impl PacketReceiver {
             .saturating_sub(parsed_packets.len())
             .saturating_sub(errors) as u64;
 
+        // TODO
         todo!()
     }
 
@@ -208,7 +209,7 @@ impl PacketReceiver {
                 .increment_newly_buffered_packets_count(parsed_packets.len() as u64);
 
             let vote_batch_insertion_metrics =
-                vote_storage.insert_batch(vote_source, parsed_packets.into_iter().map(Arc::new));
+                vote_storage.insert_batch(vote_source, parsed_packets.into_iter());
             slot_metrics_tracker
                 .accumulate_vote_batch_insertion_metrics(&vote_batch_insertion_metrics);
             *dropped_packets_count += vote_batch_insertion_metrics.total_dropped_packets();

@@ -9,7 +9,6 @@ use {
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
     solana_vote_program::vote_instruction::VoteInstruction,
-    std::sync::Arc,
 };
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -23,7 +22,7 @@ pub enum VoteSource {
 pub struct LatestValidatorVotePacket {
     vote_source: VoteSource,
     vote_pubkey: Pubkey,
-    vote: Option<Arc<RuntimeTransactionView>>,
+    vote: Option<RuntimeTransactionView>,
     slot: Slot,
     hash: Hash,
     timestamp: Option<UnixTimestamp>,
@@ -31,7 +30,7 @@ pub struct LatestValidatorVotePacket {
 
 impl LatestValidatorVotePacket {
     pub fn new_from_view(
-        vote: Arc<RuntimeTransactionView>,
+        vote: RuntimeTransactionView,
         vote_source: VoteSource,
         deprecate_legacy_vote_ixs: bool,
     ) -> Result<Self, DeserializedPacketError> {
@@ -51,7 +50,7 @@ impl LatestValidatorVotePacket {
             }
         };
 
-        match limited_deserialize::<VoteInstruction>(&instruction.data, PACKET_DATA_SIZE as u64) {
+        match limited_deserialize::<VoteInstruction>(instruction.data, PACKET_DATA_SIZE as u64) {
             Ok(vote_state_update_instruction)
                 if instruction_filter(&vote_state_update_instruction) =>
             {
@@ -88,12 +87,15 @@ impl LatestValidatorVotePacket {
         vote_source: VoteSource,
         deprecate_legacy_vote_ixs: bool,
     ) -> Result<Self, DeserializedPacketError> {
+        use {agave_transaction_view::transaction_view::SanitizedTransactionView, std::sync::Arc};
+
         if !packet.meta().is_simple_vote_tx() {
             return Err(DeserializedPacketError::VoteTransactionError);
         }
 
-        let vote = ImmutableDeserializedPacket::new(packet)?;
-        Self::new_from_immutable(vote, vote_source, deprecate_legacy_vote_ixs)
+        let packet = Arc::new(packet.data(..).unwrap().to_vec());
+        let vote = SanitizedTransactionView::try_new_sanitized(packet, false).unwrap();
+        Self::new_from_view(vote, vote_source, deprecate_legacy_vote_ixs)
     }
 
     pub fn vote_pubkey(&self) -> Pubkey {
@@ -120,7 +122,7 @@ impl LatestValidatorVotePacket {
         self.vote.is_none()
     }
 
-    pub fn take_vote(&mut self) -> Option<Arc<RuntimeTransactionView>> {
+    pub fn take_vote(&mut self) -> Option<RuntimeTransactionView> {
         self.vote.take()
     }
 }

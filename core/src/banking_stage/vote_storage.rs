@@ -10,7 +10,7 @@ use {
     solana_pubkey::Pubkey,
     solana_runtime::{bank::Bank, epoch_stakes::VersionedEpochStakes},
     solana_sysvar::{self as sysvar, slot_hashes::SlotHashes},
-    std::{cmp, sync::Arc},
+    std::cmp,
 };
 
 /// Maximum number of votes a single receive call will accept
@@ -92,7 +92,7 @@ impl VoteStorage {
     pub(crate) fn insert_batch(
         &mut self,
         vote_source: VoteSource,
-        packets: impl Iterator<Item = Arc<RuntimeTransactionView>>,
+        packets: impl Iterator<Item = RuntimeTransactionView>,
     ) -> VoteBatchInsertionMetrics {
         let should_deprecate_legacy_vote_ixs = self.deprecate_legacy_vote_ixs;
         self.insert_batch_with_replenish(
@@ -111,7 +111,7 @@ impl VoteStorage {
     // Re-insert re-tryable packets.
     pub(crate) fn reinsert_packets(
         &mut self,
-        packets: impl Iterator<Item = Arc<RuntimeTransactionView>>,
+        packets: impl Iterator<Item = RuntimeTransactionView>,
     ) {
         let should_deprecate_legacy_vote_ixs = self.deprecate_legacy_vote_ixs;
         self.insert_batch_with_replenish(
@@ -127,7 +127,7 @@ impl VoteStorage {
         );
     }
 
-    pub fn drain_unprocessed(&mut self, bank: &Bank) -> Vec<Arc<RuntimeTransactionView>> {
+    pub fn drain_unprocessed(&mut self, bank: &Bank) -> Vec<RuntimeTransactionView> {
         let slot_hashes = bank
             .get_account(&sysvar::slot_hashes::id())
             .and_then(|account| from_account::<SlotHashes, _>(&account));

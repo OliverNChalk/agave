@@ -228,7 +228,6 @@ impl VoteWorker {
         let all_vote_packets = self.storage.drain_unprocessed(bank);
 
         let mut reached_end_of_slot = false;
-        let mut sanitized_transactions = Vec::with_capacity(UNPROCESSED_BUFFER_STEP_SIZE);
         let mut error_counters: TransactionErrorMetrics = TransactionErrorMetrics::default();
         let mut vote_packets =
             ArrayVec::<RuntimeTransactionView, UNPROCESSED_BUFFER_STEP_SIZE>::new();
@@ -240,12 +239,9 @@ impl VoteWorker {
             for packet in chunk.into_iter() {
                 if consume_scan_should_process_packet(
                     bank,
-                    banking_stage_stats,
                     &packet,
                     reached_end_of_slot,
                     &mut error_counters,
-                    &mut sanitized_transactions,
-                    slot_metrics_tracker,
                 ) {
                     vote_packets.push(packet);
                 }
@@ -254,11 +250,10 @@ impl VoteWorker {
             if let Some(retryable_vote_indices) = self.do_process_packets(
                 bank,
                 &mut reached_end_of_slot,
-                &mut sanitized_transactions,
+                &vote_packets,
                 banking_stage_stats,
                 consumed_buffered_packets_count,
                 rebuffered_packet_count,
-                vote_packets.len(),
                 slot_metrics_tracker,
             ) {
                 self.storage.reinsert_packets(Self::extract_retryable(
@@ -277,11 +272,10 @@ impl VoteWorker {
         &self,
         bank: &Bank,
         reached_end_of_slot: &mut bool,
-        sanitized_transactions: &mut Vec<Arc<RuntimeTransactionView>>,
+        sanitized_transactions: &[RuntimeTransactionView],
         banking_stage_stats: &BankingStageStats,
         consumed_buffered_packets_count: &mut usize,
         rebuffered_packet_count: &mut usize,
-        packets_to_process_len: usize,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) -> Option<Vec<usize>> {
         if *reached_end_of_slot {
@@ -298,9 +292,6 @@ impl VoteWorker {
 
         slot_metrics_tracker
             .increment_process_packets_transactions_us(process_packets_transactions_us);
-
-        // Clear sanitized_transactions for next iteration
-        sanitized_transactions.clear();
 
         let ProcessTransactionsSummary {
             reached_max_poh_height,
@@ -319,8 +310,9 @@ impl VoteWorker {
         // duplicate signature, etc.)
         //
         // Note: This assumes that every packet deserializes into one transaction!
-        *consumed_buffered_packets_count +=
-            packets_to_process_len.saturating_sub(retryable_transaction_indexes.len());
+        *consumed_buffered_packets_count += sanitized_transactions
+            .len()
+            .saturating_sub(retryable_transaction_indexes.len());
 
         // Out of the buffered packets just retried, collect any still unprocessed
         // transactions in this batch
@@ -508,34 +500,14 @@ impl VoteWorker {
 
 fn consume_scan_should_process_packet(
     bank: &Bank,
-    banking_stage_stats: &BankingStageStats,
-    packet: &Arc<RuntimeTransactionView>,
+    packet: &RuntimeTransactionView,
     reached_end_of_slot: bool,
     error_counters: &mut TransactionErrorMetrics,
-    sanitized_transactions: &mut Vec<Arc<RuntimeTransactionView>>,
-    slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
 ) -> bool {
     // If end of the slot, return should process (quick loop after reached end of slot)
     if reached_end_of_slot {
         return true;
     }
-
-    // Try to sanitize the packet. Ignore deactivation slot since we are
-    // immediately attempting to process the transaction.
-    // let (maybe_sanitized_transaction, sanitization_time_us) = measure_us!(packet
-    //     .build_sanitized_transaction(
-    //         bank.vote_only_bank(),
-    //         bank,
-    //         bank.get_reserved_account_keys(),
-    //     )
-    //     .map(|(tx, _deactivation_slot)| tx));
-
-    // slot_metrics_tracker.increment_transactions_from_packets_us(sanitization_time_us);
-    // banking_stage_stats
-    //     .packet_conversion_elapsed
-    //     .fetch_add(sanitization_time_us, Ordering::Relaxed);
-
-    // let message = sanitized_transaction.message();
 
     // Check the number of locks and whether there are duplicates
     if validate_account_locks(
@@ -547,10 +519,9 @@ fn consume_scan_should_process_packet(
         return false;
     }
 
-    if Consumer::check_fee_payer_unlocked(bank, &**packet, error_counters).is_err() {
+    if Consumer::check_fee_payer_unlocked(bank, packet, error_counters).is_err() {
         return false;
     }
-    sanitized_transactions.push(packet.clone());
 
     true
 }
