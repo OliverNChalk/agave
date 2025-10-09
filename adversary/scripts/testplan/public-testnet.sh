@@ -42,7 +42,9 @@ run_attacks_all() {
   attack_replayStage allocateRandomLarge
   attack_replayStage allocateRandomSmall
   attack_replayStage chainTransactions
-  attack_replayStage readNonExistentAccounts
+
+# Disabled while we investigate multi-second replays in public testnet.
+# attack_replayStage readNonExistentAccounts
 
   attack_delayBroadcast
 
