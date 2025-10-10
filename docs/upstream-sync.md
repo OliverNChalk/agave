@@ -137,17 +137,10 @@ duration of the sync process.  But as the process can take this long, it is
 impractical.
 
 Instead, we allow parallel changes to be submitted into the `invalidator/master`
-branch, to be cherry picked into the updated `master` at the end of the sync
-process.  This is described in detail in the ["Publish updated `master` and
-`sync/*` branches"](#8.-Publish-updated-`master`-and-`sync/*`-branches)
-section.
-
-We may still want to lock the `master` branch for a short duration just while it
-is being updated, to avoid any race conditions.  But, as git push shows the
-branch SHA before it was updated.  Even if there was a parallel update, we will
-see that and can recover any lost changes.  As the frequency of updates is
-currently relatively low, recovery from a race condition is the trade-off we
-have chosen for the moment.
+branch while a new version of it is being prepared.  After merging all the
+upstream changes, any parallel updates are cherry picked into the updated
+`master` at the end of the sync process.  This is described in detail in the
+["Parallel changes in `master`"](#8.1.-Parallel-changes-in-`master`) section.
 
 ## 4. Create a new sync point, and `master-next`.
 
@@ -458,41 +451,109 @@ gh pr create \
     --head $( gh api user --jq .login ):master-next
 ```
 
+The CI will start execution as soon as the PR is created, so you just want to
+open the PR link printed by the command above and wait for the CI result.
+
+PR is created **exclusively** for the purposes of triggering a CI execution.  It
+should not be merged manually, and will be marked as merged and closed by GitHub
+automatically as the `master` branch state is updated and the `master-next`
+branch is removed.
+
 ## 8. Publish updated `master` and `sync/*` branches
 
-```sh
-git push invalidator "sync/master/upstream/$SYNC_DATE"
-git push invalidator "sync/master/local/$SYNC_DATE"
-
-git push --force invalidator sync/master-upstream
-git push --force invalidator sync/master-local
-```
-
-Now for the `master` branch, `master-next` was used for the CI run from the
-`origin` repo:
+When the CI turns green it is time to try to publish updated version of the
+`master` branch, along with all the branches that track the upstream sync
+process.  We need to make sure that the `master` branch state did not change
+since the upstream sync process has started (or since the last update was
+cherry-picked):
 
 ```sh
-git push --force invalidator master-next:master
+git push \
+    --atomic \
+    --force \
+    --force-with-lease=master:sync/master-local \
+    invalidator \
+    "sync/master/upstream/$SYNC_DATE" \
+    sync/master-upstream \
+    "sync/master/local/$SYNC_DATE" \
+    sync/master-local \
+    master-next:master \
+    :master-next
 ```
 
-Look at the output from the above command.  It will list SHA that `master` was
-at and the new `SHA` it was updated to.  Old SHA should match your
-`sync/master-local`.  If it does not, then it means that someone has submitted a
-change while you were preparing the sync.  You need to cherry pick this change
-on top of the `master-next` and redo parts of the above.
+Note that we need to specify `--force` in addition to `--force-with-lease`, as
+we are going to overwrite previous version of `sync/master-local` and
+`sync/master-upstream` branches.  `--atomic` makes sure that either all branches
+are updated together or none are.  `sync/master-local` is used to track state of
+the invalidator `master` branch, so we can use it as a reference for the
+expected state of the `master` branch.  We do not expect parallel changes to
+`sync/master-upstream` or `sync/master-local`, and so we are not protecting
+their updates.
 
-***TODO*** Describe the exact steps of this correction.  It is actually better
-to check if `invalidator/master` has any updates just before the `push --force`
-to reduce the risk of a parallel update.
+We also delete the `master-next` branch from GitHub - it was only necessary for
+the CI run.
 
-Finally, remove `master-next` from GitHub, it was only needed for the CI to run
-and to record the update in form of a PR:
+GitHub will mark the PR we created above as closed automatically, when it will
+detect that it is included in the current `master` state.
+
+### 8.1. Parallel changes in `master`
+
+If the command above fails due to the invalidator `master` branch having new
+commits since the upstream sync has started you'll need incorporate new changes
+into `master-next`.
+
+There are two approaches:
+
+1. Construct a new `master-next` from the updated `master` and redo the whole
+   sync process.
+
+2. Cherry pick just new new changes from the updated `master` into
+   `master-next`.
+
+The first approach may take as long as the upstream sync process took so far,
+and, in most cases, it will be a repetition of all the conflict resolutions.
+
+The second approach has a downside that should the cherry-pick conflict with an
+upstream change, it would not be immediately clear, which of the upstream
+changes now included into `master-next` the conflict is relevant to.
+
+As both approaches have downsides, we can only guess which approach will work
+better.  But based on the existing experience, one or two conflict resolutions,
+even non-trivial, will likely take less time than a repetition of a while
+upstream sync with a week worth of upstream changes, even if the latter was
+mostly trivial so far.
+
+In order to cherry pick updates from the invalidator `master` into `master-next`
+do the following:
 
 ```sh
-git push --force origin :master-next
+git fetch invalidator master
+git cherry-pick sync/master-local..invalidator/master
 ```
 
-Local versions of the sync branches are not needed any more:
+After resolving the conflicts, update the corresponding tracking branches:
+
+```sh
+git branch --force --no-track "sync/master/local/$SYNC_DATE" invalidator/master
+git branch --force --no-track sync/master-local invalidator/master
+```
+
+Update PR with the proposed `master` on GitHub to run the CI again:
+
+```sh
+git push origin master-next
+```
+
+Note that as you have only added new commits at the tip of the branch, you
+should not need to use `--force`.
+
+After the CI is green go back to step 8 and try publishing updated branches once
+again.
+
+## 9. Cleanup
+
+Finally, remove local versions of the sync branches, as they are not needed any
+more:
 
 ```sh
 git switch pr-branch
