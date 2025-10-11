@@ -234,7 +234,7 @@ findLocalBaseline() {
   baseline=$(
     for reference in "${candidates[@]}"; do
       echo "$( \
-        git rev-list --pretty=oneline "$reference".."$branch" \
+        git rev-list "$reference".."$branch" \
         | wc -l ) $reference"
     done \
       | sort -n \
@@ -259,15 +259,20 @@ findLocalBaseline() {
 preventInvalidRebase() {
   local rebaseList
   local rebaseListButMasterLocal
-  rebaseList=$( git rev-list --pretty=oneline "$branch" ^"$base" )
+  rebaseList=$( git rev-list "$branch" ^"$base" )
   rebaseListButMasterLocal=$( \
-      git rev-list --pretty=oneline "$branch" ^"$base" ^"$localBaseline" \
+      git rev-list "$branch" ^"$base" ^"$localBaseline" \
     )
 
   if [[ "$rebaseList" = "$rebaseListButMasterLocal" ]]; then
     # Rebase operation does not contain any changes that were already included
     # in the `[upstream]/master`.  We should allow this rebase.  It could be
     # completely unrelated to the `[upstream]/master in the first place.
+    #
+    # TODO I wonder if there is a better way to express this check.  While `git
+    # rev-list` is very fast, it still needs to output all the commit hashes
+    # that we are going to read and compare as a blob of text.  Maybe we can
+    # somehow turn it into a single `git rev-list` query?
     return
   fi
 
@@ -297,7 +302,7 @@ EOM
 
   local totalAlreadyInUpstream
   totalAlreadyInUpstream=$( \
-      git rev-list --pretty=oneline \
+      git rev-list \
         "$( git merge-base "$localBaseline" "$branch" )" ^"$base" \
       | wc -l \
     )
