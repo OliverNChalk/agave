@@ -1074,7 +1074,7 @@ impl TaskHandler for DefaultTaskHandler {
         };
         let transaction_indexes = match scheduling_context.mode() {
             BlockVerification => {
-                // Blcok verification's task_id should always be within usize.
+                // Block verification's task_id should always be within usize.
                 vec![task_id.try_into().unwrap()]
             }
             BlockProduction => {

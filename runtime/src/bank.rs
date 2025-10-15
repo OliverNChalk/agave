@@ -3500,6 +3500,7 @@ impl Bank {
             }
         });
 
+        // O: We need to make sure it's okay to have a transaction land that accumulates zero fees.
         self.collector_fee_details
             .write()
             .unwrap()
@@ -3692,7 +3693,9 @@ impl Bank {
                         executed_units,
                         fee_details: fees_only_tx.fee_details,
                         loaded_account_stats: TransactionLoadedAccountsStats {
+                            // O: What will this be for invalid fee payers.
                             loaded_accounts_count: fees_only_tx.rollback_accounts.count(),
+                            // O: What will this be for invalid fee payers.
                             loaded_accounts_data_size,
                         },
                         fee_payer_post_balance: fees_only_tx

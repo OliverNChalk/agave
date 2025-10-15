@@ -102,6 +102,7 @@ impl CheckedTransactionDetails {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub(crate) struct ValidatedTransactionDetails {
+    // O: Could we make this optional, where None implies the transaction does not impact state?
     pub(crate) rollback_accounts: RollbackAccounts,
     pub(crate) compute_budget: SVMTransactionExecutionBudget,
     pub(crate) loaded_accounts_bytes_limit: NonZeroU32,
@@ -425,6 +426,11 @@ pub(crate) fn load_transaction<CB: TransactionProcessingCallback>(
     match validation_result {
         Err(e) => TransactionLoadResult::NotLoaded(e),
         Ok(tx_details) => {
+            // O: We want to skip load on transactions that failed fee payer check.
+            //
+            // - Check if tx_details indicates that the fee payer failed to load.
+            //   - Return `TransactionLoadResult::FeesOnly(_)`.
+
             let load_result = load_transaction_accounts(
                 account_loader,
                 message,

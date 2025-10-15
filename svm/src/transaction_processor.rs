@@ -435,6 +435,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     // Update loaded accounts cache with nonce and fee-payer
                     account_loader.update_accounts_for_failed_tx(&fees_only_tx.rollback_accounts);
 
+                    // O: Can probably re-use this branch because:
+                    //
+                    // 1. The fee payer was not modified because it had insufficient lamports/some
+                    //    other reason.
+                    // 2. The nonce account if used was modified but we want to store this as we
+                    //    will place the transaction into the status cache.
+
                     Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
@@ -619,6 +626,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         update_rent_exempt_status_for_account(rent, &mut loaded_fee_payer.account);
 
         let fee_payer_index = 0;
+        // O: Should not bubble up the error but instead catch it here, mark the TX as unprocessable
+        //    and let the rest of the flow run. Fees should not be charged so only nonce accounts/
+        //    status caches should update.
         validate_fee_payer(
             fee_payer_address,
             &mut loaded_fee_payer.account,
@@ -630,6 +640,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         // Capture fee-subtracted fee payer account and next nonce account state
         // to commit if transaction execution fails.
+        //
+        // O: If fee payer is invalid, we'll still want to update nonce as part of rollback
+        //    accounts.
         let rollback_accounts = RollbackAccounts::new(
             nonce,
             *fee_payer_address,

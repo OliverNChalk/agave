@@ -175,6 +175,10 @@ pub fn execute_batch<'a>(
         match extra_pre_commit_callback {
             None => {
                 // We're entering into one of the block-verification methods.
+                //
+                // O: This will trigger when fee payer is invalid because the transaction fails to
+                //    commit. So we need to be able to commit the transaction without charging fees
+                //    but still updating the status cache.
                 get_first_error(batch, processing_results)?;
                 Ok(None)
             }
