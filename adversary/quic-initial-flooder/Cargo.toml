@@ -1,0 +1,21 @@
+[package]
+name = "quic-initial-flooder"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+description = "A tool to flood QUIC INITIAL frames with spoofed source IPs"
+
+[dependencies]
+base64 = { workspace = true }
+clap-v4 = { workspace = true, features = ["derive"] }
+pnet = { workspace = true }
+quinn = { workspace = true }
+quinn-proto = { workspace = true }
+rand = { workspace = true }
+
+solana-keypair = { workspace = true }
+solana-streamer = { workspace = true }
+solana-tls-utils = { workspace = true }
