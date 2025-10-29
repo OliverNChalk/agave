@@ -13,6 +13,7 @@ use {
     crate::{
         banking_stage::{
             consume_worker::ConsumeWorker,
+            tpu_to_pack::BankingPacketReceivers,
             transaction_scheduler::{
                 prio_graph_scheduler::PrioGraphScheduler,
                 scheduler_controller::{
@@ -21,10 +22,12 @@ use {
                 scheduler_error::SchedulerError,
             },
         },
-        validator::BlockProductionMethod,
+        validator::{BlockProductionMethod, SchedulerPacing},
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
+    agave_scheduling_utils::handshake::server::AgaveSession,
     crossbeam_channel::{unbounded, Receiver, Sender},
+    futures::{stream::FuturesUnordered, StreamExt},
     histogram::Histogram,
     solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfoQuery},
     solana_ledger::blockstore_processor::TransactionStatusSender,
@@ -49,10 +52,12 @@ use {
         thread::{self, Builder, JoinHandle},
         time::Duration,
     },
+    tokio::sync::mpsc,
+    tokio_util::sync::CancellationToken,
     transaction_scheduler::{
         greedy_scheduler::{GreedyScheduler, GreedySchedulerConfig},
         prio_graph_scheduler::PrioGraphSchedulerConfig,
-        receive_and_buffer::{ReceiveAndBuffer, TransactionViewReceiveAndBuffer},
+        receive_and_buffer::TransactionViewReceiveAndBuffer,
     },
     vote_worker::VoteWorker,
 };
@@ -351,9 +356,9 @@ pub struct BatchedTransactionErrorDetails {
 }
 
 pub struct BankingStage {
-    // Only None during final join of BankingStage.
-    context: Option<BankingStageContext>,
-    thread_hdls: Vec<JoinHandle<()>>,
+    cxl: CancellationToken,
+    // OLI: Flatten when we're sure this is the way.
+    inner: JoinHandle<std::thread::Result<()>>,
 }
 
 pub trait LikeClusterInfo: Send + Sync + 'static + Clone {
@@ -372,6 +377,24 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
     }
 }
 
+// O:
+//
+// - Detect thread exit for internal/external scheduler.
+// - Trigger shutdown of remaining threads.
+// - Fallback to internal scheduler.
+// - How to handle admin rpc updating block production?
+//   - Fine to just kill all workers.
+//   - Ignore worker thread exit errors.
+//   - Return error if fail to start threads.
+// - What to do if internal fails?
+//   - Log error for 3.1, panic after 3.1.
+//
+// Design:
+//
+// - Spawn banking manager thread.
+//   - Listens for any thread exit.
+//   - Reports an error if the exit was not requested.
+
 impl BankingStage {
     #[allow(clippy::too_many_arguments)]
     pub fn new_num_threads(
@@ -388,7 +411,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-    ) -> Self {
+    ) -> (Self, mpsc::Sender<ManageBlockProductionArgs>) {
         let committer = Committer::new(
             transaction_status_sender,
             replay_vote_sender,
@@ -406,15 +429,27 @@ impl BankingStage {
             committer,
             log_messages_bytes_limit,
         };
+
+        let cxl = CancellationToken::new();
+        let (commands_tx, commands_rx) = mpsc::channel(1);
+        let inner = BankingStageManager::spawn(
+            cxl.clone(),
+            context,
+            commands_rx,
+            ManageBlockProductionArgs::Internal {
+                block_production_method,
+                num_workers,
+                config: scheduler_config,
+            },
+        );
+
+        /*
         // + 1 for vote worker
         // + 1 for the scheduler thread
         let mut thread_hdls = Vec::with_capacity(num_workers.get() + 2);
         thread_hdls.push(Self::spawn_vote_worker(&context));
 
-        let receive_and_buffer = TransactionViewReceiveAndBuffer {
-            receiver: context.non_vote_receiver.clone(),
-            bank_forks: context.bank_forks.clone(),
-        };
+        let receive_and_buffer = ;
         Self::spawn_scheduler_and_workers(
             &mut thread_hdls,
             receive_and_buffer,
@@ -426,57 +461,13 @@ impl BankingStage {
             scheduler_config,
             &context,
         );
+        */
 
-        Self {
-            context: Some(context),
-            thread_hdls,
-        }
+        (Self { cxl, inner }, commands_tx)
     }
 
-    /// Spawns the requested internal scheduler & accompanying worker threads.
-    pub fn spawn_internal_threads(
-        &mut self,
-        block_production_method: BlockProductionMethod,
-        num_workers: NonZeroUsize,
-        scheduler_config: SchedulerConfig,
-    ) -> thread::Result<()> {
-        if let Some(context) = self.context.as_ref() {
-            info!("Shutting down banking stage threads");
-            context.exit_signal.store(true, Ordering::Relaxed);
-            for bank_thread_hdl in self.thread_hdls.drain(..) {
-                bank_thread_hdl.join()?;
-            }
-
-            info!(
-                "Spawning new banking stage threads with block-production-method: \
-                 {block_production_method:?} num-workers: {num_workers}"
-            );
-            context.exit_signal.store(false, Ordering::Relaxed);
-            self.thread_hdls.push(Self::spawn_vote_worker(context));
-
-            let receive_and_buffer = TransactionViewReceiveAndBuffer {
-                receiver: context.non_vote_receiver.clone(),
-                bank_forks: context.bank_forks.clone(),
-            };
-            Self::spawn_scheduler_and_workers(
-                &mut self.thread_hdls,
-                receive_and_buffer,
-                matches!(
-                    block_production_method,
-                    BlockProductionMethod::CentralSchedulerGreedy
-                ),
-                num_workers,
-                scheduler_config,
-                context,
-            );
-        }
-
-        Ok(())
-    }
-
-    fn spawn_scheduler_and_workers<R: ReceiveAndBuffer + Send + Sync + 'static>(
-        non_vote_thread_hdls: &mut Vec<JoinHandle<()>>,
-        receive_and_buffer: R,
+    fn spawn_scheduler_and_workers(
+        non_vote_thread_hdls: &FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
         use_greedy_scheduler: bool,
         num_workers: NonZeroUsize,
         scheduler_config: SchedulerConfig,
@@ -486,6 +477,12 @@ impl BankingStage {
         let num_workers = num_workers.get();
 
         let exit = context.exit_signal.clone();
+
+        // Setup receive & buffer.
+        let receive_and_buffer = TransactionViewReceiveAndBuffer {
+            receiver: context.non_vote_receiver.clone(),
+            bank_forks: context.bank_forks.clone(),
+        };
 
         // Create channels for communication between scheduler and workers
         let (work_senders, work_receivers): (Vec<Sender<_>>, Vec<Receiver<_>>) =
@@ -512,14 +509,15 @@ impl BankingStage {
             );
 
             worker_metrics.push(consume_worker.metrics_handle());
-            non_vote_thread_hdls.push(
+            non_vote_thread_hdls.push(tokio::task::spawn_blocking(move || {
                 Builder::new()
                     .name(format!("solCoWorker{id:02}"))
-                    .spawn(move || {
+                    .spawn(|| {
                         let _ = consume_worker.run();
                     })
-                    .unwrap(),
-            )
+                    .unwrap()
+                    .join()
+            }))
         }
 
         // Macro to spawn the scheduler. Different type on `scheduler` and thus
@@ -529,7 +527,7 @@ impl BankingStage {
             ($scheduler:ident) => {
                 let exit = exit.clone();
                 let bank_forks = context.bank_forks.clone();
-                non_vote_thread_hdls.push(
+                non_vote_thread_hdls.push(tokio::task::spawn_blocking(|| {
                     Builder::new()
                         .name("solBnkTxSched".to_string())
                         .spawn(move || {
@@ -551,8 +549,9 @@ impl BankingStage {
                                 }
                             }
                         })
-                        .unwrap(),
-                );
+                        .unwrap()
+                        .join()
+                }));
             };
         }
 
@@ -617,82 +616,22 @@ impl BankingStage {
         DEFAULT_SCHEDULER_PACING_FILL_TIME_MILLIS
     }
 
-    pub fn join(mut self) -> thread::Result<()> {
-        self.context
-            .take()
-            .expect("non-vote context must be Some")
-            .exit_signal
-            .store(true, Ordering::Relaxed);
-        for bank_thread_hdl in self.thread_hdls {
-            bank_thread_hdl.join()?;
-        }
-        Ok(())
+    pub fn join(self) -> thread::Result<()> {
+        self.cxl.cancel();
+        self.inner.join().unwrap()
     }
 }
 
 #[cfg(unix)]
 mod external {
     use {
-        super::*,
-        crate::banking_stage::consume_worker::external::ExternalWorker,
-        agave_scheduling_utils::handshake::server::{AgaveSession, AgaveWorkerSession},
-        tpu_to_pack::BankingPacketReceivers,
+        super::*, crate::banking_stage::consume_worker::external::ExternalWorker,
+        agave_scheduling_utils::handshake::server::AgaveWorkerSession,
     };
 
     impl BankingStage {
-        /// Spawns the external workers as specified by the [`AgaveSession`].
-        pub fn spawn_external_threads(
-            &mut self,
-            AgaveSession {
-                tpu_to_pack,
-                progress_tracker,
-                workers,
-            }: AgaveSession,
-        ) -> thread::Result<()> {
-            if let Some(context) = self.context.as_ref() {
-                // Shutdown the previous workers.
-                info!("Shutting down banking stage threads");
-                context.exit_signal.store(true, Ordering::Relaxed);
-                for bank_thread_hdl in self.thread_hdls.drain(..) {
-                    bank_thread_hdl.join()?;
-                }
-
-                context.exit_signal.store(false, Ordering::Relaxed);
-
-                // Spawn the new workers.
-                self.thread_hdls.push(Self::spawn_vote_worker(context));
-                Self::spawn_external_workers(&mut self.thread_hdls, context, workers);
-
-                // Spawn tpu_to_pack.
-                self.thread_hdls.push(tpu_to_pack::spawn(
-                    context.exit_signal.clone(),
-                    BankingPacketReceivers {
-                        non_vote_receiver: context.non_vote_receiver.clone(),
-                        gossip_vote_receiver: None,
-                        tpu_vote_receiver: None,
-                    },
-                    tpu_to_pack,
-                ));
-
-                // Spawn progress tracker.
-                let (shared_leader_state, ticks_per_slot) = {
-                    let poh = context.poh_recorder.read().unwrap();
-
-                    (poh.shared_leader_state(), poh.ticks_per_slot())
-                };
-                self.thread_hdls.push(progress_tracker::spawn(
-                    context.exit_signal.clone(),
-                    progress_tracker,
-                    shared_leader_state,
-                    ticks_per_slot,
-                ));
-            }
-
-            Ok(())
-        }
-
-        fn spawn_external_workers(
-            non_vote_thread_hdls: &mut Vec<JoinHandle<()>>,
+        pub(crate) fn spawn_external_workers(
+            threads: &FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
             context: &BankingStageContext,
             workers: Vec<AgaveWorkerSession>,
         ) {
@@ -729,14 +668,15 @@ mod external {
                 );
 
                 worker_metrics.push(consume_worker.metrics_handle());
-                non_vote_thread_hdls.push(
+                threads.push(tokio::task::spawn_blocking(move || {
                     Builder::new()
                         .name(format!("solECoWorker{id:02}"))
                         .spawn(move || {
                             let _ = consume_worker.run();
                         })
-                        .unwrap(),
-                )
+                        .unwrap()
+                        .join()
+                }));
             }
         }
     }
@@ -754,6 +694,173 @@ struct BankingStageContext {
     bank_forks: Arc<RwLock<BankForks>>,
     committer: Committer,
     log_messages_bytes_limit: Option<usize>,
+}
+
+// TODO:
+//
+// - Spawn all initial threads.
+// - Start tokio runtime to listen for:
+//   - Thread exit
+//   - Admin RPC request.
+
+pub(crate) enum ManageBlockProductionArgs {
+    Internal {
+        block_production_method: BlockProductionMethod,
+        num_workers: NonZeroUsize,
+        config: SchedulerConfig,
+    },
+    #[cfg(unix)]
+    Exeternal {
+        session: agave_scheduling_utils::handshake::server::AgaveSession,
+    },
+}
+
+struct BankingStageManager {
+    cxl: CancellationToken,
+    ctx: BankingStageContext,
+
+    commands_rx: mpsc::Receiver<ManageBlockProductionArgs>,
+    threads: FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
+}
+
+impl BankingStageManager {
+    fn spawn(
+        cxl: CancellationToken,
+        ctx: BankingStageContext,
+        commands_rx: mpsc::Receiver<ManageBlockProductionArgs>,
+        initial_args: ManageBlockProductionArgs,
+    ) -> JoinHandle<std::thread::Result<()>> {
+        std::thread::Builder::new()
+            .name("BankingMgr".to_string())
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(
+                    BankingStageManager {
+                        cxl,
+                        ctx,
+                        commands_rx,
+                        threads: FuturesUnordered::default(),
+                    }
+                    .run(initial_args),
+                )
+            })
+            .unwrap()
+    }
+
+    async fn run(mut self, initial_args: ManageBlockProductionArgs) -> std::thread::Result<()> {
+        self.spawn_scheduler(initial_args);
+
+        loop {
+            tokio::select! {
+                biased;
+
+                _ = self.cxl.cancelled() => break,
+                Some(args) = self.commands_rx.recv() => self.cycle_threads(args).await,
+                opt = self.threads.next() => {
+                    match opt.unwrap().unwrap() {
+                        Ok(()) => error!("Banking worker exited unexpectedly"),
+                        Err(err) => error!("Banking worker exited with error; err={err:?}"),
+                    };
+
+                    self.cycle_threads(ManageBlockProductionArgs::Internal {
+                        block_production_method: BlockProductionMethod::default(),
+                        num_workers: BankingStage::default_num_workers(),
+                        config: SchedulerConfig {
+                            scheduler_pacing: SchedulerPacing::Disabled,
+                        },
+                    }).await;
+                },
+            }
+        }
+
+        // Signal shutdown & wait for all threads to exit.
+        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        while let Some(res) = self.threads.next().await {
+            res.unwrap()?;
+        }
+
+        Ok(())
+    }
+
+    async fn cycle_threads(&mut self, args: ManageBlockProductionArgs) {
+        // Shutdown all current threads.
+        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        while let Some(res) = self.threads.next().await {
+            if let Err(err) = res {
+                error!("Banking worker exited with error; err={err:?}");
+            }
+        }
+
+        // Spawn the requested threads.
+        self.spawn_scheduler(args);
+    }
+
+    fn spawn_scheduler(&self, args: ManageBlockProductionArgs) {
+        match args {
+            ManageBlockProductionArgs::Internal {
+                block_production_method,
+                num_workers,
+                config,
+            } => BankingStage::spawn_scheduler_and_workers(
+                &self.threads,
+                matches!(
+                    block_production_method,
+                    BlockProductionMethod::CentralSchedulerGreedy
+                ),
+                num_workers,
+                config,
+                &self.ctx,
+            ),
+            #[cfg(unix)]
+            ManageBlockProductionArgs::Exeternal {
+                session:
+                    AgaveSession {
+                        tpu_to_pack,
+                        progress_tracker,
+                        workers,
+                    },
+            } => {
+                // Spawn vote worker.
+                let vote_worker = BankingStage::spawn_vote_worker(&self.ctx);
+                self.threads
+                    .push(tokio::task::spawn_blocking(|| vote_worker.join()));
+
+                // Spawn the external consumer workers.
+                BankingStage::spawn_external_workers(&self.threads, &self.ctx, workers);
+
+                // Spawn tpu_to_pack.
+                let tpu_to_pack = tpu_to_pack::spawn(
+                    self.ctx.exit_signal.clone(),
+                    BankingPacketReceivers {
+                        non_vote_receiver: self.ctx.non_vote_receiver.clone(),
+                        gossip_vote_receiver: None,
+                        tpu_vote_receiver: None,
+                    },
+                    tpu_to_pack,
+                );
+                self.threads
+                    .push(tokio::task::spawn_blocking(|| tpu_to_pack.join()));
+
+                // Spawn progress tracker.
+                let (shared_leader_state, ticks_per_slot) = {
+                    let poh = self.ctx.poh_recorder.read().unwrap();
+
+                    (poh.shared_leader_state(), poh.ticks_per_slot())
+                };
+                let progress_tracker = progress_tracker::spawn(
+                    self.ctx.exit_signal.clone(),
+                    progress_tracker,
+                    shared_leader_state,
+                    ticks_per_slot,
+                );
+                self.threads
+                    .push(tokio::task::spawn_blocking(|| progress_tracker.join()));
+            }
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
