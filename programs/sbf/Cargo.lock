@@ -6681,7 +6681,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-util 0.7.16",
- "toolbox",
  "trees",
 ]
 
@@ -11195,14 +11194,6 @@ dependencies = [
  "prost-build",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "toolbox"
-version = "0.2.1"
-source = "git+https://github.com/OliverNChalk/toolbox-rs#44180d67d4257126ed2c8b753d3097254016fdc3"
-dependencies = [
- "tokio",
 ]
 
 [[package]]
