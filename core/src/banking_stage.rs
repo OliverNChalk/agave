@@ -501,14 +501,13 @@ impl BankingStage {
                 block_production_method,
                 num_workers,
                 config,
-            } => BankingStage::spawn_scheduler_and_workers(
+            } => self.spawn_scheduler_and_workers(
                 matches!(
                     block_production_method,
                     BlockProductionMethod::CentralSchedulerGreedy
                 ),
                 num_workers,
                 config,
-                &self.ctx,
             ),
             #[cfg(unix)]
             BankingControlMsg::External { session } => self.spawn_external(session),
@@ -522,21 +521,23 @@ impl BankingStage {
     }
 
     fn spawn_scheduler_and_workers(
+        &self,
         use_greedy_scheduler: bool,
         num_workers: NonZeroUsize,
         scheduler_config: SchedulerConfig,
-        context: &BankingStageContext,
     ) -> Vec<JoinHandle<()>> {
         assert!(num_workers <= BankingStage::max_num_workers());
         let num_workers = num_workers.get();
 
-        let exit = context.exit_signal.clone();
+        let exit = self.ctx.exit_signal.clone();
 
         // Setup receive & buffer.
         let receive_and_buffer = TransactionViewReceiveAndBuffer {
-            receiver: context.non_vote_receiver.clone(),
-            bank_forks: context.bank_forks.clone(),
+            receiver: self.ctx.non_vote_receiver.clone(),
+            bank_forks: self.ctx.bank_forks.clone(),
         };
+
+        // TODO: Spawn vote worker.
 
         // Create channels for communication between scheduler and workers
         let (work_senders, work_receivers): (Vec<Sender<_>>, Vec<Receiver<_>>) =
@@ -545,7 +546,7 @@ impl BankingStage {
 
         // Spawn the worker threads
         let mut threads = Vec::with_capacity(num_workers + 1);
-        let decision_maker = DecisionMaker::from(context.poh_recorder.read().unwrap().deref());
+        let decision_maker = DecisionMaker::from(self.ctx.poh_recorder.read().unwrap().deref());
         let mut worker_metrics = Vec::with_capacity(num_workers);
         for (index, work_receiver) in work_receivers.into_iter().enumerate() {
             let id = index as u32;
@@ -554,13 +555,13 @@ impl BankingStage {
                 exit.clone(),
                 work_receiver,
                 Consumer::new(
-                    context.committer.clone(),
-                    context.transaction_recorder.clone(),
+                    self.ctx.committer.clone(),
+                    self.ctx.transaction_recorder.clone(),
                     QosService::new(id),
-                    context.log_messages_bytes_limit,
+                    self.ctx.log_messages_bytes_limit,
                 ),
                 finished_work_sender.clone(),
-                context.poh_recorder.read().unwrap().shared_leader_state(),
+                self.ctx.poh_recorder.read().unwrap().shared_leader_state(),
             );
 
             worker_metrics.push(consume_worker.metrics_handle());
@@ -580,7 +581,7 @@ impl BankingStage {
         macro_rules! spawn_scheduler {
             ($scheduler:ident) => {
                 let exit = exit.clone();
-                let bank_forks = context.bank_forks.clone();
+                let bank_forks = self.ctx.bank_forks.clone();
                 threads.push(
                     Builder::new()
                         .name("solBnkTxSched".to_string())
@@ -628,20 +629,20 @@ impl BankingStage {
         threads
     }
 
-    fn spawn_vote_worker(context: &BankingStageContext) -> JoinHandle<()> {
-        let vote_storage = VoteStorage::new(&context.bank_forks.read().unwrap().working_bank());
-        let tpu_receiver = VotePacketReceiver::new(context.tpu_vote_receiver.clone());
-        let gossip_receiver = VotePacketReceiver::new(context.gossip_vote_receiver.clone());
+    fn spawn_vote_worker(&self) -> JoinHandle<()> {
+        let vote_storage = VoteStorage::new(&self.ctx.bank_forks.read().unwrap().working_bank());
+        let tpu_receiver = VotePacketReceiver::new(self.ctx.tpu_vote_receiver.clone());
+        let gossip_receiver = VotePacketReceiver::new(self.ctx.gossip_vote_receiver.clone());
         let consumer = Consumer::new(
-            context.committer.clone(),
-            context.transaction_recorder.clone(),
+            self.ctx.committer.clone(),
+            self.ctx.transaction_recorder.clone(),
             QosService::new(0),
-            context.log_messages_bytes_limit,
+            self.ctx.log_messages_bytes_limit,
         );
-        let decision_maker = DecisionMaker::from(context.poh_recorder.read().unwrap().deref());
+        let decision_maker = DecisionMaker::from(self.ctx.poh_recorder.read().unwrap().deref());
 
-        let exit_signal = context.exit_signal.clone();
-        let bank_forks = context.bank_forks.clone();
+        let exit_signal = self.ctx.exit_signal.clone();
+        let bank_forks = self.ctx.bank_forks.clone();
         Builder::new()
             .name("solBanknStgVote".to_string())
             .spawn(move || {
@@ -696,7 +697,7 @@ mod external {
 
             // Spawn vote worker.
             let mut threads = Vec::with_capacity(workers.len() + 3);
-            threads.push(BankingStage::spawn_vote_worker(&self.ctx));
+            threads.push(self.spawn_vote_worker());
 
             // Spawn the external consumer workers.
             let mut worker_metrics = Vec::with_capacity(workers.len());
