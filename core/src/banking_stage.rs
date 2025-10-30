@@ -13,7 +13,6 @@ use {
     crate::{
         banking_stage::{
             consume_worker::ConsumeWorker,
-            tpu_to_pack::BankingPacketReceivers,
             transaction_scheduler::{
                 prio_graph_scheduler::PrioGraphScheduler,
                 scheduler_controller::{
@@ -25,7 +24,6 @@ use {
         validator::{BlockProductionMethod, SchedulerPacing},
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
-    agave_scheduling_utils::handshake::server::AgaveSession,
     crossbeam_channel::{unbounded, Receiver, Sender},
     futures::{stream::FuturesUnordered, StreamExt},
     histogram::Histogram,
@@ -680,8 +678,10 @@ impl BankingStage {
 #[cfg(unix)]
 mod external {
     use {
-        super::*, crate::banking_stage::consume_worker::external::ExternalWorker,
-        agave_scheduling_utils::handshake::server::AgaveWorkerSession,
+        super::*,
+        crate::banking_stage::consume_worker::external::ExternalWorker,
+        agave_scheduling_utils::handshake::server::{AgaveSession, AgaveWorkerSession},
+        tpu_to_pack::BankingPacketReceivers,
     };
 
     impl BankingStage {
