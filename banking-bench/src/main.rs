@@ -459,7 +459,7 @@ fn main() {
         gossip_vote_sender,
         gossip_vote_receiver,
     } = banking_tracer.create_channels(false);
-    let banking_stage = BankingStage::new_num_threads(
+    let (banking_stage, _) = BankingStage::new_num_threads(
         block_production_method,
         poh_recorder.clone(),
         transaction_recorder,
