@@ -511,48 +511,7 @@ impl BankingStage {
                 &self.ctx,
             ),
             #[cfg(unix)]
-            BankingControlMsg::External {
-                session:
-                    AgaveSession {
-                        tpu_to_pack,
-                        progress_tracker,
-                        workers,
-                    },
-            } => {
-                let mut threads = Vec::with_capacity(workers.len() + 3);
-
-                // Spawn vote worker.
-                threads.push(BankingStage::spawn_vote_worker(&self.ctx));
-
-                // Spawn the external consumer workers.
-                BankingStage::spawn_external_workers(&mut threads, &self.ctx, workers);
-
-                // Spawn tpu_to_pack.
-                threads.push(tpu_to_pack::spawn(
-                    self.ctx.exit_signal.clone(),
-                    BankingPacketReceivers {
-                        non_vote_receiver: self.ctx.non_vote_receiver.clone(),
-                        gossip_vote_receiver: None,
-                        tpu_vote_receiver: None,
-                    },
-                    tpu_to_pack,
-                ));
-
-                // Spawn progress tracker.
-                let (shared_leader_state, ticks_per_slot) = {
-                    let poh = self.ctx.poh_recorder.read().unwrap();
-
-                    (poh.shared_leader_state(), poh.ticks_per_slot())
-                };
-                threads.push(progress_tracker::spawn(
-                    self.ctx.exit_signal.clone(),
-                    progress_tracker,
-                    shared_leader_state,
-                    ticks_per_slot,
-                ));
-
-                threads
-            }
+            BankingControlMsg::External { session } => self.spawn_external(session),
         };
 
         self.threads.extend(threads.into_iter().map(|handle| {
@@ -721,18 +680,25 @@ mod external {
     };
 
     impl BankingStage {
-        pub(super) fn spawn_external_workers(
-            threads: &mut Vec<JoinHandle<()>>,
-            context: &BankingStageContext,
-            workers: Vec<AgaveWorkerSession>,
-        ) {
+        pub(super) fn spawn_external(
+            &self,
+            AgaveSession {
+                tpu_to_pack,
+                progress_tracker,
+                workers,
+            }: AgaveSession,
+        ) -> Vec<JoinHandle<()>> {
             static_assertions::const_assert!(
                 agave_scheduling_utils::handshake::MAX_WORKERS
                     == BankingStage::max_num_workers().get()
             );
             assert!(workers.len() <= BankingStage::max_num_workers().get());
 
-            // Spawn the worker threads
+            // Spawn vote worker.
+            let mut threads = Vec::with_capacity(workers.len() + 3);
+            threads.push(BankingStage::spawn_vote_worker(&self.ctx));
+
+            // Spawn the external consumer workers.
             let mut worker_metrics = Vec::with_capacity(workers.len());
             for (
                 index,
@@ -746,13 +712,13 @@ mod external {
                 let id = index as u32;
                 let consume_worker = ExternalWorker::new(
                     id,
-                    context.exit_signal.clone(),
+                    self.ctx.exit_signal.clone(),
                     pack_to_worker,
                     Consumer::new(
-                        context.committer.clone(),
-                        context.transaction_recorder.clone(),
+                        self.ctx.committer.clone(),
+                        self.ctx.transaction_recorder.clone(),
                         QosService::new(id),
-                        context.log_messages_bytes_limit,
+                        self.ctx.log_messages_bytes_limit,
                     ),
                     worker_to_pack,
                     allocator,
@@ -768,6 +734,32 @@ mod external {
                         .unwrap(),
                 );
             }
+
+            // Spawn tpu_to_pack.
+            threads.push(tpu_to_pack::spawn(
+                self.ctx.exit_signal.clone(),
+                BankingPacketReceivers {
+                    non_vote_receiver: self.ctx.non_vote_receiver.clone(),
+                    gossip_vote_receiver: None,
+                    tpu_vote_receiver: None,
+                },
+                tpu_to_pack,
+            ));
+
+            // Spawn progress tracker.
+            let (shared_leader_state, ticks_per_slot) = {
+                let poh = self.ctx.poh_recorder.read().unwrap();
+
+                (poh.shared_leader_state(), poh.ticks_per_slot())
+            };
+            threads.push(progress_tracker::spawn(
+                self.ctx.exit_signal.clone(),
+                progress_tracker,
+                shared_leader_state,
+                ticks_per_slot,
+            ));
+
+            threads
         }
     }
 }
