@@ -795,6 +795,9 @@ impl BankingStageManager {
             }
         }
 
+        // Revert the exit signal.
+        self.ctx.exit_signal.store(false, Ordering::Relaxed);
+
         // Spawn the requested threads.
         self.spawn_scheduler(args);
     }
@@ -1237,7 +1240,7 @@ mod tests {
                 poh_service,
                 entry_receiver,
             ) = create_test_recorder(bank.clone(), blockstore, None, None);
-            let _banking_stage = BankingStage::new_num_threads(
+            let (banking_stage, _) = BankingStage::new_num_threads(
                 BlockProductionMethod::CentralScheduler,
                 poh_recorder.clone(),
                 transaction_recorder,
@@ -1265,6 +1268,7 @@ mod tests {
                 sleep(Duration::from_millis(10));
             }
             exit.store(true, Ordering::Relaxed);
+            banking_stage.join().unwrap();
             poh_service.join().unwrap();
             entry_receiver
         };
