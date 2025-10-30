@@ -356,20 +356,6 @@ pub struct BatchedTransactionErrorDetails {
     pub batched_dropped_txs_per_account_data_total_limit_count: Saturating<u64>,
 }
 
-pub struct BankingStageHandle {
-    cxl: CancellationToken,
-    thread: JoinHandle<std::thread::Result<()>>,
-}
-
-impl BankingStageHandle {
-    pub fn join(self) -> thread::Result<()> {
-        self.cxl.cancel();
-        self.thread.join().unwrap()
-    }
-}
-
-pub struct BankingStage {}
-
 pub trait LikeClusterInfo: Send + Sync + 'static + Clone {
     fn id(&self) -> Pubkey;
 
@@ -384,6 +370,13 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
     fn lookup_contact_info<R>(&self, id: &Pubkey, query: impl ContactInfoQuery<R>) -> Option<R> {
         self.deref().lookup_contact_info(id, query)
     }
+}
+
+pub struct BankingStage {
+    cxl: CancellationToken,
+    ctx: BankingStageContext,
+    commands_rx: mpsc::Receiver<BankingControlMsg>,
+    threads: FuturesUnordered<NamedTask<std::thread::Result<()>>>,
 }
 
 impl BankingStage {
@@ -409,7 +402,7 @@ impl BankingStage {
             prioritization_fee_cache,
         );
 
-        let context = BankingStageContext {
+        let ctx = BankingStageContext {
             exit_signal: Arc::new(AtomicBool::new(false)),
             tpu_vote_receiver,
             gossip_vote_receiver,
@@ -421,20 +414,152 @@ impl BankingStage {
             log_messages_bytes_limit,
         };
 
+        // Setup the manager thread state.
         let cxl = CancellationToken::new();
         let (commands_tx, commands_rx) = mpsc::channel(1);
-        let thread = BankingStageManager::spawn(
-            cxl.clone(),
-            context,
+        let manager = BankingStage {
+            cxl: cxl.clone(),
+            ctx,
             commands_rx,
+            threads: FuturesUnordered::default(),
+        };
+
+        // Spawn the manager thread.
+        let thread = std::thread::Builder::new()
+            .name("BankingMgr".to_string())
+            .spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(manager.run(BankingControlMsg::Internal {
+                    block_production_method,
+                    num_workers,
+                    config: scheduler_config,
+                }))
+            })
+            .unwrap();
+
+        (BankingStageHandle { cxl, thread }, commands_tx)
+    }
+
+    async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
+        self.spawn_scheduler(initial_args);
+
+        loop {
+            tokio::select! {
+                biased;
+
+                _ = self.cxl.cancelled() => break,
+                Some(args) = self.commands_rx.recv() => self.cycle_threads(args).await,
+                opt = self.threads.next() => {
+                    let (name, res) = opt.unwrap();
+                    match res.unwrap() {
+                        Ok(()) => error!("Banking worker exited unexpectedly; name={name}"),
+                        Err(err) => error!("Banking worker exited with error; name={name}; err={err:?}"),
+                    };
+
+                    self.cycle_threads(BankingControlMsg::Internal {
+                        block_production_method: BlockProductionMethod::default(),
+                        num_workers: BankingStage::default_num_workers(),
+                        config: SchedulerConfig {
+                            scheduler_pacing: SchedulerPacing::Disabled,
+                        },
+                    }).await;
+                },
+            }
+        }
+
+        // Signal shutdown & wait for all threads to exit.
+        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        while let Some((_, res)) = self.threads.next().await {
+            res.unwrap()?;
+        }
+
+        Ok(())
+    }
+
+    async fn cycle_threads(&mut self, args: BankingControlMsg) {
+        // Shutdown all current threads.
+        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        while let Some((name, res)) = self.threads.next().await {
+            if let Err(err) = res {
+                error!("Banking worker exited with error; name={name}; err={err:?}");
+            }
+        }
+
+        // Revert the exit signal.
+        self.ctx.exit_signal.store(false, Ordering::Relaxed);
+
+        // Spawn the requested threads.
+        self.spawn_scheduler(args);
+    }
+
+    fn spawn_scheduler(&mut self, args: BankingControlMsg) {
+        let threads = match args {
             BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
-                config: scheduler_config,
-            },
-        );
+                config,
+            } => BankingStage::spawn_scheduler_and_workers(
+                matches!(
+                    block_production_method,
+                    BlockProductionMethod::CentralSchedulerGreedy
+                ),
+                num_workers,
+                config,
+                &self.ctx,
+            ),
+            #[cfg(unix)]
+            BankingControlMsg::External {
+                session:
+                    AgaveSession {
+                        tpu_to_pack,
+                        progress_tracker,
+                        workers,
+                    },
+            } => {
+                let mut threads = Vec::with_capacity(workers.len() + 3);
 
-        (BankingStageHandle { cxl, thread }, commands_tx)
+                // Spawn vote worker.
+                threads.push(BankingStage::spawn_vote_worker(&self.ctx));
+
+                // Spawn the external consumer workers.
+                BankingStage::spawn_external_workers(&mut threads, &self.ctx, workers);
+
+                // Spawn tpu_to_pack.
+                threads.push(tpu_to_pack::spawn(
+                    self.ctx.exit_signal.clone(),
+                    BankingPacketReceivers {
+                        non_vote_receiver: self.ctx.non_vote_receiver.clone(),
+                        gossip_vote_receiver: None,
+                        tpu_vote_receiver: None,
+                    },
+                    tpu_to_pack,
+                ));
+
+                // Spawn progress tracker.
+                let (shared_leader_state, ticks_per_slot) = {
+                    let poh = self.ctx.poh_recorder.read().unwrap();
+
+                    (poh.shared_leader_state(), poh.ticks_per_slot())
+                };
+                threads.push(progress_tracker::spawn(
+                    self.ctx.exit_signal.clone(),
+                    progress_tracker,
+                    shared_leader_state,
+                    ticks_per_slot,
+                ));
+
+                threads
+            }
+        };
+
+        self.threads.extend(threads.into_iter().map(|handle| {
+            let name = handle.thread().name().unwrap().to_string();
+
+            NamedTask::new(tokio::task::spawn_blocking(|| handle.join()), name)
+        }));
     }
 
     fn spawn_scheduler_and_workers(
@@ -647,6 +772,18 @@ mod external {
     }
 }
 
+pub struct BankingStageHandle {
+    cxl: CancellationToken,
+    thread: JoinHandle<std::thread::Result<()>>,
+}
+
+impl BankingStageHandle {
+    pub fn join(self) -> thread::Result<()> {
+        self.cxl.cancel();
+        self.thread.join().unwrap()
+    }
+}
+
 // Context for spawning threads in the banking stage.
 #[derive(Clone)]
 struct BankingStageContext {
@@ -671,161 +808,6 @@ pub enum BankingControlMsg {
     External {
         session: agave_scheduling_utils::handshake::server::AgaveSession,
     },
-}
-
-struct BankingStageManager {
-    cxl: CancellationToken,
-    ctx: BankingStageContext,
-
-    commands_rx: mpsc::Receiver<BankingControlMsg>,
-    threads: FuturesUnordered<NamedTask<std::thread::Result<()>>>,
-}
-
-impl BankingStageManager {
-    fn spawn(
-        cxl: CancellationToken,
-        ctx: BankingStageContext,
-        commands_rx: mpsc::Receiver<BankingControlMsg>,
-        initial_args: BankingControlMsg,
-    ) -> JoinHandle<std::thread::Result<()>> {
-        std::thread::Builder::new()
-            .name("BankingMgr".to_string())
-            .spawn(|| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                rt.block_on(
-                    BankingStageManager {
-                        cxl,
-                        ctx,
-                        commands_rx,
-                        threads: FuturesUnordered::default(),
-                    }
-                    .run(initial_args),
-                )
-            })
-            .unwrap()
-    }
-
-    async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
-        self.spawn_scheduler(initial_args);
-
-        loop {
-            tokio::select! {
-                biased;
-
-                _ = self.cxl.cancelled() => break,
-                Some(args) = self.commands_rx.recv() => self.cycle_threads(args).await,
-                opt = self.threads.next() => {
-                    let (name, res) = opt.unwrap();
-                    match res.unwrap() {
-                        Ok(()) => error!("Banking worker exited unexpectedly; name={name}"),
-                        Err(err) => error!("Banking worker exited with error; name={name}; err={err:?}"),
-                    };
-
-                    self.cycle_threads(BankingControlMsg::Internal {
-                        block_production_method: BlockProductionMethod::default(),
-                        num_workers: BankingStage::default_num_workers(),
-                        config: SchedulerConfig {
-                            scheduler_pacing: SchedulerPacing::Disabled,
-                        },
-                    }).await;
-                },
-            }
-        }
-
-        // Signal shutdown & wait for all threads to exit.
-        self.ctx.exit_signal.store(true, Ordering::Relaxed);
-        while let Some((_, res)) = self.threads.next().await {
-            res.unwrap()?;
-        }
-
-        Ok(())
-    }
-
-    async fn cycle_threads(&mut self, args: BankingControlMsg) {
-        // Shutdown all current threads.
-        self.ctx.exit_signal.store(true, Ordering::Relaxed);
-        while let Some((name, res)) = self.threads.next().await {
-            if let Err(err) = res {
-                error!("Banking worker exited with error; name={name}; err={err:?}");
-            }
-        }
-
-        // Revert the exit signal.
-        self.ctx.exit_signal.store(false, Ordering::Relaxed);
-
-        // Spawn the requested threads.
-        self.spawn_scheduler(args);
-    }
-
-    fn spawn_scheduler(&mut self, args: BankingControlMsg) {
-        let threads = match args {
-            BankingControlMsg::Internal {
-                block_production_method,
-                num_workers,
-                config,
-            } => BankingStage::spawn_scheduler_and_workers(
-                matches!(
-                    block_production_method,
-                    BlockProductionMethod::CentralSchedulerGreedy
-                ),
-                num_workers,
-                config,
-                &self.ctx,
-            ),
-            #[cfg(unix)]
-            BankingControlMsg::External {
-                session:
-                    AgaveSession {
-                        tpu_to_pack,
-                        progress_tracker,
-                        workers,
-                    },
-            } => {
-                let mut threads = Vec::with_capacity(workers.len() + 3);
-
-                // Spawn vote worker.
-                threads.push(BankingStage::spawn_vote_worker(&self.ctx));
-
-                // Spawn the external consumer workers.
-                BankingStage::spawn_external_workers(&mut threads, &self.ctx, workers);
-
-                // Spawn tpu_to_pack.
-                threads.push(tpu_to_pack::spawn(
-                    self.ctx.exit_signal.clone(),
-                    BankingPacketReceivers {
-                        non_vote_receiver: self.ctx.non_vote_receiver.clone(),
-                        gossip_vote_receiver: None,
-                        tpu_vote_receiver: None,
-                    },
-                    tpu_to_pack,
-                ));
-
-                // Spawn progress tracker.
-                let (shared_leader_state, ticks_per_slot) = {
-                    let poh = self.ctx.poh_recorder.read().unwrap();
-
-                    (poh.shared_leader_state(), poh.ticks_per_slot())
-                };
-                threads.push(progress_tracker::spawn(
-                    self.ctx.exit_signal.clone(),
-                    progress_tracker,
-                    shared_leader_state,
-                    ticks_per_slot,
-                ));
-
-                threads
-            }
-        };
-
-        self.threads.extend(threads.into_iter().map(|handle| {
-            let name = handle.thread().name().unwrap().to_string();
-
-            NamedTask::new(tokio::task::spawn_blocking(|| handle.join()), name)
-        }));
-    }
 }
 
 #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
