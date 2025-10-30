@@ -6,7 +6,8 @@ use {
     crate::{
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingStage,
+            transaction_scheduler::scheduler_controller::SchedulerConfig, BankingControlMsg,
+            BankingStage,
         },
         banking_trace::{Channels, TracerThread},
         cluster_info_vote_listener::{
@@ -67,7 +68,7 @@ use {
         thread::{self, JoinHandle},
         time::Duration,
     },
-    tokio::sync::mpsc::Sender as AsyncSender,
+    tokio::sync::{mpsc, mpsc::Sender as AsyncSender},
     tokio_util::sync::CancellationToken,
 };
 
@@ -106,7 +107,7 @@ pub struct Tpu {
     fetch_stage: FetchStage,
     sig_verifier: SigVerifier,
     vote_sigverify_stage: SigVerifyStage,
-    banking_stage: Arc<RwLock<Option<BankingStage>>>,
+    banking_stage: BankingStage,
     forwarding_stage: JoinHandle<()>,
     cluster_info_vote_listener: ClusterInfoVoteListener,
     broadcast_stage: BroadcastStage,
@@ -163,7 +164,7 @@ impl Tpu {
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         cancel: CancellationToken,
-    ) -> Self {
+    ) -> (Self, mpsc::Sender<BankingControlMsg>) {
         let TpuSockets {
             transactions: transactions_sockets,
             transaction_forwards: tpu_forwards_sockets,
@@ -328,7 +329,7 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        let banking_stage = BankingStage::new_num_threads(
+        let (banking_stage, banking_control_tx) = BankingStage::new_num_threads(
             block_production_method,
             poh_recorder.clone(),
             transaction_recorder,
@@ -394,25 +395,24 @@ impl Tpu {
 
         key_notifiers.add(KeyUpdaterType::Forward, client_updater);
 
-        Self {
-            fetch_stage,
-            sig_verifier,
-            vote_sigverify_stage,
-            banking_stage: Arc::new(RwLock::new(Some(banking_stage))),
-            forwarding_stage,
-            cluster_info_vote_listener,
-            broadcast_stage,
-            tpu_quic_t,
-            tpu_forwards_quic_t,
-            tpu_entry_notifier,
-            staked_nodes_updater_service,
-            tracer_thread_hdl,
-            tpu_vote_quic_t,
-        }
-    }
-
-    pub fn banking_stage(&self) -> Arc<RwLock<Option<BankingStage>>> {
-        self.banking_stage.clone()
+        (
+            Self {
+                fetch_stage,
+                sig_verifier,
+                vote_sigverify_stage,
+                banking_stage,
+                forwarding_stage,
+                cluster_info_vote_listener,
+                broadcast_stage,
+                tpu_quic_t,
+                tpu_forwards_quic_t,
+                tpu_entry_notifier,
+                staked_nodes_updater_service,
+                tracer_thread_hdl,
+                tpu_vote_quic_t,
+            },
+            banking_control_tx,
+        )
     }
 
     pub fn join(self) -> thread::Result<()> {
@@ -421,12 +421,7 @@ impl Tpu {
             self.sig_verifier.join(),
             self.vote_sigverify_stage.join(),
             self.cluster_info_vote_listener.join(),
-            self.banking_stage
-                .write()
-                .unwrap()
-                .take()
-                .expect("banking_stage must be Some")
-                .join(),
+            self.banking_stage.join(),
             self.forwarding_stage.join(),
             self.staked_nodes_updater_service.join(),
             self.tpu_quic_t.map_or(Ok(()), |t| t.join()),

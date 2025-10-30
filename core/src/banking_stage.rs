@@ -411,7 +411,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-    ) -> (Self, mpsc::Sender<ManageBlockProductionArgs>) {
+    ) -> (Self, mpsc::Sender<BankingControlMsg>) {
         let committer = Committer::new(
             transaction_status_sender,
             replay_vote_sender,
@@ -436,7 +436,7 @@ impl BankingStage {
             cxl.clone(),
             context,
             commands_rx,
-            ManageBlockProductionArgs::Internal {
+            BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
                 config: scheduler_config,
@@ -630,7 +630,7 @@ mod external {
     };
 
     impl BankingStage {
-        pub(crate) fn spawn_external_workers(
+        pub(super) fn spawn_external_workers(
             threads: &FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
             context: &BankingStageContext,
             workers: Vec<AgaveWorkerSession>,
@@ -703,14 +703,14 @@ struct BankingStageContext {
 //   - Thread exit
 //   - Admin RPC request.
 
-pub(crate) enum ManageBlockProductionArgs {
+pub enum BankingControlMsg {
     Internal {
         block_production_method: BlockProductionMethod,
         num_workers: NonZeroUsize,
         config: SchedulerConfig,
     },
     #[cfg(unix)]
-    Exeternal {
+    External {
         session: agave_scheduling_utils::handshake::server::AgaveSession,
     },
 }
@@ -719,7 +719,7 @@ struct BankingStageManager {
     cxl: CancellationToken,
     ctx: BankingStageContext,
 
-    commands_rx: mpsc::Receiver<ManageBlockProductionArgs>,
+    commands_rx: mpsc::Receiver<BankingControlMsg>,
     threads: FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
 }
 
@@ -727,8 +727,8 @@ impl BankingStageManager {
     fn spawn(
         cxl: CancellationToken,
         ctx: BankingStageContext,
-        commands_rx: mpsc::Receiver<ManageBlockProductionArgs>,
-        initial_args: ManageBlockProductionArgs,
+        commands_rx: mpsc::Receiver<BankingControlMsg>,
+        initial_args: BankingControlMsg,
     ) -> JoinHandle<std::thread::Result<()>> {
         std::thread::Builder::new()
             .name("BankingMgr".to_string())
@@ -750,7 +750,7 @@ impl BankingStageManager {
             .unwrap()
     }
 
-    async fn run(mut self, initial_args: ManageBlockProductionArgs) -> std::thread::Result<()> {
+    async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
         self.spawn_scheduler(initial_args);
 
         loop {
@@ -765,7 +765,7 @@ impl BankingStageManager {
                         Err(err) => error!("Banking worker exited with error; err={err:?}"),
                     };
 
-                    self.cycle_threads(ManageBlockProductionArgs::Internal {
+                    self.cycle_threads(BankingControlMsg::Internal {
                         block_production_method: BlockProductionMethod::default(),
                         num_workers: BankingStage::default_num_workers(),
                         config: SchedulerConfig {
@@ -785,7 +785,7 @@ impl BankingStageManager {
         Ok(())
     }
 
-    async fn cycle_threads(&mut self, args: ManageBlockProductionArgs) {
+    async fn cycle_threads(&mut self, args: BankingControlMsg) {
         // Shutdown all current threads.
         self.ctx.exit_signal.store(true, Ordering::Relaxed);
         while let Some(res) = self.threads.next().await {
@@ -798,9 +798,9 @@ impl BankingStageManager {
         self.spawn_scheduler(args);
     }
 
-    fn spawn_scheduler(&self, args: ManageBlockProductionArgs) {
+    fn spawn_scheduler(&self, args: BankingControlMsg) {
         match args {
-            ManageBlockProductionArgs::Internal {
+            BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
                 config,
@@ -815,7 +815,7 @@ impl BankingStageManager {
                 &self.ctx,
             ),
             #[cfg(unix)]
-            ManageBlockProductionArgs::Exeternal {
+            BankingControlMsg::External {
                 session:
                     AgaveSession {
                         tpu_to_pack,
@@ -950,7 +950,7 @@ mod tests {
         ) = create_test_recorder(bank, blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let banking_stage = BankingStage::new_num_threads(
+        let (banking_stage, _) = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
