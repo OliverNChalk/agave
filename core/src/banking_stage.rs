@@ -356,11 +356,19 @@ pub struct BatchedTransactionErrorDetails {
     pub batched_dropped_txs_per_account_data_total_limit_count: Saturating<u64>,
 }
 
-pub struct BankingStage {
+pub struct BankingStageHandle {
     cxl: CancellationToken,
-    // OLI: Flatten when we're sure this is the way.
-    inner: JoinHandle<std::thread::Result<()>>,
+    thread: JoinHandle<std::thread::Result<()>>,
 }
+
+impl BankingStageHandle {
+    pub fn join(self) -> thread::Result<()> {
+        self.cxl.cancel();
+        self.thread.join().unwrap()
+    }
+}
+
+pub struct BankingStage {}
 
 pub trait LikeClusterInfo: Send + Sync + 'static + Clone {
     fn id(&self) -> Pubkey;
@@ -394,7 +402,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-    ) -> (Self, mpsc::Sender<BankingControlMsg>) {
+    ) -> (BankingStageHandle, mpsc::Sender<BankingControlMsg>) {
         let committer = Committer::new(
             transaction_status_sender,
             replay_vote_sender,
@@ -415,7 +423,7 @@ impl BankingStage {
 
         let cxl = CancellationToken::new();
         let (commands_tx, commands_rx) = mpsc::channel(1);
-        let inner = BankingStageManager::spawn(
+        let thread = BankingStageManager::spawn(
             cxl.clone(),
             context,
             commands_rx,
@@ -426,7 +434,7 @@ impl BankingStage {
             },
         );
 
-        (Self { cxl, inner }, commands_tx)
+        (BankingStageHandle { cxl, thread }, commands_tx)
     }
 
     fn spawn_scheduler_and_workers(
@@ -577,11 +585,6 @@ impl BankingStage {
 
     pub const fn default_fill_time_millis() -> NonZeroU64 {
         DEFAULT_SCHEDULER_PACING_FILL_TIME_MILLIS
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        self.cxl.cancel();
-        self.inner.join().unwrap()
     }
 }
 

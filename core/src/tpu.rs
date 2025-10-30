@@ -7,7 +7,7 @@ use {
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
             transaction_scheduler::scheduler_controller::SchedulerConfig, BankingControlMsg,
-            BankingStage,
+            BankingStage, BankingStageHandle,
         },
         banking_trace::{Channels, TracerThread},
         cluster_info_vote_listener::{
@@ -107,7 +107,7 @@ pub struct Tpu {
     fetch_stage: FetchStage,
     sig_verifier: SigVerifier,
     vote_sigverify_stage: SigVerifyStage,
-    banking_stage: BankingStage,
+    banking_stage: BankingStageHandle,
     forwarding_stage: JoinHandle<()>,
     cluster_info_vote_listener: ClusterInfoVoteListener,
     broadcast_stage: BroadcastStage,
