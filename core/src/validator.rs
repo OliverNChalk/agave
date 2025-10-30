@@ -1702,7 +1702,7 @@ impl Validator {
                 node_multihoming.clone(),
             ))
         };
-        let (tpu, banking_control_tx) = Tpu::new_with_client(
+        let (tpu, banking_control_sender) = Tpu::new_with_client(
             &cluster_info,
             &poh_recorder,
             transaction_recorder,
@@ -1789,7 +1789,7 @@ impl Validator {
             outstanding_repair_requests,
             cluster_slots,
             node: Some(node_multihoming),
-            banking_control_tx,
+            banking_control_sender,
         });
 
         Ok(Self {

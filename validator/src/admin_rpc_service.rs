@@ -781,7 +781,7 @@ impl AdminRpc for AdminRpcImpl {
 
         meta.with_post_init(|post_init| {
             if post_init
-                .banking_control_tx
+                .banking_control_sender
                 .try_send(BankingControlMsg::Internal {
                     block_production_method,
                     num_workers,
@@ -1084,7 +1084,7 @@ mod tests {
                         solana_core::cluster_slots_service::cluster_slots::ClusterSlots::default_for_tests(),
                     ),
                     node: None,
-                    banking_control_tx: mpsc::channel(1).0,
+                    banking_control_sender: mpsc::channel(1).0,
                 }))),
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,

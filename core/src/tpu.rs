@@ -329,7 +329,7 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        let (banking_stage, banking_control_tx) = BankingStage::new_num_threads(
+        let (banking_stage, banking_control_sender) = BankingStage::new_num_threads(
             block_production_method,
             poh_recorder.clone(),
             transaction_recorder,
@@ -411,7 +411,7 @@ impl Tpu {
                 tracer_thread_hdl,
                 tpu_vote_quic_t,
             },
-            banking_control_tx,
+            banking_control_sender,
         )
     }
 
