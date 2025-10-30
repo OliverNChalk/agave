@@ -41,8 +41,6 @@ frozen-abi = [
 ]
 
 [dependencies]
-# TEMP: Remove
-toolbox = { git = "https://github.com/OliverNChalk/toolbox-rs", features = ["named_task"] }
 agave-banking-stage-ingress-types = { workspace = true }
 agave-feature-set = { workspace = true }
 agave-scheduler-bindings = { workspace = true }

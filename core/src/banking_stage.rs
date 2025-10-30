@@ -54,7 +54,6 @@ use {
     },
     tokio::sync::mpsc,
     tokio_util::sync::CancellationToken,
-    toolbox::tokio::NamedTask,
     transaction_scheduler::{
         greedy_scheduler::{GreedyScheduler, GreedySchedulerConfig},
         prio_graph_scheduler::PrioGraphSchedulerConfig,
@@ -814,6 +813,41 @@ pub(crate) fn update_bank_forks_and_poh_recorder_for_new_tpu_bank(
     let tpu_bank = bank_forks.write().unwrap().insert(tpu_bank);
     if poh_controller.set_bank(tpu_bank).is_err() {
         warn!("Failed to set poh bank, poh service is disconnected");
+    }
+}
+
+#[derive(Debug)]
+struct NamedTask<Ret = (), Name = String>
+where
+    Name: Clone + Unpin,
+{
+    task: std::pin::Pin<Box<tokio::task::JoinHandle<Ret>>>,
+    name: Name,
+}
+
+impl<Ret, Name> NamedTask<Ret, Name>
+where
+    Name: Clone + Unpin,
+{
+    fn new(task: tokio::task::JoinHandle<Ret>, name: Name) -> Self {
+        NamedTask {
+            task: Box::pin(task),
+            name,
+        }
+    }
+}
+
+impl<R, I> std::future::Future for NamedTask<R, I>
+where
+    I: Clone + Unpin,
+{
+    type Output = (I, Result<R, tokio::task::JoinError>);
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.task.as_mut().poll(cx).map(|v| (self.name.clone(), v))
     }
 }
 
