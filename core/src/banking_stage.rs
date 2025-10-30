@@ -54,6 +54,7 @@ use {
     },
     tokio::sync::mpsc,
     tokio_util::sync::CancellationToken,
+    toolbox::tokio::NamedTask,
     transaction_scheduler::{
         greedy_scheduler::{GreedyScheduler, GreedySchedulerConfig},
         prio_graph_scheduler::PrioGraphSchedulerConfig,
@@ -467,12 +468,11 @@ impl BankingStage {
     }
 
     fn spawn_scheduler_and_workers(
-        non_vote_thread_hdls: &FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
         use_greedy_scheduler: bool,
         num_workers: NonZeroUsize,
         scheduler_config: SchedulerConfig,
         context: &BankingStageContext,
-    ) {
+    ) -> Vec<JoinHandle<()>> {
         assert!(num_workers <= BankingStage::max_num_workers());
         let num_workers = num_workers.get();
 
@@ -490,6 +490,7 @@ impl BankingStage {
         let (finished_work_sender, finished_work_receiver) = unbounded();
 
         // Spawn the worker threads
+        let mut threads = Vec::with_capacity(num_workers + 1);
         let decision_maker = DecisionMaker::from(context.poh_recorder.read().unwrap().deref());
         let mut worker_metrics = Vec::with_capacity(num_workers);
         for (index, work_receiver) in work_receivers.into_iter().enumerate() {
@@ -509,15 +510,14 @@ impl BankingStage {
             );
 
             worker_metrics.push(consume_worker.metrics_handle());
-            non_vote_thread_hdls.push(tokio::task::spawn_blocking(move || {
+            threads.push(
                 Builder::new()
                     .name(format!("solCoWorker{id:02}"))
                     .spawn(|| {
                         let _ = consume_worker.run();
                     })
-                    .unwrap()
-                    .join()
-            }))
+                    .unwrap(),
+            )
         }
 
         // Macro to spawn the scheduler. Different type on `scheduler` and thus
@@ -527,7 +527,7 @@ impl BankingStage {
             ($scheduler:ident) => {
                 let exit = exit.clone();
                 let bank_forks = context.bank_forks.clone();
-                non_vote_thread_hdls.push(tokio::task::spawn_blocking(|| {
+                threads.push(
                     Builder::new()
                         .name("solBnkTxSched".to_string())
                         .spawn(move || {
@@ -549,9 +549,8 @@ impl BankingStage {
                                 }
                             }
                         })
-                        .unwrap()
-                        .join()
-                }));
+                        .unwrap(),
+                );
             };
         }
 
@@ -571,6 +570,8 @@ impl BankingStage {
             );
             spawn_scheduler!(scheduler);
         }
+
+        threads
     }
 
     fn spawn_vote_worker(context: &BankingStageContext) -> JoinHandle<()> {
@@ -631,7 +632,7 @@ mod external {
 
     impl BankingStage {
         pub(super) fn spawn_external_workers(
-            threads: &FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
+            threads: &mut Vec<JoinHandle<()>>,
             context: &BankingStageContext,
             workers: Vec<AgaveWorkerSession>,
         ) {
@@ -668,15 +669,14 @@ mod external {
                 );
 
                 worker_metrics.push(consume_worker.metrics_handle());
-                threads.push(tokio::task::spawn_blocking(move || {
+                threads.push(
                     Builder::new()
                         .name(format!("solECoWorker{id:02}"))
                         .spawn(move || {
                             let _ = consume_worker.run();
                         })
-                        .unwrap()
-                        .join()
-                }));
+                        .unwrap(),
+                );
             }
         }
     }
@@ -720,7 +720,7 @@ struct BankingStageManager {
     ctx: BankingStageContext,
 
     commands_rx: mpsc::Receiver<BankingControlMsg>,
-    threads: FuturesUnordered<tokio::task::JoinHandle<std::thread::Result<()>>>,
+    threads: FuturesUnordered<NamedTask<std::thread::Result<()>>>,
 }
 
 impl BankingStageManager {
@@ -760,9 +760,10 @@ impl BankingStageManager {
                 _ = self.cxl.cancelled() => break,
                 Some(args) = self.commands_rx.recv() => self.cycle_threads(args).await,
                 opt = self.threads.next() => {
-                    match opt.unwrap().unwrap() {
-                        Ok(()) => error!("Banking worker exited unexpectedly"),
-                        Err(err) => error!("Banking worker exited with error; err={err:?}"),
+                    let (name, res) = opt.unwrap();
+                    match res.unwrap() {
+                        Ok(()) => error!("Banking worker exited unexpectedly; name={name}"),
+                        Err(err) => error!("Banking worker exited with error; name={name}; err={err:?}"),
                     };
 
                     self.cycle_threads(BankingControlMsg::Internal {
@@ -778,7 +779,7 @@ impl BankingStageManager {
 
         // Signal shutdown & wait for all threads to exit.
         self.ctx.exit_signal.store(true, Ordering::Relaxed);
-        while let Some(res) = self.threads.next().await {
+        while let Some((_, res)) = self.threads.next().await {
             res.unwrap()?;
         }
 
@@ -788,9 +789,9 @@ impl BankingStageManager {
     async fn cycle_threads(&mut self, args: BankingControlMsg) {
         // Shutdown all current threads.
         self.ctx.exit_signal.store(true, Ordering::Relaxed);
-        while let Some(res) = self.threads.next().await {
+        while let Some((name, res)) = self.threads.next().await {
             if let Err(err) = res {
-                error!("Banking worker exited with error; err={err:?}");
+                error!("Banking worker exited with error; name={name}; err={err:?}");
             }
         }
 
@@ -798,14 +799,13 @@ impl BankingStageManager {
         self.spawn_scheduler(args);
     }
 
-    fn spawn_scheduler(&self, args: BankingControlMsg) {
-        match args {
+    fn spawn_scheduler(&mut self, args: BankingControlMsg) {
+        let threads = match args {
             BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
                 config,
             } => BankingStage::spawn_scheduler_and_workers(
-                &self.threads,
                 matches!(
                     block_production_method,
                     BlockProductionMethod::CentralSchedulerGreedy
@@ -823,16 +823,16 @@ impl BankingStageManager {
                         workers,
                     },
             } => {
+                let mut threads = Vec::with_capacity(workers.len() + 3);
+
                 // Spawn vote worker.
-                let vote_worker = BankingStage::spawn_vote_worker(&self.ctx);
-                self.threads
-                    .push(tokio::task::spawn_blocking(|| vote_worker.join()));
+                threads.push(BankingStage::spawn_vote_worker(&self.ctx));
 
                 // Spawn the external consumer workers.
-                BankingStage::spawn_external_workers(&self.threads, &self.ctx, workers);
+                BankingStage::spawn_external_workers(&mut threads, &self.ctx, workers);
 
                 // Spawn tpu_to_pack.
-                let tpu_to_pack = tpu_to_pack::spawn(
+                threads.push(tpu_to_pack::spawn(
                     self.ctx.exit_signal.clone(),
                     BankingPacketReceivers {
                         non_vote_receiver: self.ctx.non_vote_receiver.clone(),
@@ -840,9 +840,7 @@ impl BankingStageManager {
                         tpu_vote_receiver: None,
                     },
                     tpu_to_pack,
-                );
-                self.threads
-                    .push(tokio::task::spawn_blocking(|| tpu_to_pack.join()));
+                ));
 
                 // Spawn progress tracker.
                 let (shared_leader_state, ticks_per_slot) = {
@@ -850,16 +848,22 @@ impl BankingStageManager {
 
                     (poh.shared_leader_state(), poh.ticks_per_slot())
                 };
-                let progress_tracker = progress_tracker::spawn(
+                threads.push(progress_tracker::spawn(
                     self.ctx.exit_signal.clone(),
                     progress_tracker,
                     shared_leader_state,
                     ticks_per_slot,
-                );
-                self.threads
-                    .push(tokio::task::spawn_blocking(|| progress_tracker.join()));
+                ));
+
+                threads
             }
-        }
+        };
+
+        self.threads.extend(threads.into_iter().map(|handle| {
+            let name = handle.thread().name().unwrap().to_string();
+
+            NamedTask::new(tokio::task::spawn_blocking(|| handle.join()), name)
+        }));
     }
 }
 
