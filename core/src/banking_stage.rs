@@ -378,24 +378,6 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
     }
 }
 
-// O:
-//
-// - Detect thread exit for internal/external scheduler.
-// - Trigger shutdown of remaining threads.
-// - Fallback to internal scheduler.
-// - How to handle admin rpc updating block production?
-//   - Fine to just kill all workers.
-//   - Ignore worker thread exit errors.
-//   - Return error if fail to start threads.
-// - What to do if internal fails?
-//   - Log error for 3.1, panic after 3.1.
-//
-// Design:
-//
-// - Spawn banking manager thread.
-//   - Listens for any thread exit.
-//   - Reports an error if the exit was not requested.
-
 impl BankingStage {
     #[allow(clippy::too_many_arguments)]
     pub fn new_num_threads(
@@ -443,26 +425,6 @@ impl BankingStage {
                 config: scheduler_config,
             },
         );
-
-        /*
-        // + 1 for vote worker
-        // + 1 for the scheduler thread
-        let mut thread_hdls = Vec::with_capacity(num_workers.get() + 2);
-        thread_hdls.push(Self::spawn_vote_worker(&context));
-
-        let receive_and_buffer = ;
-        Self::spawn_scheduler_and_workers(
-            &mut thread_hdls,
-            receive_and_buffer,
-            matches!(
-                block_production_method,
-                BlockProductionMethod::CentralSchedulerGreedy
-            ),
-            num_workers,
-            scheduler_config,
-            &context,
-        );
-        */
 
         (Self { cxl, inner }, commands_tx)
     }
@@ -695,13 +657,6 @@ struct BankingStageContext {
     committer: Committer,
     log_messages_bytes_limit: Option<usize>,
 }
-
-// TODO:
-//
-// - Spawn all initial threads.
-// - Start tokio runtime to listen for:
-//   - Thread exit
-//   - Admin RPC request.
 
 pub enum BankingControlMsg {
     Internal {
