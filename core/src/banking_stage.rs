@@ -501,7 +501,7 @@ impl BankingStage {
                 block_production_method,
                 num_workers,
                 config,
-            } => self.spawn_scheduler_and_workers(
+            } => self.spawn_internal(
                 matches!(
                     block_production_method,
                     BlockProductionMethod::CentralSchedulerGreedy
@@ -520,7 +520,7 @@ impl BankingStage {
         }));
     }
 
-    fn spawn_scheduler_and_workers(
+    fn spawn_internal(
         &self,
         use_greedy_scheduler: bool,
         num_workers: NonZeroUsize,
@@ -537,7 +537,9 @@ impl BankingStage {
             bank_forks: self.ctx.bank_forks.clone(),
         };
 
-        // TODO: Spawn vote worker.
+        // Spawn vote worker.
+        let mut threads = Vec::with_capacity(num_workers + 2);
+        threads.push(self.spawn_vote_worker());
 
         // Create channels for communication between scheduler and workers
         let (work_senders, work_receivers): (Vec<Sender<_>>, Vec<Receiver<_>>) =
@@ -545,7 +547,6 @@ impl BankingStage {
         let (finished_work_sender, finished_work_receiver) = unbounded();
 
         // Spawn the worker threads
-        let mut threads = Vec::with_capacity(num_workers + 1);
         let decision_maker = DecisionMaker::from(self.ctx.poh_recorder.read().unwrap().deref());
         let mut worker_metrics = Vec::with_capacity(num_workers);
         for (index, work_receiver) in work_receivers.into_iter().enumerate() {
