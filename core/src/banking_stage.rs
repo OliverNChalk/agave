@@ -758,6 +758,7 @@ mod external {
                 self.ctx.exit_signal.clone(),
                 progress_tracker,
                 shared_leader_state,
+                worker_metrics,
                 ticks_per_slot,
             ));
 
