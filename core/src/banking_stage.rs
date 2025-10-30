@@ -1013,7 +1013,7 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, Some(poh_config), None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let banking_stage = BankingStage::new_num_threads(
+        let (banking_stage, _) = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
@@ -1084,7 +1084,7 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let banking_stage = BankingStage::new_num_threads(
+        let (banking_stage, _) = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
@@ -1384,7 +1384,7 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let banking_stage = BankingStage::new_num_threads(
+        let (banking_stage, _) = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
