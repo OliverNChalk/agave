@@ -373,8 +373,16 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
 
 pub struct BankingStage {
     cxl: CancellationToken,
-    ctx: BankingStageContext,
-    commands_rx: mpsc::Receiver<BankingControlMsg>,
+    exit_signal: Arc<AtomicBool>,
+    commands_receiver: mpsc::Receiver<BankingControlMsg>,
+    tpu_vote_receiver: BankingPacketReceiver,
+    gossip_vote_receiver: BankingPacketReceiver,
+    non_vote_receiver: BankingPacketReceiver,
+    transaction_recorder: TransactionRecorder,
+    poh_recorder: Arc<RwLock<PohRecorder>>,
+    bank_forks: Arc<RwLock<BankForks>>,
+    committer: Committer,
+    log_messages_bytes_limit: Option<usize>,
     threads: FuturesUnordered<NamedTask<std::thread::Result<()>>>,
 }
 
@@ -401,8 +409,13 @@ impl BankingStage {
             prioritization_fee_cache,
         );
 
-        let ctx = BankingStageContext {
+        // Setup the manager thread state.
+        let cxl = CancellationToken::new();
+        let (commands_sender, commands_receiver) = mpsc::channel(1);
+        let manager = BankingStage {
+            cxl: cxl.clone(),
             exit_signal: Arc::new(AtomicBool::new(false)),
+            commands_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
             non_vote_receiver,
@@ -411,15 +424,6 @@ impl BankingStage {
             bank_forks,
             committer,
             log_messages_bytes_limit,
-        };
-
-        // Setup the manager thread state.
-        let cxl = CancellationToken::new();
-        let (commands_tx, commands_rx) = mpsc::channel(1);
-        let manager = BankingStage {
-            cxl: cxl.clone(),
-            ctx,
-            commands_rx,
             threads: FuturesUnordered::default(),
         };
 
@@ -439,7 +443,7 @@ impl BankingStage {
             })
             .unwrap();
 
-        (BankingStageHandle { cxl, thread }, commands_tx)
+        (BankingStageHandle { cxl, thread }, commands_sender)
     }
 
     async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
@@ -450,7 +454,7 @@ impl BankingStage {
                 biased;
 
                 _ = self.cxl.cancelled() => break,
-                Some(args) = self.commands_rx.recv() => self.cycle_threads(args).await,
+                Some(args) = self.commands_receiver.recv() => self.cycle_threads(args).await,
                 opt = self.threads.next() => {
                     let (name, res) = opt.unwrap();
                     match res.unwrap() {
@@ -470,7 +474,7 @@ impl BankingStage {
         }
 
         // Signal shutdown & wait for all threads to exit.
-        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        self.exit_signal.store(true, Ordering::Relaxed);
         while let Some((_, res)) = self.threads.next().await {
             res.unwrap()?;
         }
@@ -480,7 +484,7 @@ impl BankingStage {
 
     async fn cycle_threads(&mut self, args: BankingControlMsg) {
         // Shutdown all current threads.
-        self.ctx.exit_signal.store(true, Ordering::Relaxed);
+        self.exit_signal.store(true, Ordering::Relaxed);
         while let Some((name, res)) = self.threads.next().await {
             if let Err(err) = res {
                 error!("Banking worker exited with error; name={name}; err={err:?}");
@@ -488,7 +492,7 @@ impl BankingStage {
         }
 
         // Revert the exit signal.
-        self.ctx.exit_signal.store(false, Ordering::Relaxed);
+        self.exit_signal.store(false, Ordering::Relaxed);
 
         // Spawn the requested threads.
         self.spawn_scheduler(args);
@@ -528,12 +532,12 @@ impl BankingStage {
         assert!(num_workers <= BankingStage::max_num_workers());
         let num_workers = num_workers.get();
 
-        let exit = self.ctx.exit_signal.clone();
+        let exit = self.exit_signal.clone();
 
         // Setup receive & buffer.
         let receive_and_buffer = TransactionViewReceiveAndBuffer {
-            receiver: self.ctx.non_vote_receiver.clone(),
-            bank_forks: self.ctx.bank_forks.clone(),
+            receiver: self.non_vote_receiver.clone(),
+            bank_forks: self.bank_forks.clone(),
         };
 
         // Spawn vote worker.
@@ -546,7 +550,7 @@ impl BankingStage {
         let (finished_work_sender, finished_work_receiver) = unbounded();
 
         // Spawn the worker threads
-        let decision_maker = DecisionMaker::from(self.ctx.poh_recorder.read().unwrap().deref());
+        let decision_maker = DecisionMaker::from(self.poh_recorder.read().unwrap().deref());
         let mut worker_metrics = Vec::with_capacity(num_workers);
         for (index, work_receiver) in work_receivers.into_iter().enumerate() {
             let id = index as u32;
@@ -555,13 +559,13 @@ impl BankingStage {
                 exit.clone(),
                 work_receiver,
                 Consumer::new(
-                    self.ctx.committer.clone(),
-                    self.ctx.transaction_recorder.clone(),
+                    self.committer.clone(),
+                    self.transaction_recorder.clone(),
                     QosService::new(id),
-                    self.ctx.log_messages_bytes_limit,
+                    self.log_messages_bytes_limit,
                 ),
                 finished_work_sender.clone(),
-                self.ctx.poh_recorder.read().unwrap().shared_leader_state(),
+                self.poh_recorder.read().unwrap().shared_leader_state(),
             );
 
             worker_metrics.push(consume_worker.metrics_handle());
@@ -581,7 +585,7 @@ impl BankingStage {
         macro_rules! spawn_scheduler {
             ($scheduler:ident) => {
                 let exit = exit.clone();
-                let bank_forks = self.ctx.bank_forks.clone();
+                let bank_forks = self.bank_forks.clone();
                 threads.push(
                     Builder::new()
                         .name("solBnkTxSched".to_string())
@@ -630,19 +634,19 @@ impl BankingStage {
     }
 
     fn spawn_vote_worker(&self) -> JoinHandle<()> {
-        let vote_storage = VoteStorage::new(&self.ctx.bank_forks.read().unwrap().working_bank());
-        let tpu_receiver = VotePacketReceiver::new(self.ctx.tpu_vote_receiver.clone());
-        let gossip_receiver = VotePacketReceiver::new(self.ctx.gossip_vote_receiver.clone());
+        let vote_storage = VoteStorage::new(&self.bank_forks.read().unwrap().working_bank());
+        let tpu_receiver = VotePacketReceiver::new(self.tpu_vote_receiver.clone());
+        let gossip_receiver = VotePacketReceiver::new(self.gossip_vote_receiver.clone());
         let consumer = Consumer::new(
-            self.ctx.committer.clone(),
-            self.ctx.transaction_recorder.clone(),
+            self.committer.clone(),
+            self.transaction_recorder.clone(),
             QosService::new(0),
-            self.ctx.log_messages_bytes_limit,
+            self.log_messages_bytes_limit,
         );
-        let decision_maker = DecisionMaker::from(self.ctx.poh_recorder.read().unwrap().deref());
+        let decision_maker = DecisionMaker::from(self.poh_recorder.read().unwrap().deref());
 
-        let exit_signal = self.ctx.exit_signal.clone();
-        let bank_forks = self.ctx.bank_forks.clone();
+        let exit_signal = self.exit_signal.clone();
+        let bank_forks = self.bank_forks.clone();
         Builder::new()
             .name("solBanknStgVote".to_string())
             .spawn(move || {
@@ -713,18 +717,18 @@ mod external {
                 let id = index as u32;
                 let consume_worker = ExternalWorker::new(
                     id,
-                    self.ctx.exit_signal.clone(),
+                    self.exit_signal.clone(),
                     pack_to_worker,
                     Consumer::new(
-                        self.ctx.committer.clone(),
-                        self.ctx.transaction_recorder.clone(),
+                        self.committer.clone(),
+                        self.transaction_recorder.clone(),
                         QosService::new(id),
-                        self.ctx.log_messages_bytes_limit,
+                        self.log_messages_bytes_limit,
                     ),
                     worker_to_pack,
                     allocator,
-                    self.ctx.poh_recorder.read().unwrap().shared_leader_state(),
-                    self.ctx.bank_forks.read().unwrap().sharable_banks(),
+                    self.poh_recorder.read().unwrap().shared_leader_state(),
+                    self.bank_forks.read().unwrap().sharable_banks(),
                 );
 
                 worker_metrics.push(consume_worker.metrics_handle());
@@ -740,9 +744,9 @@ mod external {
 
             // Spawn tpu_to_pack.
             threads.push(tpu_to_pack::spawn(
-                self.ctx.exit_signal.clone(),
+                self.exit_signal.clone(),
                 BankingPacketReceivers {
-                    non_vote_receiver: self.ctx.non_vote_receiver.clone(),
+                    non_vote_receiver: self.non_vote_receiver.clone(),
                     gossip_vote_receiver: None,
                     tpu_vote_receiver: None,
                 },
@@ -751,12 +755,12 @@ mod external {
 
             // Spawn progress tracker.
             let (shared_leader_state, ticks_per_slot) = {
-                let poh = self.ctx.poh_recorder.read().unwrap();
+                let poh = self.poh_recorder.read().unwrap();
 
                 (poh.shared_leader_state(), poh.ticks_per_slot())
             };
             threads.push(progress_tracker::spawn(
-                self.ctx.exit_signal.clone(),
+                self.exit_signal.clone(),
                 progress_tracker,
                 shared_leader_state,
                 worker_metrics,
@@ -778,20 +782,6 @@ impl BankingStageHandle {
         self.cxl.cancel();
         self.thread.join().unwrap()
     }
-}
-
-// Context for spawning threads in the banking stage.
-#[derive(Clone)]
-struct BankingStageContext {
-    exit_signal: Arc<AtomicBool>,
-    tpu_vote_receiver: BankingPacketReceiver,
-    gossip_vote_receiver: BankingPacketReceiver,
-    non_vote_receiver: BankingPacketReceiver,
-    transaction_recorder: TransactionRecorder,
-    poh_recorder: Arc<RwLock<PohRecorder>>,
-    bank_forks: Arc<RwLock<BankForks>>,
-    committer: Committer,
-    log_messages_bytes_limit: Option<usize>,
 }
 
 pub enum BankingControlMsg {
