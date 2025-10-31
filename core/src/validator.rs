@@ -170,7 +170,7 @@ use {
     strum::VariantNames,
     strum_macros::{Display, EnumCount, EnumIter, EnumString, EnumVariantNames, IntoStaticStr},
     thiserror::Error,
-    tokio::runtime::Runtime as TokioRuntime,
+    tokio::{runtime::Runtime as TokioRuntime, sync::mpsc},
     tokio_util::sync::CancellationToken,
 };
 
@@ -1702,7 +1702,8 @@ impl Validator {
                 node_multihoming.clone(),
             ))
         };
-        let (tpu, banking_control_sender) = Tpu::new_with_client(
+        let (banking_control_sender, banking_control_reciever) = mpsc::channel(1);
+        let tpu = Tpu::new_with_client(
             &cluster_info,
             &poh_recorder,
             transaction_recorder,
@@ -1754,6 +1755,7 @@ impl Validator {
             config.enable_block_production_forwarding,
             config.generator_config.clone(),
             key_notifiers.clone(),
+            banking_control_reciever,
             cancel,
         );
 

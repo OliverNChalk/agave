@@ -163,8 +163,9 @@ impl Tpu {
         enable_block_production_forwarding: bool,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
+        banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         cancel: CancellationToken,
-    ) -> (Self, mpsc::Sender<BankingControlMsg>) {
+    ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
             transaction_forwards: tpu_forwards_sockets,
@@ -329,13 +330,14 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        let (banking_stage, banking_control_sender) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             block_production_method,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            banking_control_receiver,
             block_production_num_workers,
             block_production_scheduler_config,
             transaction_status_sender,
@@ -395,24 +397,21 @@ impl Tpu {
 
         key_notifiers.add(KeyUpdaterType::Forward, client_updater);
 
-        (
-            Self {
-                fetch_stage,
-                sig_verifier,
-                vote_sigverify_stage,
-                banking_stage,
-                forwarding_stage,
-                cluster_info_vote_listener,
-                broadcast_stage,
-                tpu_quic_t,
-                tpu_forwards_quic_t,
-                tpu_entry_notifier,
-                staked_nodes_updater_service,
-                tracer_thread_hdl,
-                tpu_vote_quic_t,
-            },
-            banking_control_sender,
-        )
+        Self {
+            fetch_stage,
+            sig_verifier,
+            vote_sigverify_stage,
+            banking_stage,
+            forwarding_stage,
+            cluster_info_vote_listener,
+            broadcast_stage,
+            tpu_quic_t,
+            tpu_forwards_quic_t,
+            tpu_entry_notifier,
+            staked_nodes_updater_service,
+            tracer_thread_hdl,
+            tpu_vote_quic_t,
+        }
     }
 
     pub fn join(self) -> thread::Result<()> {

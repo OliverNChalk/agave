@@ -372,7 +372,7 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
 pub struct BankingStage {
     cxl: CancellationToken,
     exit_signal: Arc<AtomicBool>,
-    commands_receiver: mpsc::Receiver<BankingControlMsg>,
+    banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
     tpu_vote_receiver: BankingPacketReceiver,
     gossip_vote_receiver: BankingPacketReceiver,
     non_vote_receiver: BankingPacketReceiver,
@@ -393,6 +393,7 @@ impl BankingStage {
         non_vote_receiver: BankingPacketReceiver,
         tpu_vote_receiver: BankingPacketReceiver,
         gossip_vote_receiver: BankingPacketReceiver,
+        banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         num_workers: NonZeroUsize,
         scheduler_config: SchedulerConfig,
         transaction_status_sender: Option<TransactionStatusSender>,
@@ -400,7 +401,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-    ) -> (BankingStageHandle, mpsc::Sender<BankingControlMsg>) {
+    ) -> BankingStageHandle {
         let committer = Committer::new(
             transaction_status_sender,
             replay_vote_sender,
@@ -409,11 +410,10 @@ impl BankingStage {
 
         // Setup the manager thread state.
         let cxl = CancellationToken::new();
-        let (commands_sender, commands_receiver) = mpsc::channel(1);
         let manager = BankingStage {
             cxl: cxl.clone(),
             exit_signal: Arc::new(AtomicBool::new(false)),
-            commands_receiver,
+            banking_control_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
             non_vote_receiver,
@@ -441,7 +441,7 @@ impl BankingStage {
             })
             .unwrap();
 
-        (BankingStageHandle { cxl, thread }, commands_sender)
+        BankingStageHandle { cxl, thread }
     }
 
     async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
@@ -452,7 +452,7 @@ impl BankingStage {
                 biased;
 
                 _ = self.cxl.cancelled() => break,
-                Some(args) = self.commands_receiver.recv() => self.cycle_threads(args).await,
+                Some(args) = self.banking_control_receiver.recv() => self.cycle_threads(args).await,
                 opt = self.threads.next() => {
                     let (name, res) = opt.unwrap();
                     match res.unwrap() {
@@ -779,6 +779,7 @@ pub struct BankingStageHandle {
 
 impl BankingStageHandle {
     pub fn join(self) -> thread::Result<()> {
+        // OLI: Should this be the global cancel token?
         self.cxl.cancel();
         self.thread.join().unwrap()
     }
@@ -918,13 +919,14 @@ mod tests {
         ) = create_test_recorder(bank, blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let (banking_stage, _) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            mpsc::channel(1).1,
             DEFAULT_NUM_WORKERS,
             SchedulerConfig {
                 scheduler_pacing: SchedulerPacing::Disabled,
@@ -981,13 +983,14 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, Some(poh_config), None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let (banking_stage, _) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            mpsc::channel(1).1,
             DEFAULT_NUM_WORKERS,
             SchedulerConfig {
                 scheduler_pacing: SchedulerPacing::Disabled,
@@ -1052,13 +1055,14 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let (banking_stage, _) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            mpsc::channel(1).1,
             DEFAULT_NUM_WORKERS,
             SchedulerConfig {
                 scheduler_pacing: SchedulerPacing::Disabled,
@@ -1201,13 +1205,14 @@ mod tests {
                 poh_service,
                 entry_receiver,
             ) = create_test_recorder(bank.clone(), blockstore, None, None);
-            let (banking_stage, _) = BankingStage::new_num_threads(
+            let banking_stage = BankingStage::new_num_threads(
                 BlockProductionMethod::CentralScheduler,
                 poh_recorder.clone(),
                 transaction_recorder,
                 non_vote_receiver,
                 tpu_vote_receiver,
                 gossip_vote_receiver,
+                mpsc::channel(1).1,
                 DEFAULT_NUM_WORKERS,
                 SchedulerConfig {
                     scheduler_pacing: SchedulerPacing::Disabled,
@@ -1353,13 +1358,14 @@ mod tests {
         ) = create_test_recorder(bank.clone(), blockstore, None, None);
         let (replay_vote_sender, _replay_vote_receiver) = unbounded();
 
-        let (banking_stage, _) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             BlockProductionMethod::CentralScheduler,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            mpsc::channel(1).1,
             DEFAULT_NUM_WORKERS,
             SchedulerConfig {
                 scheduler_pacing: SchedulerPacing::Disabled,

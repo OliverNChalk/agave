@@ -60,6 +60,7 @@ use {
         time::{Duration, Instant, SystemTime},
     },
     thiserror::Error,
+    tokio::sync::mpsc,
 };
 
 /// This creates a simulated environment around `BankingStage` to produce leader's blocks based on
@@ -831,13 +832,14 @@ impl BankingSimulator {
 
         info!("Start banking stage!...");
         let prioritization_fee_cache = &Arc::new(PrioritizationFeeCache::new(0u64));
-        let (banking_stage, _) = BankingStage::new_num_threads(
+        let banking_stage = BankingStage::new_num_threads(
             block_production_method.clone(),
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
+            mpsc::channel(1).1,
             BankingStage::default_num_workers(),
             SchedulerConfig::default(),
             None,
