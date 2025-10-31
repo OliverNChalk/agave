@@ -21,7 +21,7 @@ use {
                 scheduler_error::SchedulerError,
             },
         },
-        validator::{BlockProductionMethod, SchedulerPacing},
+        validator::BlockProductionMethod,
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     crossbeam_channel::{unbounded, Receiver, Sender},
@@ -466,9 +466,7 @@ impl BankingStage {
                     self.cycle_threads(BankingControlMsg::Internal {
                         block_production_method: BlockProductionMethod::default(),
                         num_workers: BankingStage::default_num_workers(),
-                        config: SchedulerConfig {
-                            scheduler_pacing: SchedulerPacing::Disabled,
-                        },
+                        config: SchedulerConfig::default(),
                     }).await;
                 },
             }
