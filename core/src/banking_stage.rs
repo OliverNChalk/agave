@@ -370,7 +370,7 @@ impl LikeClusterInfo for Arc<ClusterInfo> {
 }
 
 pub struct BankingStage {
-    cxl: CancellationToken,
+    banking_shutdown_signal: CancellationToken,
     exit_signal: Arc<AtomicBool>,
     banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
     tpu_vote_receiver: BankingPacketReceiver,
@@ -409,9 +409,9 @@ impl BankingStage {
         );
 
         // Setup the manager thread state.
-        let cxl = CancellationToken::new();
+        let banking_shutdown_signal = CancellationToken::new();
         let manager = BankingStage {
-            cxl: cxl.clone(),
+            banking_shutdown_signal: banking_shutdown_signal.clone(),
             exit_signal: Arc::new(AtomicBool::new(false)),
             banking_control_receiver,
             tpu_vote_receiver,
@@ -441,7 +441,10 @@ impl BankingStage {
             })
             .unwrap();
 
-        BankingStageHandle { cxl, thread }
+        BankingStageHandle {
+            banking_shutdown_signal,
+            thread,
+        }
     }
 
     async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
@@ -451,7 +454,7 @@ impl BankingStage {
             tokio::select! {
                 biased;
 
-                _ = self.cxl.cancelled() => break,
+                _ = self.banking_shutdown_signal.cancelled() => break,
                 Some(args) = self.banking_control_receiver.recv() => self.cycle_threads(args).await,
                 opt = self.threads.next() => {
                     let (name, res) = opt.unwrap();
@@ -773,14 +776,13 @@ mod external {
 }
 
 pub struct BankingStageHandle {
-    cxl: CancellationToken,
+    banking_shutdown_signal: CancellationToken,
     thread: JoinHandle<std::thread::Result<()>>,
 }
 
 impl BankingStageHandle {
     pub fn join(self) -> thread::Result<()> {
-        // OLI: Should this be the global cancel token?
-        self.cxl.cancel();
+        self.banking_shutdown_signal.cancel();
         self.thread.join().unwrap()
     }
 }
