@@ -110,7 +110,9 @@ impl LeaderScheduleCache {
         blockstore: Option<&Blockstore>,
         max_slot_range: u64,
     ) -> Option<(Slot, Slot)> {
+        info!("banking_stage: next_leader_slot args {pubkey} {current_slot} {max_slot_range}");
         let (epoch, start_index) = bank.get_epoch_and_slot_index(current_slot + 1);
+        info!("banking_stage: epoch={epoch}; start_index={start_index}");
         let max_epoch = self.max_epoch.load(Ordering::Acquire);
         if epoch > max_epoch {
             debug!(
@@ -140,12 +142,14 @@ impl LeaderScheduleCache {
                     .map(move |i| i as Slot + first_slot)
             })
             .skip_while(|slot| {
+                info!("banking_stage: Skip slot; slot={slot}");
                 // Skip slots we already have shreds for
                 blockstore
                     .map(|bs| bs.has_existing_shreds_for_slot(*slot))
                     .unwrap_or(false)
             });
         let first_slot = schedule.next()?;
+        info!("banking_stage: first_slot={first_slot}");
         let max_slot = first_slot.saturating_add(max_slot_range);
         let last_slot = schedule
             .take_while(|slot| *slot < max_slot)

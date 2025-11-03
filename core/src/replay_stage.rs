@@ -2922,6 +2922,7 @@ impl ReplayStage {
             GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
         );
 
+        info!("banking_stage: reset {next_leader_slot:?}");
         if poh_controller.reset(bank, next_leader_slot).is_err() {
             warn!("Failed to reset poh, poh service is disconnected");
             return;

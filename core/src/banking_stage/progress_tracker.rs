@@ -95,6 +95,10 @@ impl ProgressTracker {
             .next_leader_slot_range()
             .unwrap_or((u64::MAX, u64::MAX));
         let progress_message = if let Some(working_bank) = leader_state.working_bank() {
+            info!(
+                "Computed leader range; start={next_leader_range_start}; \
+                 end={next_leader_range_end}"
+            );
             // If new leader slot grab the cost tracker lock to get limit and shared cost.
             // This avoid needing to lock except on new leader slots.
             if self.last_observed_leader_slot != Some(working_bank.slot()) {

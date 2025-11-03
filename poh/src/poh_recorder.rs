@@ -278,8 +278,13 @@ impl PohRecorder {
         )
     }
 
+    pub fn leader_schedule_cache(&self) -> &LeaderScheduleCache {
+        &self.leader_schedule_cache
+    }
+
     // synchronize PoH with a bank
     pub(crate) fn reset(&mut self, reset_bank: Arc<Bank>, next_leader_slot: Option<(Slot, Slot)>) {
+        info!("banking_stage: {next_leader_slot:?}");
         self.clear_bank(false);
         let tick_height = self.reset_poh(reset_bank, true);
 
@@ -470,6 +475,10 @@ impl PohRecorder {
                 &bank,
                 Some(&self.blockstore),
                 GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+            );
+            info!(
+                "banking_stage: next_leader_slot={next_leader_slot:?}; current_slot={}",
+                bank.slot()
             );
             assert_eq!(self.ticks_per_slot, bank.ticks_per_slot());
             let (leader_first_tick_height, leader_last_tick_height, grace_ticks) =

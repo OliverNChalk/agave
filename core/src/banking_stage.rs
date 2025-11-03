@@ -765,9 +765,26 @@ mod external {
             // Spawn progress tracker.
             let (shared_leader_state, ticks_per_slot) = {
                 let poh = self.poh_recorder.read().unwrap();
+                let slot = poh.shared_leader_state().load().tick_height() / poh.ticks_per_slot();
+                let leader_cache = poh.leader_schedule_cache();
+                let leader_schedule = leader_cache
+                    .get_epoch_leader_schedule(slot / 432_000)
+                    .unwrap();
+                let current_leader = leader_schedule.get_slot_leaders()[(slot % 432_000) as usize];
+                info!("current leader: {current_leader} (slot={slot})");
+                info!(
+                    "all leadres {:?}",
+                    leader_schedule
+                        .get_leader_slots_map()
+                        .iter()
+                        .filter(|(_, slots)| !slots.is_empty())
+                        .map(|(k, _)| k)
+                        .collect::<Vec<_>>(),
+                );
 
                 (poh.shared_leader_state(), poh.ticks_per_slot())
             };
+            // 64VKVFF1vjAyvUwcwCrcNaxrGoXFGkQjEmWBSuhhiXoE,
             threads.push(progress_tracker::spawn(
                 self.worker_exit_signal.clone(),
                 progress_tracker,
