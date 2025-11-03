@@ -450,6 +450,7 @@ impl BankingStage {
     async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
         self.spawn_scheduler(initial_args);
 
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
         loop {
             tokio::select! {
                 biased;
@@ -469,6 +470,7 @@ impl BankingStage {
                         config: SchedulerConfig::default(),
                     }).await;
                 },
+                _ = interval.tick() => info!("Alive"),
             }
         }
 

@@ -10,7 +10,7 @@ use {
         SharableTransactionRegion, TpuToPackMessage, TransactionResponseRegion,
         WorkerToPackMessage,
     },
-    std::time::Duration,
+    std::{path::PathBuf, time::Duration},
     tempfile::NamedTempFile,
 };
 
@@ -311,4 +311,35 @@ fn reject_invalid_queue_size() {
 
     client_handle.join().unwrap();
     server_handle.join().unwrap();
+}
+
+#[test]
+fn oliver_temp() {
+    let ipc = PathBuf::from(
+        "/home/oliver/ghq/github.com/OliverNChalk/agave/test-ledger/scheduler_bindings.ipc",
+    );
+    let mut session = connect(
+        ipc,
+        ClientLogon {
+            worker_count: 4,
+            allocator_size: 1024 * 1024 * 1024,
+            allocator_handles: 3,
+            tpu_to_pack_size: 65536 * 1024,
+            progress_tracker_size: 32 * 1024,
+            pack_to_worker_size: 1024 * 1024,
+            worker_to_pack_size: 1024 * 1024,
+        },
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    println!("CONNECTED");
+
+    loop {
+        session.progress_tracker.sync();
+        if let Some(msg) = session.progress_tracker.try_read() {
+            let msg = unsafe { msg.as_ref() };
+            println!("{msg:?}");
+            session.progress_tracker.finalize();
+        }
+    }
 }
