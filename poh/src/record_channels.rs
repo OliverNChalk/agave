@@ -133,10 +133,10 @@ impl RecordSender {
             // - Vote worker process vote with Ok.
             // - Vote worker takes freeze lock on bank.
             // - Vote worker calls TransactionRecorder::try_send.
-            // - TransactionRecorder::try_send CAS `bank_id_allowed_insertions`, this shows that
-            //   we are still the leader and decreemnts the allowed insertions by 1.
             // - PohService calls `RecorderReceiver::is_safe_to_restart`, this loads
             //   `active_senders` which is 0 and then it checks the channel is empty which it is.
+            // - TransactionRecorder::try_send CAS `bank_id_allowed_insertions`, this shows that
+            //   we are still the leader and decreemnts the allowed insertions by 1.
             // - PohService write locks the poh_recorder and resets the bank, it then clobbers
             //   `bank_id_allowed_insertions` without re-checking in flight senders?
             // - TransactionRecorder::try_send calls send on the channel making it not empty.
