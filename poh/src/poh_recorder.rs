@@ -334,6 +334,7 @@ impl PohRecorder {
             let working_bank = self
                 .working_bank
                 .as_mut()
+                // OLI: This can fail if you reset a bank while you have inflight records?
                 .ok_or(PohRecorderError::MaxHeightReached)?;
             if bank_id != working_bank.bank.bank_id() {
                 return Err(PohRecorderError::MaxHeightReached);
@@ -488,6 +489,7 @@ impl PohRecorder {
                 )));
             }
 
+            // OLI: This took 85ms...
             datapoint_info!(
                 "leader-slot-start-to-cleared-elapsed-ms",
                 ("slot", bank.slot(), i64),
