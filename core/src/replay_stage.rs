@@ -1205,6 +1205,7 @@ impl ReplayStage {
                     // may add a bank that will not included in either of these maps.
                     drop(ancestors);
                     drop(descendants);
+                    // OLI: Can this race?
                     if !tpu_has_bank && !poh_controller.has_pending_message() {
                         if let Some(poh_slot) = Self::maybe_start_leader(
                             &my_pubkey,
@@ -2276,6 +2277,7 @@ impl ReplayStage {
             // new()-ing of its child bank
             banking_tracer.hash_event(parent.slot(), &parent.last_blockhash(), &parent.hash());
 
+            // OLI: How does this synchronize with vote working building our own bank?
             update_bank_forks_and_poh_recorder_for_new_tpu_bank(
                 bank_forks,
                 poh_controller,

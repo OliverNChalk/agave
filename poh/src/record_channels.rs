@@ -94,6 +94,7 @@ impl RecordSender {
         loop {
             // Grab lock on `transaction_indexes` here to ensure we are sending
             // sequentially, ONLY if this exists.
+            // OLI: Only for RPC nodes, doesn't prevent races.
             let transaction_indexes = self
                 .transaction_indexes
                 .as_ref()
@@ -105,6 +106,7 @@ impl RecordSender {
             // If the `record`'s bank_id is different from the current bank_id,
             // return immediately.
             let current_bank_id_allowed_insertions =
+                // OLI: This cal loads our leader bank and thinks all is well.
                 self.bank_id_allowed_insertions.0.load(Ordering::Acquire);
             let (bank_id, allowed_insertions) = (
                 BankIdAllowedInsertions::bank_id(current_bank_id_allowed_insertions),
@@ -126,9 +128,26 @@ impl RecordSender {
                 allowed_insertions.wrapping_sub(record.transaction_batches.len() as u64),
             );
 
+            // OLI: It's possible to cause a record to arrive for the wrong slot:
+            //
+            // - Vote worker process vote with Ok.
+            // - Vote worker takes freeze lock on bank.
+            // - Vote worker calls TransactionRecorder::try_send.
+            // - TransactionRecorder::try_send CAS `bank_id_allowed_insertions`, this shows that
+            //   we are still the leader and decreemnts the allowed insertions by 1.
+            // - PohService calls `RecorderReceiver::is_safe_to_restart`, this loads
+            //   `active_senders` which is 0 and then it checks the channel is empty which it is.
+            // - PohService write locks the poh_recorder and resets the bank, it then clobbers
+            //   `bank_id_allowed_insertions` without re-checking in flight senders?
+            // - TransactionRecorder::try_send calls send on the channel making it not empty.
+            // - PohService processes another record, however, this record is from our aborted
+            //   leader slot and thus triggers a panic in PohService.
+
             // Increment this before CAS so the receiver can see this send is in-flight.
+            // OLI: We increment active senders which flags to PoH that we are about to send.
             self.active_senders.fetch_add(1, Ordering::AcqRel);
 
+            // OLI: We re-check to ensure bank has not updated on us.
             if self
                 .bank_id_allowed_insertions
                 .0
@@ -145,6 +164,7 @@ impl RecordSender {
                 continue;
             }
 
+            // OLI: We think its still our leader bank so we send the record.
             match self.sender.try_send(record) {
                 Ok(_) => {
                     self.active_senders.fetch_sub(1, Ordering::AcqRel);

@@ -513,6 +513,7 @@ impl PohRecorder {
     fn reset_poh(&mut self, reset_bank: Arc<Bank>, reset_start_bank: bool) -> u64 {
         let blockhash = reset_bank.last_blockhash();
         let poh_hash = {
+            // OLI: Can this race - if we update the blockhash without updating the working bank?
             let mut poh = self.poh.lock().unwrap();
             poh.reset(blockhash, *reset_bank.hashes_per_tick());
             poh.hash
