@@ -1,8 +1,11 @@
 use {
-    agave_scheduler_bindings::{SharableTransactionBatchRegion, SharableTransactionRegion},
+    agave_scheduler_bindings::{
+        SharableTransactionBatchRegion, SharableTransactionRegion, MAX_TRANSACTIONS_PER_MESSAGE,
+    },
     agave_transaction_view::transaction_data::TransactionData,
     core::ptr::NonNull,
     rts_alloc::Allocator,
+    std::marker::PhantomData,
 };
 
 pub struct TransactionPtr {
@@ -63,13 +66,23 @@ impl TransactionPtr {
 }
 
 /// A batch of transaction pointers that can be iterated over.
-pub struct TransactionPtrBatch<'a> {
-    ptr: NonNull<SharableTransactionRegion>,
+pub struct TransactionPtrBatch<'a, M = ()> {
+    tx_ptr: NonNull<SharableTransactionRegion>,
+    meta_ptr: NonNull<M>,
     num_transactions: usize,
     allocator: &'a Allocator,
+
+    _meta: PhantomData<M>,
 }
 
-impl<'a> TransactionPtrBatch<'a> {
+impl<'a, M> TransactionPtrBatch<'a, M> {
+    const TX_REGION_SIZE: usize = std::mem::size_of::<SharableTransactionRegion>();
+    const TX_BATCH_PER_MESSAGE: usize = Self::TX_REGION_SIZE + std::mem::size_of::<M>();
+    #[allow(dead_code, reason = "Invariant assertion")]
+    const TX_BATCH_SIZE_ASSERT: () =
+        assert!(Self::TX_BATCH_PER_MESSAGE * MAX_TRANSACTIONS_PER_MESSAGE < 4096);
+    const TX_BATCH_META_OFFSET: usize = Self::TX_REGION_SIZE * MAX_TRANSACTIONS_PER_MESSAGE;
+
     /// # Safety
     /// - [`SharableTransactionBatchRegion`] must reference a valid offset and length
     ///   within the `allocator`.
@@ -79,14 +92,17 @@ impl<'a> TransactionPtrBatch<'a> {
         sharable_transaction_batch_region: &SharableTransactionBatchRegion,
         allocator: &'a Allocator,
     ) -> Self {
-        let ptr = allocator
-            .ptr_from_offset(sharable_transaction_batch_region.transactions_offset)
-            .cast();
+        let base = allocator.ptr_from_offset(sharable_transaction_batch_region.transactions_offset);
+        let tx_ptr = base.cast();
+        let meta_ptr = base.byte_add(Self::TX_BATCH_META_OFFSET).cast();
 
         Self {
-            ptr,
+            tx_ptr,
+            meta_ptr,
             num_transactions: usize::from(sharable_transaction_batch_region.num_transactions),
             allocator,
+
+            _meta: PhantomData,
         }
     }
 
@@ -101,20 +117,22 @@ impl<'a> TransactionPtrBatch<'a> {
     }
 
     /// Iterator returning [`TransactionPtr`] for each transaction in the batch.
-    pub fn iter(&'a self) -> impl Iterator<Item = TransactionPtr> + 'a {
-        (0..self.num_transactions)
-            .map(|idx| unsafe { self.ptr.add(idx) })
-            .map(|ptr| unsafe {
-                TransactionPtr::from_sharable_transaction_region(ptr.as_ref(), self.allocator)
-            })
+    pub fn iter(&'a self) -> impl Iterator<Item = (TransactionPtr, M)> + 'a {
+        (0..self.num_transactions).map(|idx| unsafe {
+            let tx = self.tx_ptr.add(idx);
+            let tx = TransactionPtr::from_sharable_transaction_region(tx.as_ref(), self.allocator);
+            let meta = self.meta_ptr.add(idx).read();
+
+            (tx, meta)
+        })
     }
 
     /// Free all transactions in the batch, then free the batch itself.
     pub fn free(self) {
-        for transaction_ptr in self.iter() {
+        for (transaction_ptr, _) in self.iter() {
             unsafe { transaction_ptr.free(self.allocator) }
         }
 
-        unsafe { self.allocator.free(self.ptr.cast()) }
+        unsafe { self.allocator.free(self.tx_ptr.cast()) }
     }
 }
