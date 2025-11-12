@@ -543,7 +543,9 @@ impl PohService {
                 }
 
                 // Check if we can break the inner loop to handle a service message.
-                if Self::can_process_service_message(&service_message, &record_receiver) {
+                if next_record.is_none()
+                    && Self::can_process_service_message(&service_message, &record_receiver)
+                {
                     break;
                 }
             }
