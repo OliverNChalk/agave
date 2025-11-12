@@ -139,7 +139,7 @@ attack_replayStage() {
 
 attack_delayBroadcast() {
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks \
-    --turbine-send-delay-ms 1600
+    --turbine-send-delay-ms 1000
   sleep "$runtime"
   "$invalidatorClient" "${commonArgs[@]}" configure-send-duplicate-blocks
   sleep "$sleeptime"
