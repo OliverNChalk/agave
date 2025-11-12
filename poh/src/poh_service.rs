@@ -529,6 +529,8 @@ impl PohService {
                     target_ns_per_tick,
                     ticks_per_slot,
                 );
+                // OLI: Record can be Some(_) and the channel is empty which results in us breaking while holding a next record.
+
                 if should_tick {
                     // Lock PohRecorder only for the final hash. record_or_hash will lock PohRecorder for record calls but not for hashing.
                     {
@@ -547,7 +549,9 @@ impl PohService {
                 }
 
                 // Check if we can break the inner loop to handle a service message.
-                if Self::can_process_service_message(&service_message, &record_receiver) {
+                if next_record.is_none()
+                    && Self::can_process_service_message(&service_message, &record_receiver)
+                {
                     break;
                 }
             }
