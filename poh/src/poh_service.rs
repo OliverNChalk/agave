@@ -413,7 +413,11 @@ impl PohService {
                             }
                         }
                         Err(err) => {
-                            panic!("PohRecorder::record failed: {err:?}");
+                            panic!(
+                                "PohRecorder::record failed: {err:?}; working={:?}; record_id={}",
+                                poh_recorder_l.bank().as_ref().map(|bank| bank.bank_id()),
+                                record.bank_id
+                            );
                         }
                     }
 

@@ -329,14 +329,12 @@ impl PohRecorder {
         loop {
             let (flush_cache_res, flush_cache_us) = measure_us!(self.flush_cache(false));
             self.metrics.flush_cache_no_tick_us += flush_cache_us;
-            flush_cache_res?;
+            flush_cache_res.inspect_err(|err| eprintln!("flush"))?;
 
             let tick_height = self.tick_height(); // cannot change until next loop iteration.
-            let working_bank = self
-                .working_bank
-                .as_mut()
-                .ok_or(PohRecorderError::MaxHeightReached)?;
+            let working_bank = self.working_bank.as_mut().unwrap();
             if bank_id != working_bank.bank.bank_id() {
+                eprintln!("bank id");
                 return Err(PohRecorderError::MaxHeightReached);
             }
 
