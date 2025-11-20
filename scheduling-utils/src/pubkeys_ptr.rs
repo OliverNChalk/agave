@@ -5,10 +5,20 @@ use {
 
 pub struct PubkeysPtr {
     ptr: NonNull<Pubkey>,
-    count: usize,
+    len: usize,
 }
 
 impl PubkeysPtr {
+    /// Constructions a [`PubkeysPtr`] from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must be valid for reads.
+    /// - `len` must be accurate (in number of pubkeys) & not overrun the end of `ptr`.
+    pub unsafe fn from_raw_parts(ptr: NonNull<Pubkey>, len: usize) -> Self {
+        Self { ptr, len }
+    }
+
     /// Constructs the pointer from a [`SharablePubkeys`].
     ///
     /// # Safety
@@ -25,7 +35,7 @@ impl PubkeysPtr {
 
         Self {
             ptr,
-            count: sharable_pubkeys.num_pubkeys as usize,
+            len: sharable_pubkeys.num_pubkeys as usize,
         }
     }
 
@@ -33,7 +43,7 @@ impl PubkeysPtr {
     pub fn as_slice(&self) -> &[Pubkey] {
         // SAFETY
         // - Constructor invariants guarantee that we don't overrun the end of the allocation.
-        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.count) }
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 
     /// Frees the underlying allocation.

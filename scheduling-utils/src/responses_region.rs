@@ -97,10 +97,20 @@ unsafe fn from_iterator<T: Sized>(
 
 pub struct CheckResponsesPtr {
     ptr: NonNull<CheckResponse>,
-    count: usize,
+    len: usize,
 }
 
 impl CheckResponsesPtr {
+    /// Constructions a [`CheckResponsesPtr`] from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must be valid for reads.
+    /// - `len` must be accurate (in number of responses) & not overrun the end of `ptr`.
+    pub unsafe fn from_raw_parts(ptr: NonNull<CheckResponse>, len: usize) -> Self {
+        Self { ptr, len }
+    }
+
     /// Constructs the pointer from a [`TransactionResponseRegion`].
     ///
     /// # Safety
@@ -118,13 +128,13 @@ impl CheckResponsesPtr {
             ptr: allocator
                 .ptr_from_offset(transaction_response_region.transaction_responses_offset)
                 .cast(),
-            count: transaction_response_region.num_transaction_responses as usize,
+            len: transaction_response_region.num_transaction_responses as usize,
         }
     }
 
     /// The number of responses in this batch.
     pub const fn len(&self) -> usize {
-        self.count
+        self.len
     }
 
     /// Whether the batch is empty.
@@ -134,7 +144,7 @@ impl CheckResponsesPtr {
 
     /// Iterate the responses within the batch.
     pub fn iter(&self) -> impl Iterator<Item = &CheckResponse> {
-        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.count) }.iter()
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }.iter()
     }
 
     /// Free the batch's allocation.
@@ -149,10 +159,20 @@ impl CheckResponsesPtr {
 
 pub struct ExecutionResponsesPtr {
     ptr: NonNull<ExecutionResponse>,
-    count: usize,
+    len: usize,
 }
 
 impl ExecutionResponsesPtr {
+    /// Constructions a [`ExecutionResponsesPtr`] from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must be valid for reads.
+    /// - `len` must be accurate (in number of responses) & not overrun the end of `ptr`.
+    pub unsafe fn from_raw_parts(ptr: NonNull<ExecutionResponse>, len: usize) -> Self {
+        Self { ptr, len }
+    }
+
     /// Constructs the pointer from a [`TransactionResponseRegion`].
     ///
     /// # Safety
@@ -170,13 +190,13 @@ impl ExecutionResponsesPtr {
             ptr: allocator
                 .ptr_from_offset(transaction_response_region.transaction_responses_offset)
                 .cast(),
-            count: transaction_response_region.num_transaction_responses as usize,
+            len: transaction_response_region.num_transaction_responses as usize,
         }
     }
 
     /// The number of responses in this batch.
     pub const fn len(&self) -> usize {
-        self.count
+        self.len
     }
 
     /// Whether the batch is empty.
@@ -186,7 +206,7 @@ impl ExecutionResponsesPtr {
 
     /// Iterate the responses within the batch.
     pub fn iter(&self) -> impl Iterator<Item = &ExecutionResponse> {
-        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.count) }.iter()
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }.iter()
     }
 
     /// Free the batch's allocation.

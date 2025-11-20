@@ -26,6 +26,16 @@ impl TransactionData for &TransactionPtr {
 }
 
 impl TransactionPtr {
+    /// Constructions a [`TransactionPtr`] from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must be valid for reads.
+    /// - `len` must be accurate & not overrun the end of `ptr`.
+    pub unsafe fn from_raw_parts(ptr: NonNull<u8>, len: usize) -> Self {
+        Self { ptr, len }
+    }
+
     /// # Safety
     /// - `sharable_transaction_region` must reference a valid offset and length
     ///   within the `allocator`.
