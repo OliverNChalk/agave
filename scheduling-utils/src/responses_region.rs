@@ -95,6 +95,7 @@ unsafe fn from_iterator<T: Sized>(
     Some(region)
 }
 
+#[derive(Debug)]
 pub struct CheckResponsesPtr {
     ptr: NonNull<CheckResponse>,
     len: usize,
@@ -157,6 +158,7 @@ impl CheckResponsesPtr {
     }
 }
 
+#[derive(Debug)]
 pub struct ExecutionResponsesPtr {
     ptr: NonNull<ExecutionResponse>,
     len: usize,
