@@ -1,9 +1,10 @@
 #[cfg(feature = "dev-context-only-utils")]
 use solana_compute_budget_instruction::compute_budget_instruction_details::ComputeBudgetInstructionDetails;
 use {
-    crate::block_cost_limits, solana_pubkey::Pubkey,
+    crate::block_cost_limits,
+    solana_pubkey::Pubkey,
     solana_runtime_transaction::transaction_meta::StaticMeta,
-    solana_svm_transaction::svm_message::SVMMessage,
+    solana_svm_transaction::svm_message::{SVMMessage, SVMStaticMessage},
 };
 
 /// `TransactionCost`` is used to represent resources required to process a
@@ -110,44 +111,32 @@ impl<Tx: SVMMessage> TransactionCost<'_, Tx> {
     }
 }
 
-impl<Tx: StaticMeta> TransactionCost<'_, Tx> {
+impl<Tx: StaticMeta + SVMStaticMessage> TransactionCost<'_, Tx> {
     pub fn num_transaction_signatures(&self) -> u64 {
         match self {
             Self::SimpleVote { .. } => 1,
-            Self::Transaction(usage_cost) => usage_cost
-                .transaction
-                .signature_details()
-                .num_transaction_signatures(),
+            Self::Transaction(usage_cost) => usage_cost.transaction.num_transaction_signatures(),
         }
     }
 
     pub fn num_secp256k1_instruction_signatures(&self) -> u64 {
         match self {
             Self::SimpleVote { .. } => 0,
-            Self::Transaction(usage_cost) => usage_cost
-                .transaction
-                .signature_details()
-                .num_secp256k1_instruction_signatures(),
+            Self::Transaction(usage_cost) => usage_cost.transaction.num_secp256k1_signatures(),
         }
     }
 
     pub fn num_ed25519_instruction_signatures(&self) -> u64 {
         match self {
             Self::SimpleVote { .. } => 0,
-            Self::Transaction(usage_cost) => usage_cost
-                .transaction
-                .signature_details()
-                .num_ed25519_instruction_signatures(),
+            Self::Transaction(usage_cost) => usage_cost.transaction.num_ed25519_signatures(),
         }
     }
 
     pub fn num_secp256r1_instruction_signatures(&self) -> u64 {
         match self {
             Self::SimpleVote { .. } => 0,
-            Self::Transaction(usage_cost) => usage_cost
-                .transaction
-                .signature_details()
-                .num_secp256r1_instruction_signatures(),
+            Self::Transaction(usage_cost) => usage_cost.transaction.num_secp256r1_signatures(),
         }
     }
 }
@@ -180,6 +169,7 @@ pub struct WritableKeysTransaction(pub Vec<Pubkey>);
 
 #[cfg(feature = "dev-context-only-utils")]
 impl solana_svm_transaction::svm_message::SVMStaticMessage for WritableKeysTransaction {
+    // TODO: May need to return 0 for all sigs based on prior code. See if tests pass without though.
     fn num_transaction_signatures(&self) -> u64 {
         unimplemented!("WritableKeysTransaction::num_transaction_signatures")
     }
@@ -194,6 +184,10 @@ impl solana_svm_transaction::svm_message::SVMStaticMessage for WritableKeysTrans
 
     fn num_instructions(&self) -> usize {
         unimplemented!("WritableKeysTransaction::num_instructions")
+    }
+
+    fn instruction_data_len(&self) -> u16 {
+        unimplemented!("WritableKeysTransaction::instruction_data_len")
     }
 
     fn instructions_iter(
@@ -276,18 +270,8 @@ impl solana_runtime_transaction::transaction_meta::StaticMeta for WritableKeysTr
         unimplemented!("WritableKeysTransaction::is_simple_vote_transaction")
     }
 
-    fn signature_details(&self) -> &solana_message::TransactionSignatureDetails {
-        const DUMMY: solana_message::TransactionSignatureDetails =
-            solana_message::TransactionSignatureDetails::new(0, 0, 0, 0);
-        &DUMMY
-    }
-
     fn compute_budget_instruction_details(&self) -> &ComputeBudgetInstructionDetails {
         unimplemented!("WritableKeysTransaction::compute_budget_instruction_details")
-    }
-
-    fn instruction_data_len(&self) -> u16 {
-        unimplemented!("WritableKeysTransaction::instruction_data_len")
     }
 }
 

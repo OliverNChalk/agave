@@ -682,10 +682,11 @@ fn calculate_priority(
     // Manually estimate fee here since currently interface doesn't allow a on SVM type.
     // Doesn't need to be 100% accurate so long as close and consistent.
     let prioritization_fee = fee_budget_limits.prioritization_fee;
-    let signature_details = transaction.signature_details();
-    let signature_fee = signature_details
-        .total_signatures()
-        .saturating_mul(bank.fee_structure().lamports_per_signature);
+    // let signature_details = transaction.signature_details();
+    // let signature_fee = signature_details
+    //     .total_signatures()
+    //     .saturating_mul(bank.fee_structure().lamports_per_signature);
+    let signature_fee = 0; // TODO: Calculate properly.
     let fee_details = FeeDetails::new(signature_fee, prioritization_fee);
 
     let reward = bank

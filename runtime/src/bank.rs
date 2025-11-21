@@ -3372,8 +3372,7 @@ impl Bank {
                 // Signature count must be accumulated only if the transaction
                 // is processed, otherwise a mismatched count between banking
                 // and replay could occur
-                processed_counts.signature_count +=
-                    tx.signature_details().num_transaction_signatures();
+                processed_counts.signature_count += tx.num_transaction_signatures();
                 processed_counts.processed_transactions_count += 1;
 
                 if !tx.is_simple_vote_transaction() {

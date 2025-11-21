@@ -14,7 +14,7 @@ use {
     core::ops::Deref,
     solana_compute_budget_instruction::compute_budget_instruction_details::*,
     solana_hash::Hash,
-    solana_message::{AccountKeys, TransactionSignatureDetails},
+    solana_message::AccountKeys,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
     solana_svm_transaction::{
@@ -50,14 +50,8 @@ impl<T> StaticMeta for RuntimeTransaction<T> {
     fn is_simple_vote_transaction(&self) -> bool {
         self.meta.is_simple_vote_transaction
     }
-    fn signature_details(&self) -> &TransactionSignatureDetails {
-        &self.meta.signature_details
-    }
     fn compute_budget_instruction_details(&self) -> &ComputeBudgetInstructionDetails {
         &self.meta.compute_budget_instruction_details
-    }
-    fn instruction_data_len(&self) -> u16 {
-        self.meta.instruction_data_len
     }
 }
 
