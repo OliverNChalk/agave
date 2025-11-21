@@ -87,7 +87,7 @@ impl CostModel {
     /// - `meta` - transaction meta
     /// - `instructions` - transaction instructions
     /// - `num_write_locks` - number of requested write locks
-    pub fn estimate_cost<'a, Tx: StaticMeta>(
+    pub fn estimate_cost<'a, Tx: StaticMeta + SVMStaticMessage>(
         transaction: &'a Tx,
         instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
         num_write_locks: u64,
@@ -110,7 +110,7 @@ impl CostModel {
         )
     }
 
-    fn calculate_non_vote_transaction_cost<'a, Tx: StaticMeta>(
+    fn calculate_non_vote_transaction_cost<'a, Tx: SVMStaticMessage>(
         transaction: &'a Tx,
         instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
         num_write_locks: u64,
@@ -139,9 +139,7 @@ impl CostModel {
     }
 
     /// Returns signature details and the total signature cost
-    fn get_signature_cost(transaction: &impl StaticMeta, feature_set: &FeatureSet) -> u64 {
-        let signatures_count_detail = transaction.signature_details();
-
+    fn get_signature_cost(transaction: &impl SVMStaticMessage, feature_set: &FeatureSet) -> u64 {
         let ed25519_verify_cost =
             if feature_set.is_active(&feature_set::ed25519_precompile_verify_strict::id()) {
                 ED25519_VERIFY_STRICT_COST
@@ -156,22 +154,22 @@ impl CostModel {
                 0
             };
 
-        signatures_count_detail
+        transaction
             .num_transaction_signatures()
             .saturating_mul(SIGNATURE_COST)
             .saturating_add(
-                signatures_count_detail
-                    .num_secp256k1_instruction_signatures()
+                transaction
+                    .num_secp256k1_signatures()
                     .saturating_mul(SECP256K1_VERIFY_COST),
             )
             .saturating_add(
-                signatures_count_detail
-                    .num_ed25519_instruction_signatures()
+                transaction
+                    .num_ed25519_signatures()
                     .saturating_mul(ed25519_verify_cost),
             )
             .saturating_add(
-                signatures_count_detail
-                    .num_secp256r1_instruction_signatures()
+                transaction
+                    .num_secp256r1_signatures()
                     .saturating_mul(secp256r1_verify_cost),
             )
     }
