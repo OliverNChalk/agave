@@ -105,6 +105,10 @@ impl<T: SVMStaticMessage> SVMStaticMessage for RuntimeTransaction<T> {
         self.transaction.num_instructions()
     }
 
+    fn instruction_data_len(&self) -> u16 {
+        self.meta.instruction_data_len
+    }
+
     fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
         self.transaction.instructions_iter()
     }

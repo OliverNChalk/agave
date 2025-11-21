@@ -272,6 +272,12 @@ impl<D: TransactionData> SVMStaticMessage for TransactionView<true, D> {
         self.num_instructions() as usize
     }
 
+    fn instruction_data_len(&self) -> u16 {
+        self.instructions_iter().fold(0, |accum, ix| {
+            accum.saturating_add(u16::try_from(ix.data.len()).unwrap_or(u16::MAX))
+        })
+    }
+
     fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
         self.instructions_iter()
     }
@@ -320,6 +326,10 @@ impl<D: TransactionData> SVMStaticMessage for &TransactionView<true, D> {
 
     fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
         <TransactionView<true, D> as SVMStaticMessage>::instructions_iter(self)
+    }
+
+    fn instruction_data_len(&self) -> u16 {
+        <TransactionView<true, D> as SVMStaticMessage>::instruction_data_len(self)
     }
 
     fn program_instructions_iter(

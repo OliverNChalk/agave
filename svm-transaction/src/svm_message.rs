@@ -45,6 +45,9 @@ pub trait SVMStaticMessage {
     /// Return the number of instructions in the message.
     fn num_instructions(&self) -> usize;
 
+    /// Returns the sum length of instruction data.
+    fn instruction_data_len(&self) -> u16;
+
     /// Return an iterator over the instructions in the message.
     fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>>;
 

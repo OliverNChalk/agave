@@ -26,6 +26,14 @@ impl SVMStaticMessage for SanitizedMessage {
         SanitizedMessage::instructions(self).len()
     }
 
+    fn instruction_data_len(&self) -> u16 {
+        SanitizedMessage::instructions(self)
+            .iter()
+            .fold(0, |accum, ix| {
+                accum.saturating_add(u16::try_from(ix.data.len()).unwrap_or(u16::MAX))
+            })
+    }
+
     fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
         SanitizedMessage::instructions(self)
             .iter()

@@ -204,7 +204,7 @@ impl CostModel {
     }
 
     /// Return the instruction data bytes cost.
-    fn get_instructions_data_cost(transaction: &impl StaticMeta) -> u16 {
+    fn get_instructions_data_cost(transaction: &impl SVMStaticMessage) -> u16 {
         transaction.instruction_data_len() / (INSTRUCTION_DATA_BYTES_COST as u16)
     }
 

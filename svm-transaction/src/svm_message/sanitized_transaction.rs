@@ -31,6 +31,10 @@ impl SVMStaticMessage for SanitizedTransaction {
         SVMStaticMessage::instructions_iter(SanitizedTransaction::message(self))
     }
 
+    fn instruction_data_len(&self) -> u16 {
+        SVMStaticMessage::instruction_data_len(SanitizedTransaction::message(self))
+    }
+
     fn program_instructions_iter(
         &self,
     ) -> impl Iterator<Item = (&Pubkey, SVMInstruction<'_>)> + Clone {
