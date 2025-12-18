@@ -632,9 +632,11 @@ impl BundleStage {
         // - Any bundle that gets locked with the bundle account locker shall be destroyed
         loop {
             // Pop from storage until our window is full or storage is empty.
-            while bundles.len() < BUNDLE_WINDOW_SIZE.get()
-                && let Some(bundle) = bundle_storage.pop_bundle(bank.slot())
-            {
+            while bundles.len() < BUNDLE_WINDOW_SIZE.get() {
+                let Some(bundle) = bundle_storage.pop_bundle(bank.slot()) else {
+                    break;
+                };
+
                 if bundle_account_locker
                     .lock_bundle(&bundle.transactions, bank)
                     .is_err()
