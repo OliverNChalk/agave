@@ -518,40 +518,22 @@ impl BundleStage {
 
         let bundle = bundle_receiver.recv_timeout(recv_timeout)?;
         for bundle in std::iter::once(bundle).chain(bundle_receiver.try_iter()) {
-            Self::insert_bundle(
-                bundle_storage,
-                bundle,
-                &root_bank,
-                &working_bank,
-                blacklisted_accounts,
-                bundle_stage_metrics,
-            );
+            let num_packets = bundle.batch().len();
+
+            bundle_stage_metrics.increment_num_bundles_received(1);
+            bundle_stage_metrics.increment_num_packets_received(num_packets as u64);
+
+            match bundle_storage.insert_bundle(bundle, root_bank, working_bank, blacklisted_accounts) {
+                Ok(_) => {
+                    bundle_stage_metrics.increment_newly_buffered_bundles_count(1);
+                }
+                Err(e) => {
+                    bundle_stage_metrics.increment_bundle_dropped_error(e);
+                }
+            }
         }
 
         Ok(())
-    }
-
-    fn insert_bundle(
-        bundle_storage: &mut BundleStorage,
-        bundle: VerifiedPacketBundle,
-        root_bank: &Arc<Bank>,
-        working_bank: &Arc<Bank>,
-        blacklisted_accounts: &HashSet<Pubkey>,
-        bundle_stage_metrics: &mut BundleStageLoopMetrics,
-    ) {
-        let num_packets = bundle.batch().len();
-
-        bundle_stage_metrics.increment_num_bundles_received(1);
-        bundle_stage_metrics.increment_num_packets_received(num_packets as u64);
-
-        match bundle_storage.insert_bundle(bundle, root_bank, working_bank, blacklisted_accounts) {
-            Ok(_) => {
-                bundle_stage_metrics.increment_newly_buffered_bundles_count(1);
-            }
-            Err(e) => {
-                bundle_stage_metrics.increment_bundle_dropped_error(e);
-            }
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
