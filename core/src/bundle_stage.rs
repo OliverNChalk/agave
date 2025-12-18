@@ -523,7 +523,12 @@ impl BundleStage {
             bundle_stage_metrics.increment_num_bundles_received(1);
             bundle_stage_metrics.increment_num_packets_received(num_packets as u64);
 
-            match bundle_storage.insert_bundle(bundle, root_bank, working_bank, blacklisted_accounts) {
+            match bundle_storage.insert_bundle(
+                bundle,
+                root_bank,
+                working_bank,
+                blacklisted_accounts,
+            ) {
                 Ok(_) => {
                     bundle_stage_metrics.increment_newly_buffered_bundles_count(1);
                 }
@@ -823,14 +828,11 @@ impl BundleStage {
         if output
             .execute_and_commit_transactions_output
             .commit_transactions_result
-            .is_ok()
-            && output
-                .execute_and_commit_transactions_output
-                .commit_transactions_result
-                .as_ref()
-                .unwrap()
-                .iter()
-                .all(|r| matches!(r, CommitTransactionDetails::Committed { result: Ok(_), .. }))
+            .is_ok_and(|results| {
+                results
+                    .iter()
+                    .all(|r| matches!(r, CommitTransactionDetails::Committed { result: Ok(_), .. }))
+            })
         {
             return Ok(());
         }
