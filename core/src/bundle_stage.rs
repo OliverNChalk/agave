@@ -517,16 +517,7 @@ impl BundleStage {
         };
 
         let bundle = bundle_receiver.recv_timeout(recv_timeout)?;
-        Self::insert_bundle(
-            bundle_storage,
-            bundle,
-            &root_bank,
-            &working_bank,
-            blacklisted_accounts,
-            bundle_stage_metrics,
-        );
-
-        while let Ok(bundle) = bundle_receiver.try_recv() {
+        for bundle in std::iter::once(bundle).chain(bundle_receiver.try_iter()) {
             Self::insert_bundle(
                 bundle_storage,
                 bundle,
