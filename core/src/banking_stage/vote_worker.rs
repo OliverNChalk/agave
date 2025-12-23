@@ -175,7 +175,7 @@ impl VoteWorker {
         banking_stage_stats: &BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) {
-        if self.storage.is_empty() {
+        if self.storage.is_empty() || bank.is_complete() {
             return;
         }
 
