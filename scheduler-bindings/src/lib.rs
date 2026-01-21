@@ -350,6 +350,8 @@ pub mod worker_message_types {
     )]
     #[repr(C)]
     pub struct ExecutionResponse {
+        /// The slot this transaction was executed.
+        pub execution_slot: u64,
         /// Indicates if the transaction was included in the block or not.
         /// If [`not_included_reasons::NONE`], the transaction was included.
         pub not_included_reason: u8,
