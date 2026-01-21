@@ -343,7 +343,7 @@ pub(crate) mod external {
                     .return_not_included_with_reason(
                         message,
                         not_included_reasons::BANK_NOT_AVAILABLE,
-                        message.max_working_slot,
+                        0,
                     )
                     .map(|()| true);
             }
@@ -358,7 +358,7 @@ pub(crate) mod external {
             // If we began execution when a slot was still in process, and could
             // not record at the end because the slot has ended, we will retry
             // on the next slot.
-            let mut last_attempted_slot = message.max_working_slot; // TODO: Hmmm.
+            let mut last_attempted_slot = 0;
             for _ in 0..1 {
                 let Some(leader_state) =
                     active_leader_state_with_timeout(&self.shared_leader_state)
