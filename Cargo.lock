@@ -10874,6 +10874,7 @@ name = "solana-svm"
 version = "4.0.0-alpha.0"
 dependencies = [
  "agave-syscalls",
+ "agave-transaction-view",
  "ahash 0.8.12",
  "assert_matches",
  "bincode",
