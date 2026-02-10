@@ -6,14 +6,14 @@ use {
         transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
     },
     agave_transaction_view::{
-        resolved_transaction_view::ResolvedTransactionView,
-        transaction_data::TransactionData,
-        transaction_version::TransactionVersion,
-        transaction_view::{SanitizedTransactionView, TransactionView},
+        resolved_transaction_view::ResolvedTransactionView, transaction_data::TransactionData,
+        transaction_version::TransactionVersion, transaction_view::TransactionView,
     },
+    solana_account::{AccountSharedData, ReadableAccount},
+    solana_address_lookup_table_interface::state::AddressLookupTable,
     solana_clock::Slot,
-    solana_instruction::{TRANSACTION_LEVEL_STACK_HEIGHT, error::InstructionError},
-    solana_message::v0::LoadedAddresses,
+    solana_instruction::error::InstructionError,
+    solana_message::{AccountKeys, v0::LoadedAddresses},
     solana_program_runtime::{
         execution_budget::SVMTransactionExecutionCost, loaded_programs::ProgramCacheForTxBatch,
         sysvar_cache::SysvarCache,
@@ -21,12 +21,13 @@ use {
     solana_pubkey::{Pubkey, pubkey},
     solana_svm_callback::TransactionProcessingCallback,
     solana_svm_timings::ExecuteTimings,
-    solana_svm_transaction::svm_transaction::SVMTransaction,
-    solana_transaction::{
-        sanitized::MessageHash, versioned::sanitized::SanitizedVersionedTransaction,
-    },
+    solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
+    solana_transaction::{TransactionResult, sanitized::MAX_TX_ACCOUNT_LOCKS},
     solana_transaction_error::TransactionError,
-    std::{collections::HashMap, sync::RwLock},
+    std::{
+        collections::{HashMap, HashSet},
+        sync::RwLock,
+    },
 };
 
 const SUDO_PROGRAM_ID: Pubkey = pubkey!("Sudo111111111111111111111111111111111111111");
@@ -100,8 +101,17 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     let sudo_ix = SudoInstructionData::deserialize(sudo_ix.data)?;
 
     // Deserialize & sanitize the inner transaction.
-    let inner_view =
-        TransactionView::try_new_sanitized(sudo_ix.inner_tx_bytes.as_slice(), true, true).ok()?;
+    //
+    // NOTE: We use an empty reserved_account_keys set because the outer TX
+    // already validated that reserved keys aren't locked.
+    let reserved_account_keys = HashSet::new();
+    let inner_data = sudo_ix.inner_tx_bytes.as_slice();
+    let inner = translate_to_resolved_view(
+        inner_data,
+        &loaded_transaction.accounts,
+        &sudo_ix.account_map,
+        &reserved_account_keys,
+    )?;
 
     todo!()
 }
@@ -122,63 +132,90 @@ impl SudoInstructionData {
     }
 }
 
-// Yoinked and amended from `receive_and_buffer.rs`
-fn translate_to_runtime_view<D: TransactionData>(
-    data: D,
-    bank: &Bank,
-    enable_static_instruction_limit: bool,
-    transaction_account_lock_limit: usize,
-    enable_instruction_accounts_limit: bool,
-) -> Option<(RuntimeTransaction<ResolvedTransactionView<D>>, u64)> {
-    // Parsing and basic sanitization checks
-    let view = SanitizedTransactionView::try_new_sanitized(
-        data,
-        enable_static_instruction_limit,
-        enable_instruction_accounts_limit,
-    )
-    .ok()?;
+/// Parses inner TX bytes into a resolved transaction view.
+///
+/// Uses the outer TX's accounts to resolve ALT addresses instead of loading from bank.
+fn translate_to_resolved_view<D: TransactionData>(
+    inner_tx_data: D,
+    outer_accounts: &[(Pubkey, AccountSharedData)],
+    account_map: &[u8],
+    reserved_account_keys: &HashSet<Pubkey>,
+) -> Option<(ResolvedTransactionView<D>, Slot)> {
+    // Parsing and basic sanitization checks.
+    let view = TransactionView::try_new_sanitized(inner_tx_data, true, true).ok()?;
 
-    let view = RuntimeTransaction::<SanitizedTransactionView<_>>::try_new(
-        view,
-        MessageHash::Compute,
-        None,
-    )
-    .ok()?;
-
-    if usize::from(view.total_num_accounts()) > transaction_account_lock_limit {
+    // TODO: Is `MAX_TX_ACCOUNT_LOCKS` even live?
+    if usize::from(view.total_num_accounts()) > MAX_TX_ACCOUNT_LOCKS {
         return None;
     }
 
-    let (loaded_addresses, deactivation_slot) = load_addresses_for_view(&view, bank)?;
+    // Resolve addresses using outer TX's accounts instead of loading from bank.
+    let (loaded_addresses, deactivation_slot) =
+        resolve_inner_addresses(&view, outer_accounts, account_map)?;
 
-    let Ok(view) = RuntimeTransaction::<ResolvedTransactionView<_>>::try_new(
-        view,
-        loaded_addresses,
-        bank.get_reserved_account_keys(),
-    ) else {
-        return Err(PacketHandlingError::Sanitization);
-    };
+    let view =
+        ResolvedTransactionView::try_new(view, loaded_addresses, reserved_account_keys).ok()?;
 
-    // Validate no duplicate accounts (must be after resolution to catch ALT duplicates)
-    validate_account_locks(view.account_keys(), transaction_account_lock_limit).ok()?;
+    // Validate no duplicate accounts (must be after resolution to catch ALT duplicates).
+    validate_account_locks(view.account_keys(), MAX_TX_ACCOUNT_LOCKS).ok()?;
 
     Some((view, deactivation_slot))
 }
 
-// Yoinked and amended from `receive_and_buffer.rs`
-fn load_addresses_for_view<D: TransactionData>(
-    view: &SanitizedTransactionView<D>,
-    // TODO: Replace with AddressLoader trait on the SudoInstruction.
-    bank: &Bank,
+/// Resolves inner TX addresses using the outer TX's already-loaded accounts.
+///
+/// For V0 transactions, the inner TX references ALTs which were already resolved
+/// by the outer TX. We extract the resolved addresses from the outer TX's account
+/// list using the account_map, and read deactivation_slot from the ALT accounts.
+fn resolve_inner_addresses<D: TransactionData>(
+    inner_view: &TransactionView<true, D>,
+    outer_accounts: &[(Pubkey, AccountSharedData)],
+    account_map: &[u8],
 ) -> Option<(Option<LoadedAddresses>, Slot)> {
-    match view.version() {
-        TransactionVersion::Legacy => Some((None, u64::MAX)),
-        TransactionVersion::V0 => bank
-            .load_addresses_from_ref(view.address_table_lookup_iter())
-            .map(|(loaded_addresses, deactivation_slot)| {
-                (Some(loaded_addresses), deactivation_slot)
-            })
-            .ok(),
+    match inner_view.version() {
+        TransactionVersion::Legacy => Some((None, Slot::MAX)),
+        TransactionVersion::V0 => {
+            let num_static = inner_view.static_account_keys().len();
+            let num_writable_lookup = inner_view.total_writable_lookup_accounts() as usize;
+            let num_readonly_lookup = inner_view.total_readonly_lookup_accounts() as usize;
+
+            // Account map layout: [static keys...][writable lookup...][readonly lookup...]
+            let writable_start = num_static;
+            let readonly_start = writable_start + num_writable_lookup;
+            let expected_len = readonly_start + num_readonly_lookup;
+            if account_map.len() != expected_len {
+                return None;
+            }
+
+            // Extract resolved writable addresses from outer accounts.
+            let writable: Vec<Pubkey> = account_map[writable_start..readonly_start]
+                .iter()
+                .map(|&outer_idx| outer_accounts.get(outer_idx as usize).map(|(k, _)| *k))
+                .collect::<Option<Vec<_>>>()?;
+
+            // Extract resolved readonly addresses from outer accounts.
+            let readonly: Vec<Pubkey> = account_map[readonly_start..]
+                .iter()
+                .map(|&outer_idx| outer_accounts.get(outer_idx as usize).map(|(k, _)| *k))
+                .collect::<Option<Vec<_>>>()?;
+
+            // Find minimum deactivation slot across all referenced ALTs.
+            let mut deactivation_slot = Slot::MAX;
+            for alt_lookup in inner_view.address_table_lookup_iter() {
+                let alt_pubkey = alt_lookup.account_key;
+                // TODO: Bit slow/risky.
+                let (_, alt_account) = outer_accounts.iter().find(|(k, _)| k == alt_pubkey)?;
+
+                let lookup_table = AddressLookupTable::deserialize(alt_account.data()).ok()?;
+                deactivation_slot =
+                    core::cmp::min(deactivation_slot, lookup_table.meta.deactivation_slot);
+            }
+
+            Some((
+                Some(LoadedAddresses { writable, readonly }),
+                deactivation_slot,
+            ))
+        }
     }
 }
 
@@ -188,9 +225,19 @@ fn validate_account_locks(
 ) -> TransactionResult<()> {
     if account_keys.len() > tx_account_lock_limit {
         Err(TransactionError::TooManyAccountLocks)
-    } else if has_duplicates(account_keys) {
+    } else if has_duplicates(&account_keys) {
         Err(TransactionError::AccountLoadedTwice)
     } else {
         Ok(())
     }
+}
+
+fn has_duplicates(account_keys: &AccountKeys) -> bool {
+    let mut seen = HashSet::with_capacity(account_keys.len());
+    for key in account_keys.iter() {
+        if !seen.insert(key) {
+            return true;
+        }
+    }
+    false
 }

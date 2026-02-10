@@ -10889,6 +10889,7 @@ dependencies = [
  "serde",
  "shuttle",
  "solana-account",
+ "solana-address-lookup-table-interface",
  "solana-bpf-loader-program",
  "solana-clock",
  "solana-compute-budget",
