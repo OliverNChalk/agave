@@ -2,6 +2,7 @@ use {
     crate::{
         account_loader::LoadedTransaction,
         nonce_info::NonceInfo,
+        rollback_accounts::RollbackAccounts,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
         transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
@@ -25,7 +26,7 @@ use {
     solana_program_runtime::{
         execution_budget::{
             DEFAULT_HEAP_COST, MAX_COMPUTE_UNIT_LIMIT, MAX_HEAP_FRAME_BYTES, MIN_HEAP_FRAME_BYTES,
-            SVMTransactionExecutionCost,
+            SVMTransactionExecutionBudget, SVMTransactionExecutionCost,
         },
         loaded_programs::ProgramCacheForTxBatch,
         sysvar_cache::SysvarCache,
@@ -37,6 +38,7 @@ use {
     solana_svm_timings::ExecuteTimings,
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_transaction::{TransactionResult, sanitized::MAX_TX_ACCOUNT_LOCKS},
+    solana_transaction_context::IndexOfAccount,
     solana_transaction_error::TransactionError,
     std::{
         collections::{HashMap, HashSet},
@@ -169,6 +171,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     }
 
     // Verify replay protection.
+    // TODO: Write nonce_info back to outer accounts after inner execution.
     let nonce_info = match inner.get_durable_nonce(true) {
         Some(nonce_address) => Some(validate_nonce(
             &inner,
@@ -188,7 +191,16 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         &mut loaded_transaction.accounts,
     )?;
 
-    todo!()
+    // Build inner LoadedTransaction.
+    let inner_loaded = build_inner_loaded_transaction(
+        &inner,
+        &inner_limits,
+        &sudo_ix.account_map,
+        &loaded_transaction.accounts,
+        environment,
+    )?;
+
+    todo!("execute inner message via process_message")
 }
 
 struct SudoInstructionData {
@@ -411,6 +423,50 @@ fn transfer_inner_fee(
     outer_payer_account.checked_add_lamports(total_fee).ok()?;
 
     Some(())
+}
+
+fn build_inner_loaded_transaction(
+    inner: &impl SVMMessage,
+    inner_limits: &InnerComputeBudgetLimits,
+    account_map: &[u8],
+    outer_accounts: &[(Pubkey, AccountSharedData)],
+    environment: &TransactionProcessingEnvironment,
+) -> Option<LoadedTransaction> {
+    // Map accounts.
+    let inner_accounts: Vec<(Pubkey, AccountSharedData)> = account_map
+        .iter()
+        .map(|&outer_idx| outer_accounts.get(outer_idx as usize).cloned())
+        .collect::<Option<Vec<_>>>()?;
+
+    // Build program_indices.
+    let program_indices: Vec<IndexOfAccount> = inner
+        .instructions_iter()
+        .map(|ix| ix.program_id_index as IndexOfAccount)
+        .collect();
+
+    // Build compute budget from parsed inner limits.
+    let simd_0268_active = environment.feature_set.raise_cpi_nesting_limit_to_8;
+    let compute_budget = SVMTransactionExecutionBudget {
+        compute_unit_limit: inner_limits.compute_unit_limit,
+        heap_size: inner_limits.heap_size,
+        ..SVMTransactionExecutionBudget::new_with_defaults(simd_0268_active)
+    };
+
+    // Rollback is handled at the outer TX level (nonce already advanced, fees transferred).
+    let rollback_accounts = RollbackAccounts::FeePayerOnly {
+        fee_payer: inner_accounts.first()?.clone(),
+    };
+
+    Some(LoadedTransaction {
+        accounts: inner_accounts,
+        program_indices,
+        // Already transferred to outer payer.
+        fee_details: FeeDetails::default(),
+        rollback_accounts,
+        compute_budget,
+        // Already validated via outer TX.
+        loaded_accounts_data_size: 0,
+    })
 }
 
 struct InnerComputeBudgetLimits {
