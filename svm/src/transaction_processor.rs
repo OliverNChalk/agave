@@ -544,6 +544,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             &mut program_cache_for_tx_batch,
                             environment,
                             config,
+                            self.slot,
                         ),
                         false => self.execute_loaded_transaction(
                             callbacks,

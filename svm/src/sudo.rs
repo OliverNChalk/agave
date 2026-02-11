@@ -51,6 +51,7 @@ pub fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     environment: &TransactionProcessingEnvironment,
     config: &TransactionProcessingConfig,
+    current_slot: Slot,
 ) -> ExecutedTransaction {
     match execute_loaded_transaction_inner(
         sysvar_cache,
@@ -63,6 +64,7 @@ pub fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
         program_cache_for_tx_batch,
         environment,
         config,
+        current_slot,
     ) {
         Some(execution_details) => todo!(),
         None => ExecutedTransaction {
@@ -95,6 +97,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     environment: &TransactionProcessingEnvironment,
     config: &TransactionProcessingConfig,
+    current_slot: Slot,
 ) -> Option<TransactionExecutionDetails> {
     // Extract the sudo instruction.
     let sudo_ix = tx.instructions_iter().next()?;
@@ -113,6 +116,11 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         &reserved_account_keys,
     )?;
 
+    // Verify ALT deactivation slot.
+    if current_slot >= alt_deactivation_slot {
+        return None;
+    }
+
     // Verify inner TX signatures.
     for (i, signature) in inner.signatures().iter().enumerate() {
         let signer_pubkey = inner.static_account_keys().get(i)?;
@@ -121,7 +129,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         }
     }
 
-    // Ensure that our inner <> outer key mapping is consistent.
+    // Verify inner <> outer key mapping is consistent.
     let inner_keys = inner.account_keys();
     if sudo_ix.account_map.len() != inner_keys.len() {
         return None;
