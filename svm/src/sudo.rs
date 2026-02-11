@@ -1,6 +1,7 @@
 use {
     crate::{
         account_loader::LoadedTransaction,
+        nonce_info::NonceInfo,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
         transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
@@ -9,11 +10,17 @@ use {
         resolved_transaction_view::ResolvedTransactionView, transaction_data::TransactionData,
         transaction_version::TransactionVersion, transaction_view::TransactionView,
     },
-    solana_account::{AccountSharedData, ReadableAccount},
+    solana_account::{AccountSharedData, ReadableAccount, state_traits::StateMut},
     solana_address_lookup_table_interface::state::AddressLookupTable,
     solana_clock::Slot,
     solana_instruction::error::InstructionError,
     solana_message::{AccountKeys, v0::LoadedAddresses},
+    solana_nonce::{
+        NONCED_TX_MARKER_IX_INDEX,
+        state::{DurableNonce, State as NonceState},
+        versions::Versions as NonceVersions,
+    },
+    solana_nonce_account::verify_nonce_account,
     solana_program_runtime::{
         execution_budget::SVMTransactionExecutionCost, loaded_programs::ProgramCacheForTxBatch,
         sysvar_cache::SysvarCache,
@@ -142,6 +149,19 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         }
     }
 
+    // Verify replay protection.
+    let nonce_info = match inner.get_durable_nonce(true) {
+        Some(nonce_address) => Some(validate_nonce(
+            &inner,
+            nonce_address,
+            &inner_keys,
+            &sudo_ix.account_map,
+            &loaded_transaction.accounts,
+            environment,
+        )?),
+        None => unimplemented!("verify tombstone pda"),
+    };
+
     todo!()
 }
 
@@ -269,4 +289,51 @@ fn has_duplicates(account_keys: &AccountKeys) -> bool {
         }
     }
     false
+}
+
+fn validate_nonce(
+    inner: &impl SVMMessage,
+    nonce_address: &Pubkey,
+    inner_keys: &AccountKeys,
+    account_map: &[u8],
+    outer_accounts: &[(Pubkey, AccountSharedData)],
+    environment: &TransactionProcessingEnvironment,
+) -> Option<NonceInfo> {
+    // Find the nonce account in the inner TX's account list.
+    let nonce_inner_idx = inner_keys.iter().position(|k| k == nonce_address)?;
+    let nonce_outer_idx = *account_map.get(nonce_inner_idx)? as usize;
+    let (_, nonce_account) = outer_accounts.get(nonce_outer_idx)?;
+    let mut nonce_account = nonce_account.clone();
+
+    // Verify nonce account:
+    // - Owner is SystemProgram
+    // - State is Initialized
+    // - Stored durable nonce matches inner TX's recent_blockhash
+    let nonce_data = verify_nonce_account(&nonce_account, inner.recent_blockhash())?;
+
+    // Verify nonce hasn't already been used this slot.
+    let next_durable_nonce = DurableNonce::from_blockhash(&environment.blockhash);
+    if nonce_data.durable_nonce == next_durable_nonce {
+        return None; // Already used
+    }
+
+    // Verify nonce authority signed the advance nonce instruction (ix 0).
+    let authority_signed = inner
+        .get_ix_signers(NONCED_TX_MARKER_IX_INDEX as usize)
+        .any(|signer| signer == &nonce_data.authority);
+    if !authority_signed {
+        return None;
+    }
+
+    // Advance the nonce to prevent replay.
+    let next_nonce_state = NonceState::new_initialized(
+        &nonce_data.authority,
+        next_durable_nonce,
+        environment.blockhash_lamports_per_signature,
+    );
+    nonce_account
+        .set_state(&NonceVersions::new(next_nonce_state))
+        .expect("Serializing into a validated nonce account cannot fail");
+
+    Some(NonceInfo::new(*nonce_address, nonce_account))
 }
