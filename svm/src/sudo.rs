@@ -23,10 +23,16 @@ use {
     },
     solana_nonce_account::verify_nonce_account,
     solana_program_runtime::{
-        execution_budget::SVMTransactionExecutionCost, loaded_programs::ProgramCacheForTxBatch,
+        execution_budget::{
+            DEFAULT_HEAP_COST, MAX_COMPUTE_UNIT_LIMIT, MAX_HEAP_FRAME_BYTES, MIN_HEAP_FRAME_BYTES,
+            SVMTransactionExecutionCost,
+        },
+        loaded_programs::ProgramCacheForTxBatch,
         sysvar_cache::SysvarCache,
+        vm::calculate_heap_cost,
     },
     solana_pubkey::{Pubkey, pubkey},
+    solana_sdk_ids::compute_budget as compute_budget_program,
     solana_svm_callback::TransactionProcessingCallback,
     solana_svm_timings::ExecuteTimings,
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
@@ -150,6 +156,18 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         }
     }
 
+    // Parse inner TX's compute budget instructions.
+    let inner_limits = parse_inner_compute_budget(&inner)?;
+
+    // Verify outer TX has sufficient compute budget for inner TX execution.
+    let heap_cost = calculate_heap_cost(inner_limits.heap_size, DEFAULT_HEAP_COST);
+    let required_cu = BASE_SUDO_COST
+        .checked_add(inner_limits.compute_unit_limit)?
+        .checked_add(heap_cost)?;
+    if loaded_transaction.compute_budget.compute_unit_limit < required_cu {
+        return None;
+    }
+
     // Verify replay protection.
     let nonce_info = match inner.get_durable_nonce(true) {
         Some(nonce_address) => Some(validate_nonce(
@@ -165,7 +183,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
 
     // Calculate and transfer inner TX fees.
     transfer_inner_fee(
-        calculate_inner_fee(&inner, environment),
+        calculate_inner_fee(&inner, &inner_limits, environment),
         &sudo_ix.account_map,
         &mut loaded_transaction.accounts,
     )?;
@@ -348,6 +366,7 @@ fn validate_nonce(
 
 fn calculate_inner_fee(
     inner: &impl SVMMessage,
+    inner_limits: &InnerComputeBudgetLimits,
     environment: &TransactionProcessingEnvironment,
 ) -> FeeDetails {
     // Count all signatures (transaction + precompiles).
@@ -360,8 +379,11 @@ fn calculate_inner_fee(
     let signature_fee =
         signature_count.saturating_mul(environment.blockhash_lamports_per_signature);
 
-    // TODO: Parse compute budget instructions to get prioritization fee.
-    let prioritization_fee: u64 = 0;
+    let prioritization_fee = inner_limits
+        .compute_unit_price
+        .saturating_mul(inner_limits.compute_unit_limit)
+        .saturating_add(999_999)
+        .saturating_div(1_000_000);
 
     FeeDetails::new(signature_fee, prioritization_fee)
 }
@@ -389,4 +411,14 @@ fn transfer_inner_fee(
     outer_payer_account.checked_add_lamports(total_fee).ok()?;
 
     Some(())
+}
+
+struct InnerComputeBudgetLimits {
+    compute_unit_limit: u64,
+    heap_size: u32,
+    compute_unit_price: u64,
+}
+
+fn parse_inner_compute_budget(inner: &impl SVMMessage) -> Option<InnerComputeBudgetLimits> {
+    unimplemented!()
 }
