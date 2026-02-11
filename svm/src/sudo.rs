@@ -10,9 +10,10 @@ use {
         resolved_transaction_view::ResolvedTransactionView, transaction_data::TransactionData,
         transaction_version::TransactionVersion, transaction_view::TransactionView,
     },
-    solana_account::{AccountSharedData, ReadableAccount, state_traits::StateMut},
+    solana_account::{AccountSharedData, ReadableAccount, WritableAccount, state_traits::StateMut},
     solana_address_lookup_table_interface::state::AddressLookupTable,
     solana_clock::Slot,
+    solana_fee_structure::FeeDetails,
     solana_instruction::error::InstructionError,
     solana_message::{AccountKeys, v0::LoadedAddresses},
     solana_nonce::{
@@ -161,6 +162,13 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         )?),
         None => unimplemented!("verify tombstone pda"),
     };
+
+    // Calculate and transfer inner TX fees.
+    transfer_inner_fee(
+        calculate_inner_fee(&inner, environment),
+        &sudo_ix.account_map,
+        &mut loaded_transaction.accounts,
+    )?;
 
     todo!()
 }
@@ -336,4 +344,49 @@ fn validate_nonce(
         .expect("Serializing into a validated nonce account cannot fail");
 
     Some(NonceInfo::new(*nonce_address, nonce_account))
+}
+
+fn calculate_inner_fee(
+    inner: &impl SVMMessage,
+    environment: &TransactionProcessingEnvironment,
+) -> FeeDetails {
+    // Count all signatures (transaction + precompiles).
+    let signature_count = inner
+        .num_transaction_signatures()
+        .saturating_add(inner.num_ed25519_signatures())
+        .saturating_add(inner.num_secp256k1_signatures())
+        .saturating_add(inner.num_secp256r1_signatures());
+
+    let signature_fee =
+        signature_count.saturating_mul(environment.blockhash_lamports_per_signature);
+
+    // TODO: Parse compute budget instructions to get prioritization fee.
+    let prioritization_fee: u64 = 0;
+
+    FeeDetails::new(signature_fee, prioritization_fee)
+}
+
+fn transfer_inner_fee(
+    fee: FeeDetails,
+    account_map: &[u8],
+    loaded_accounts: &mut [(Pubkey, AccountSharedData)],
+) -> Option<()> {
+    let total_fee = fee.total_fee();
+    if total_fee == 0 {
+        return Some(());
+    }
+
+    // Resolve the inner fee payer to the account idx in the loaded_accounts.
+    let inner_fee_payer_outer_idx = *account_map.first()?;
+    let inner_fee_payer_outer_idx = inner_fee_payer_outer_idx as usize;
+
+    // Deduct fee from inner fee payer.
+    let (_, inner_payer_account) = loaded_accounts.get_mut(inner_fee_payer_outer_idx)?;
+    inner_payer_account.checked_sub_lamports(total_fee).ok()?;
+
+    // Credit fee to outer fee payer.
+    let (_, outer_payer_account) = loaded_accounts.get_mut(0)?;
+    outer_payer_account.checked_add_lamports(total_fee).ok()?;
+
+    Some(())
 }
