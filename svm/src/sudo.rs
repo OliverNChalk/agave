@@ -121,6 +121,19 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         }
     }
 
+    // Ensure that our inner <> outer key mapping is consistent.
+    let inner_keys = inner.account_keys();
+    if sudo_ix.account_map.len() != inner_keys.len() {
+        return None;
+    }
+    for (inner_idx, &outer_idx) in sudo_ix.account_map.iter().enumerate() {
+        let inner_key = inner_keys.get(inner_idx)?;
+        let (outer_key, _) = loaded_transaction.accounts.get(outer_idx as usize)?;
+        if inner_key != outer_key {
+            return None;
+        }
+    }
+
     todo!()
 }
 
