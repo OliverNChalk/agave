@@ -106,12 +106,20 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     // already validated that reserved keys aren't locked.
     let reserved_account_keys = HashSet::new();
     let inner_data = sudo_ix.inner_tx_bytes.as_slice();
-    let inner = translate_to_resolved_view(
+    let (inner, alt_deactivation_slot) = translate_to_resolved_view(
         inner_data,
         &loaded_transaction.accounts,
         &sudo_ix.account_map,
         &reserved_account_keys,
     )?;
+
+    // Verify inner TX signatures.
+    for (i, signature) in inner.signatures().iter().enumerate() {
+        let signer_pubkey = inner.static_account_keys().get(i)?;
+        if !signature.verify(signer_pubkey.as_ref(), inner.message_data()) {
+            return None;
+        }
+    }
 
     todo!()
 }
