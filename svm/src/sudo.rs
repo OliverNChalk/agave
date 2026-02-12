@@ -206,21 +206,27 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         None => unimplemented!("verify tombstone pda"),
     };
 
-    // Calculate and transfer inner TX fees.
-    transfer_inner_fee(
-        calculate_inner_fee(&inner, &inner_limits, environment),
-        &sudo_ix.account_map,
-        &mut loaded_transaction.accounts,
-    )?;
-
     // Build inner LoadedTransaction.
-    let inner_loaded = build_inner_loaded_transaction(
+    let mut inner_loaded = build_inner_loaded_transaction(
         &inner,
         &inner_limits,
         &sudo_ix.account_map,
         &loaded_transaction.accounts,
         environment,
     )?;
+
+    // Transfer inner TX fees. This happens after all validation but before
+    // execution, so validation failures don't charge the inner fee payer.
+    let inner_fee = calculate_inner_fee(&inner, &inner_limits, environment);
+    transfer_inner_fee(
+        inner_fee,
+        &sudo_ix.account_map,
+        &mut loaded_transaction.accounts,
+    )?;
+
+    // Sync fee payer balance to inner_loaded so execution sees the post-fee balance.
+    let fee_payer_outer_idx = *sudo_ix.account_map.first()? as usize;
+    inner_loaded.accounts[0].1 = loaded_transaction.accounts[fee_payer_outer_idx].1.clone();
 
     // Execute inner message.
     let inner_execution = execute_inner_message(
