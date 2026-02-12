@@ -671,20 +671,12 @@ fn extract_inner_instructions(
             u8::try_from(inner_stack_height.saturating_add(1)).unwrap_or(u8::MAX);
 
         // Remap program account index from inner to outer.
-        let program_id_index = account_map
-            .get(ix_frame.program_account_index_in_tx as usize)
-            .copied()
-            .unwrap_or(0);
+        let program_id_index = account_map[ix_frame.program_account_index_in_tx as usize];
 
         // Remap instruction account indices from inner to outer.
         let account_indices: Vec<u8> = ix_accounts
             .iter()
-            .map(|acc| {
-                account_map
-                    .get(acc.index_in_transaction as usize)
-                    .copied()
-                    .unwrap_or(0)
-            })
+            .map(|acc| account_map[acc.index_in_transaction as usize])
             .collect();
 
         result.push(InnerInstruction {
