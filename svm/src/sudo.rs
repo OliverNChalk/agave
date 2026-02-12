@@ -170,17 +170,23 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         return None;
     }
 
-    // Verify replay protection.
-    // TODO: Write nonce_info back to outer accounts after inner execution.
-    let nonce_info = match inner.get_durable_nonce(true) {
-        Some(nonce_address) => Some(validate_nonce(
-            &inner,
-            nonce_address,
-            &inner_keys,
-            &sudo_ix.account_map,
-            &loaded_transaction.accounts,
-            environment,
-        )?),
+    // Verify replay protection and advance nonce (if applicable).
+    match inner.get_durable_nonce(true) {
+        Some(nonce_address) => {
+            let nonce_info = validate_nonce(
+                &inner,
+                nonce_address,
+                &inner_keys,
+                &sudo_ix.account_map,
+                &loaded_transaction.accounts,
+                environment,
+            )?;
+
+            // Write advanced nonce back to outer accounts.
+            let nonce_inner_idx = inner_keys.iter().position(|k| k == nonce_address)?;
+            let nonce_outer_idx = *sudo_ix.account_map.get(nonce_inner_idx)? as usize;
+            loaded_transaction.accounts[nonce_outer_idx].1 = nonce_info.account().clone();
+        }
         None => unimplemented!("verify tombstone pda"),
     };
 
