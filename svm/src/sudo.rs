@@ -149,7 +149,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     )?;
 
     // Verify ALT deactivation slot.
-    if current_slot >= alt_deactivation_slot {
+    if current_slot > alt_deactivation_slot {
         return None;
     }
 
