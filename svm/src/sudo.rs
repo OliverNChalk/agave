@@ -254,10 +254,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     Some(TransactionExecutionDetails {
         status: Ok(()), // Sudo always succeeds if we got here
         log_messages: build_sudo_logs(inner_execution.log_messages, &inner_execution.status),
-        inner_instructions: build_sudo_inner_instructions(
-            inner_execution.inner_instructions,
-            &sudo_ix.account_map,
-        ),
+        inner_instructions: build_sudo_inner_instructions(inner_execution.inner_instructions),
         return_data: inner_execution.return_data,
         executed_units: BASE_SUDO_COST
             .checked_add(inner_execution.executed_units)
@@ -733,7 +730,6 @@ fn build_sudo_logs(
 
 fn build_sudo_inner_instructions(
     inner_instructions: Option<InnerInstructionsList>,
-    _account_map: &[u8],
 ) -> Option<InnerInstructionsList> {
     let inner_instructions = inner_instructions?;
 
