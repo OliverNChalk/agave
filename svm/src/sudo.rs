@@ -1,6 +1,7 @@
 use {
     crate::{
         account_loader::LoadedTransaction,
+        message_processor::process_message,
         nonce_info::NonceInfo,
         rollback_accounts::RollbackAccounts,
         transaction_error_metrics::TransactionErrorMetrics,
@@ -25,20 +26,22 @@ use {
     solana_nonce_account::verify_nonce_account,
     solana_program_runtime::{
         execution_budget::{
-            DEFAULT_HEAP_COST, MAX_COMPUTE_UNIT_LIMIT, MAX_HEAP_FRAME_BYTES, MIN_HEAP_FRAME_BYTES,
-            SVMTransactionExecutionBudget, SVMTransactionExecutionCost,
+            DEFAULT_HEAP_COST, SVMTransactionExecutionBudget, SVMTransactionExecutionCost,
         },
+        invoke_context::{EnvironmentConfig, InvokeContext},
         loaded_programs::ProgramCacheForTxBatch,
         sysvar_cache::SysvarCache,
         vm::calculate_heap_cost,
     },
     solana_pubkey::{Pubkey, pubkey},
-    solana_sdk_ids::compute_budget as compute_budget_program,
     solana_svm_callback::TransactionProcessingCallback,
     solana_svm_timings::ExecuteTimings,
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_transaction::{TransactionResult, sanitized::MAX_TX_ACCOUNT_LOCKS},
-    solana_transaction_context::IndexOfAccount,
+    solana_transaction_context::{
+        IndexOfAccount,
+        transaction::{ExecutionRecord, TransactionContext},
+    },
     solana_transaction_error::TransactionError,
     std::{
         collections::{HashMap, HashSet},
@@ -82,7 +85,11 @@ pub fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
         config,
         current_slot,
     ) {
-        Some(execution_details) => todo!(),
+        Some(execution_details) => ExecutedTransaction {
+            loaded_transaction,
+            execution_details,
+            programs_modified_by_tx: program_cache_for_tx_batch.drain_modified_entries(),
+        },
         None => ExecutedTransaction {
             loaded_transaction,
             execution_details: TransactionExecutionDetails {
@@ -206,7 +213,37 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
         environment,
     )?;
 
-    todo!("execute inner message via process_message")
+    // Execute inner message.
+    let inner_execution = execute_inner_message(
+        &inner,
+        inner_loaded,
+        callback,
+        program_cache_for_tx_batch,
+        &sysvar_cache.read().unwrap(),
+        environment,
+        execution_cost,
+        execute_timings,
+    );
+
+    // On success, sync all inner account changes back to outer accounts. On failure we
+    // don't do anything as we've already synced nonce & fee payer.
+    if inner_execution.status.is_ok() {
+        for (inner_idx, &outer_idx) in sudo_ix.account_map.iter().enumerate() {
+            loaded_transaction.accounts[outer_idx as usize].1 =
+                inner_execution.accounts[inner_idx].1.clone();
+        }
+    }
+
+    Some(TransactionExecutionDetails {
+        status: Ok(()), // Sudo always succeeds if we got here
+        log_messages: None,
+        inner_instructions: None,
+        return_data: inner_execution.return_data,
+        executed_units: BASE_SUDO_COST
+            .checked_add(inner_execution.executed_units)
+            .unwrap(),
+        accounts_data_len_delta: inner_execution.accounts_data_len_delta,
+    })
 }
 
 struct SudoInstructionData {
@@ -220,7 +257,7 @@ struct SudoInstructionData {
 }
 
 impl SudoInstructionData {
-    fn deserialize(buf: &[u8]) -> Option<Self> {
+    fn deserialize(_buf: &[u8]) -> Option<Self> {
         unimplemented!()
     }
 }
@@ -483,4 +520,87 @@ struct InnerComputeBudgetLimits {
 
 fn parse_inner_compute_budget(inner: &impl SVMMessage) -> Option<InnerComputeBudgetLimits> {
     unimplemented!()
+}
+
+struct InnerExecutionResult {
+    status: Result<(), TransactionError>,
+    accounts: Vec<(Pubkey, AccountSharedData)>,
+    return_data: Option<solana_transaction_context::transaction::TransactionReturnData>,
+    executed_units: u64,
+    accounts_data_len_delta: i64,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_inner_message<CB: TransactionProcessingCallback>(
+    inner: &impl SVMMessage,
+    inner_loaded: LoadedTransaction,
+    callback: &CB,
+    program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
+    sysvar_cache: &SysvarCache,
+    environment: &TransactionProcessingEnvironment,
+    execution_cost: SVMTransactionExecutionCost,
+    execute_timings: &mut ExecuteTimings,
+) -> InnerExecutionResult {
+    let compute_budget = inner_loaded.compute_budget;
+
+    // Create transaction context with inner accounts.
+    let mut transaction_context = TransactionContext::new(
+        inner_loaded.accounts,
+        environment.rent.clone(),
+        compute_budget.max_instruction_stack_depth,
+        compute_budget.max_instruction_trace_length,
+        inner.num_instructions(),
+    );
+
+    // Create invoke context for inner execution.
+    let mut executed_units = 0u64;
+    let mut invoke_context = InvokeContext::new(
+        &mut transaction_context,
+        program_cache_for_tx_batch,
+        EnvironmentConfig::new(
+            environment.blockhash,
+            environment.blockhash_lamports_per_signature,
+            callback,
+            &environment.feature_set,
+            &environment.program_runtime_environments_for_execution,
+            &environment.program_runtime_environments_for_deployment,
+            sysvar_cache,
+        ),
+        None, // No log collector for now
+        compute_budget,
+        execution_cost,
+    );
+
+    // Execute the inner message.
+    let status = process_message(
+        inner,
+        &inner_loaded.program_indices,
+        &mut invoke_context,
+        execute_timings,
+        &mut executed_units,
+    )
+    .map(|_| ());
+
+    // Must drop invoke_context before extracting from transaction_context.
+    drop(invoke_context);
+
+    // Extract execution results.
+    let ExecutionRecord {
+        accounts,
+        return_data,
+        touched_account_count: _,
+        accounts_resize_delta,
+    } = transaction_context.into();
+    let return_data = match return_data.data.is_empty() {
+        true => None,
+        false => Some(return_data),
+    };
+
+    InnerExecutionResult {
+        status,
+        accounts,
+        return_data,
+        executed_units,
+        accounts_data_len_delta: accounts_resize_delta,
+    }
 }
