@@ -6,7 +6,9 @@ use {
         rollback_accounts::RollbackAccounts,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
-        transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
+        transaction_processor::{
+            TransactionLogMessages, TransactionProcessingConfig, TransactionProcessingEnvironment,
+        },
     },
     agave_transaction_view::{
         resolved_transaction_view::ResolvedTransactionView, transaction_data::TransactionData,
@@ -16,8 +18,13 @@ use {
     solana_address_lookup_table_interface::state::AddressLookupTable,
     solana_clock::Slot,
     solana_fee_structure::FeeDetails,
-    solana_instruction::error::InstructionError,
-    solana_message::{AccountKeys, v0::LoadedAddresses},
+    solana_instruction::{TRANSACTION_LEVEL_STACK_HEIGHT, error::InstructionError},
+    solana_message::{
+        AccountKeys,
+        compiled_instruction::CompiledInstruction,
+        inner_instruction::{InnerInstruction, InnerInstructionsList},
+        v0::LoadedAddresses,
+    },
     solana_nonce::{
         NONCED_TX_MARKER_IX_INDEX,
         state::{DurableNonce, State as NonceState},
@@ -35,6 +42,7 @@ use {
     },
     solana_pubkey::{Pubkey, pubkey},
     solana_svm_callback::TransactionProcessingCallback,
+    solana_svm_log_collector::LogCollector,
     solana_svm_timings::ExecuteTimings,
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_transaction::{TransactionResult, sanitized::MAX_TX_ACCOUNT_LOCKS},
@@ -44,7 +52,9 @@ use {
     },
     solana_transaction_error::TransactionError,
     std::{
+        cell::RefCell,
         collections::{HashMap, HashSet},
+        rc::Rc,
         sync::RwLock,
     },
 };
@@ -217,12 +227,14 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     let inner_execution = execute_inner_message(
         &inner,
         inner_loaded,
+        &sudo_ix.account_map,
         callback,
         program_cache_for_tx_batch,
         &sysvar_cache.read().unwrap(),
         environment,
         execution_cost,
         execute_timings,
+        config,
     );
 
     // On success, sync all inner account changes back to outer accounts. On failure we
@@ -236,8 +248,11 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
 
     Some(TransactionExecutionDetails {
         status: Ok(()), // Sudo always succeeds if we got here
-        log_messages: None,
-        inner_instructions: None,
+        log_messages: build_sudo_logs(inner_execution.log_messages, &inner_execution.status),
+        inner_instructions: build_sudo_inner_instructions(
+            inner_execution.inner_instructions,
+            &sudo_ix.account_map,
+        ),
         return_data: inner_execution.return_data,
         executed_units: BASE_SUDO_COST
             .checked_add(inner_execution.executed_units)
@@ -528,18 +543,22 @@ struct InnerExecutionResult {
     return_data: Option<solana_transaction_context::transaction::TransactionReturnData>,
     executed_units: u64,
     accounts_data_len_delta: i64,
+    log_messages: Option<TransactionLogMessages>,
+    inner_instructions: Option<InnerInstructionsList>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn execute_inner_message<CB: TransactionProcessingCallback>(
     inner: &impl SVMMessage,
     inner_loaded: LoadedTransaction,
+    account_map: &[u8],
     callback: &CB,
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     sysvar_cache: &SysvarCache,
     environment: &TransactionProcessingEnvironment,
     execution_cost: SVMTransactionExecutionCost,
     execute_timings: &mut ExecuteTimings,
+    config: &TransactionProcessingConfig,
 ) -> InnerExecutionResult {
     let compute_budget = inner_loaded.compute_budget;
 
@@ -551,6 +570,14 @@ fn execute_inner_message<CB: TransactionProcessingCallback>(
         compute_budget.max_instruction_trace_length,
         inner.num_instructions(),
     );
+
+    // Create log collector if recording enabled.
+    let log_collector = config.recording_config.enable_log_recording.then(|| {
+        match config.log_messages_bytes_limit {
+            None => LogCollector::new_ref(),
+            Some(limit) => LogCollector::new_ref_with_limit(Some(limit)),
+        }
+    });
 
     // Create invoke context for inner execution.
     let mut executed_units = 0u64;
@@ -566,7 +593,7 @@ fn execute_inner_message<CB: TransactionProcessingCallback>(
             &environment.program_runtime_environments_for_deployment,
             sysvar_cache,
         ),
-        None, // No log collector for now
+        log_collector.clone(),
         compute_budget,
         execution_cost,
     );
@@ -583,6 +610,19 @@ fn execute_inner_message<CB: TransactionProcessingCallback>(
 
     // Must drop invoke_context before extracting from transaction_context.
     drop(invoke_context);
+
+    // Extract log messages.
+    let log_messages = log_collector.and_then(|lc| {
+        Rc::try_unwrap(lc)
+            .map(|lc| lc.into_inner().into_messages())
+            .ok()
+    });
+
+    // Extract inner instructions if recording enabled.
+    let inner_instructions = config
+        .recording_config
+        .enable_cpi_recording
+        .then(|| extract_inner_instructions(&mut transaction_context, account_map));
 
     // Extract execution results.
     let ExecutionRecord {
@@ -602,5 +642,98 @@ fn execute_inner_message<CB: TransactionProcessingCallback>(
         return_data,
         executed_units,
         accounts_data_len_delta: accounts_resize_delta,
+        log_messages,
+        inner_instructions,
     }
+}
+
+fn extract_inner_instructions(
+    transaction_context: &mut TransactionContext,
+    account_map: &[u8],
+) -> InnerInstructionsList {
+    let (ix_trace, accounts, ix_data_trace) = transaction_context.take_instruction_trace();
+
+    let mut result: Vec<InnerInstruction> = Vec::new();
+
+    for ((ix_frame, ix_data), ix_accounts) in ix_trace
+        .into_iter()
+        .zip(ix_data_trace.into_iter())
+        .zip(accounts)
+    {
+        // Original stack height in inner TX context.
+        let inner_stack_height = ix_frame.nesting_level.saturating_add(1) as usize;
+
+        // In sudo context, all instructions are nested under sudo (stack_height=1),
+        // so we add 1 to all stack heights.
+        let sudo_stack_height =
+            u8::try_from(inner_stack_height.saturating_add(1)).unwrap_or(u8::MAX);
+
+        // Remap program account index from inner to outer.
+        let program_id_index = account_map
+            .get(ix_frame.program_account_index_in_tx as usize)
+            .copied()
+            .unwrap_or(0);
+
+        // Remap instruction account indices from inner to outer.
+        let account_indices: Vec<u8> = ix_accounts
+            .iter()
+            .map(|acc| {
+                account_map
+                    .get(acc.index_in_transaction as usize)
+                    .copied()
+                    .unwrap_or(0)
+            })
+            .collect();
+
+        result.push(InnerInstruction {
+            instruction: CompiledInstruction::new_from_raw_parts(
+                program_id_index,
+                ix_data.into_owned(),
+                account_indices,
+            ),
+            stack_height: sudo_stack_height,
+        });
+    }
+
+    // Return as single-element list since sudo is the only top-level instruction.
+    vec![result]
+}
+
+fn build_sudo_logs(
+    inner_logs: Option<TransactionLogMessages>,
+    inner_status: &Result<(), TransactionError>,
+) -> Option<TransactionLogMessages> {
+    let inner_logs = inner_logs?;
+
+    let mut logs = Vec::with_capacity(inner_logs.len() + 2);
+
+    // CPI Start. Sudo program invoked at stack height 1.
+    logs.push(format!("Program {} invoke [1]", SUDO_PROGRAM_ID));
+
+    // All inner logs.
+    logs.extend(inner_logs);
+
+    // CPI End. Sudo program success/failure.
+    match inner_status {
+        Ok(()) => logs.push(format!("Program {SUDO_PROGRAM_ID} success")),
+        // TODO: Observing a failed transaction that doesn't abort the wrapper is maybe
+        // gonna break some people.
+        Err(e) => logs.push(format!(
+            "Program {SUDO_PROGRAM_ID} failed: inner transaction error: {e:?}",
+        )),
+    }
+
+    Some(logs)
+}
+
+fn build_sudo_inner_instructions(
+    inner_instructions: Option<InnerInstructionsList>,
+    _account_map: &[u8],
+) -> Option<InnerInstructionsList> {
+    let inner_instructions = inner_instructions?;
+
+    // Filter out if all inner instruction lists are empty.
+    let has_instructions = inner_instructions.iter().any(|list| !list.is_empty());
+
+    has_instructions.then_some(inner_instructions)
 }
