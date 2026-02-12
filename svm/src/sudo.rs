@@ -18,7 +18,7 @@ use {
     solana_address_lookup_table_interface::state::AddressLookupTable,
     solana_clock::Slot,
     solana_fee_structure::FeeDetails,
-    solana_instruction::{TRANSACTION_LEVEL_STACK_HEIGHT, error::InstructionError},
+    solana_instruction::error::InstructionError,
     solana_message::{
         AccountKeys,
         compiled_instruction::CompiledInstruction,
@@ -52,7 +52,6 @@ use {
     },
     solana_transaction_error::TransactionError,
     std::{
-        cell::RefCell,
         collections::{HashMap, HashSet},
         rc::Rc,
         sync::RwLock,
@@ -126,7 +125,7 @@ fn execute_loaded_transaction_inner<CB: TransactionProcessingCallback>(
     tx: &impl SVMTransaction,
     loaded_transaction: &mut LoadedTransaction,
     execute_timings: &mut ExecuteTimings,
-    error_metrics: &mut TransactionErrorMetrics,
+    _error_metrics: &mut TransactionErrorMetrics,
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     environment: &TransactionProcessingEnvironment,
     config: &TransactionProcessingConfig,
@@ -533,7 +532,7 @@ struct InnerComputeBudgetLimits {
     compute_unit_price: u64,
 }
 
-fn parse_inner_compute_budget(inner: &impl SVMMessage) -> Option<InnerComputeBudgetLimits> {
+fn parse_inner_compute_budget(_inner: &impl SVMMessage) -> Option<InnerComputeBudgetLimits> {
     unimplemented!()
 }
 
