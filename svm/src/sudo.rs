@@ -312,8 +312,8 @@ fn translate_to_resolved_view<D: TransactionData>(
 /// Resolves inner TX addresses using the outer TX's already-loaded accounts.
 ///
 /// For V0 transactions, the inner TX references ALTs which were already resolved
-/// by the outer TX. We extract the resolved addresses from the outer TX's account
-/// list using the account_map, and read deactivation_slot from the ALT accounts.
+/// by the outer TX. We verify that the outer accounts match the addresses stored
+/// in the ALT at the specified indexes, ensuring the account_map is valid.
 fn resolve_inner_addresses<D: TransactionData>(
     inner_view: &TransactionView<true, D>,
     outer_accounts: &[(Pubkey, AccountSharedData)],
@@ -323,39 +323,67 @@ fn resolve_inner_addresses<D: TransactionData>(
         TransactionVersion::Legacy => Some((None, Slot::MAX)),
         TransactionVersion::V0 => {
             let num_static = inner_view.static_account_keys().len();
-            let num_writable_lookup = inner_view.total_writable_lookup_accounts() as usize;
-            let num_readonly_lookup = inner_view.total_readonly_lookup_accounts() as usize;
 
             // Account map layout: [static keys...][writable lookup...][readonly lookup...]
-            let writable_start = num_static;
-            let readonly_start = writable_start + num_writable_lookup;
-            let expected_len = readonly_start + num_readonly_lookup;
-            if account_map.len() != expected_len {
-                return None;
-            }
-
-            // Extract resolved writable addresses from outer accounts.
-            let writable: Vec<Pubkey> = account_map[writable_start..readonly_start]
-                .iter()
-                .map(|&outer_idx| outer_accounts.get(outer_idx as usize).map(|(k, _)| *k))
-                .collect::<Option<Vec<_>>>()?;
-
-            // Extract resolved readonly addresses from outer accounts.
-            let readonly: Vec<Pubkey> = account_map[readonly_start..]
-                .iter()
-                .map(|&outer_idx| outer_accounts.get(outer_idx as usize).map(|(k, _)| *k))
-                .collect::<Option<Vec<_>>>()?;
-
-            // Find minimum deactivation slot across all referenced ALTs.
+            // We'll verify addresses as we iterate through ALTs.
+            let mut writable = Vec::new();
+            let mut readonly = Vec::new();
             let mut deactivation_slot = Slot::MAX;
+
+            // Track our position in the account_map for lookup addresses.
+            let mut writable_offset = num_static;
+            let mut readonly_offset =
+                num_static + inner_view.total_writable_lookup_accounts() as usize;
+
+            let verify_indexes = |indexes: &[u8],
+                                  map_offest: &mut usize,
+                                  loaded_keys: &mut Vec<Pubkey>,
+                                  lookup_table: &AddressLookupTable|
+             -> Option<()> {
+                for &idx in indexes {
+                    let alt_addr = lookup_table.addresses.get(idx as usize)?;
+                    let outer_idx = *account_map.get(*map_offest)? as usize;
+                    let (outer_addr, _) = outer_accounts.get(outer_idx)?;
+                    if alt_addr != outer_addr {
+                        return None;
+                    }
+                    loaded_keys.push(*alt_addr);
+                    *map_offest += 1;
+                }
+                Some(())
+            };
+
             for alt_lookup in inner_view.address_table_lookup_iter() {
                 let alt_pubkey = alt_lookup.account_key;
-                // TODO: Bit slow/risky.
                 let (_, alt_account) = outer_accounts.iter().find(|(k, _)| k == alt_pubkey)?;
 
                 let lookup_table = AddressLookupTable::deserialize(alt_account.data()).ok()?;
                 deactivation_slot =
                     core::cmp::min(deactivation_slot, lookup_table.meta.deactivation_slot);
+
+                // Verify writable addresses.
+                verify_indexes(
+                    alt_lookup.writable_indexes,
+                    &mut writable_offset,
+                    &mut writable,
+                    &lookup_table,
+                )?;
+
+                // Verify readonly addresses.
+                verify_indexes(
+                    alt_lookup.readonly_indexes,
+                    &mut readonly_offset,
+                    &mut readonly,
+                    &lookup_table,
+                )?;
+            }
+
+            // Verify we consumed exactly the expected number of account_map entries.
+            let expected_len = num_static
+                + inner_view.total_writable_lookup_accounts() as usize
+                + inner_view.total_readonly_lookup_accounts() as usize;
+            if account_map.len() != expected_len {
+                return None;
             }
 
             Some((
