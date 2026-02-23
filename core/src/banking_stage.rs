@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! The `banking_stage` processes Transaction messages. It is intended to be used
 //! to construct a software pipeline.
 
@@ -10,20 +11,12 @@ use {
         vote_storage::VoteStorage,
     },
     crate::{
-        banking_stage::{
-            consume_worker::ConsumeWorker,
-            transaction_scheduler::{
-                prio_graph_scheduler::PrioGraphScheduler,
-                scheduler_controller::{
-                    DEFAULT_SCHEDULER_PACING_FILL_TIME_MILLIS, SchedulerConfig, SchedulerController,
-                },
-                scheduler_error::SchedulerError,
-            },
+        banking_stage::transaction_scheduler::scheduler_controller::{
+            DEFAULT_SCHEDULER_PACING_FILL_TIME_MILLIS, SchedulerConfig,
         },
         validator::BlockProductionMethod,
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
-    crossbeam_channel::{Receiver, Sender, unbounded},
     futures::{StreamExt, stream::FuturesUnordered},
     histogram::Histogram,
     solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfoQuery},
@@ -52,11 +45,6 @@ use {
     },
     tokio::sync::mpsc,
     tokio_util::sync::CancellationToken,
-    transaction_scheduler::{
-        greedy_scheduler::{GreedyScheduler, GreedySchedulerConfig},
-        prio_graph_scheduler::PrioGraphSchedulerConfig,
-        receive_and_buffer::TransactionViewReceiveAndBuffer,
-    },
     vote_worker::VoteWorker,
 };
 
@@ -387,15 +375,15 @@ pub struct BankingStage {
 impl BankingStage {
     #[allow(clippy::too_many_arguments)]
     pub fn new_num_threads(
-        block_production_method: BlockProductionMethod,
+        _block_production_method: BlockProductionMethod,
         poh_recorder: Arc<RwLock<PohRecorder>>,
         transaction_recorder: TransactionRecorder,
         non_vote_receiver: BankingPacketReceiver,
         tpu_vote_receiver: BankingPacketReceiver,
         gossip_vote_receiver: BankingPacketReceiver,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
-        num_workers: NonZeroUsize,
-        scheduler_config: SchedulerConfig,
+        _num_workers: NonZeroUsize,
+        _scheduler_config: SchedulerConfig,
         transaction_status_sender: Option<TransactionStatusSender>,
         replay_vote_sender: ReplayVoteSender,
         log_messages_bytes_limit: Option<usize>,
@@ -407,15 +395,6 @@ impl BankingStage {
             replay_vote_sender,
             prioritization_fee_cache,
         );
-
-        let initial_args = match cfg!(unix) {
-            true => BankingControlMsg::ExternalAsThread,
-            false => BankingControlMsg::Internal {
-                block_production_method,
-                num_workers,
-                config: scheduler_config,
-            },
-        };
 
         // Setup the manager thread state.
         let banking_shutdown_signal = CancellationToken::new();
@@ -442,7 +421,7 @@ impl BankingStage {
                     .enable_all()
                     .build()
                     .unwrap();
-                rt.block_on(manager.run(initial_args))
+                rt.block_on(manager.run())
             })
             .unwrap();
 
@@ -452,8 +431,9 @@ impl BankingStage {
         }
     }
 
-    async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
-        self.spawn_scheduler(initial_args).unwrap();
+    async fn run(mut self) -> std::thread::Result<()> {
+        self.spawn_scheduler(BankingControlMsg::ExternalAsThread)
+            .unwrap();
 
         loop {
             tokio::select! {
@@ -504,37 +484,15 @@ impl BankingStage {
     async fn cycle_threads_fallback(&mut self) -> Result<(), ()> {
         error!("Spawning the default block production method as a fallback...");
 
-        #[cfg(unix)]
         return self
             .cycle_threads(BankingControlMsg::ExternalAsThread)
             .await;
-        #[cfg(not(unix))]
-        self.cycle_threads(BankingControlMsg::Internal {
-            block_production_method: BlockProductionMethod::default(),
-            num_workers: BankingStage::default_num_workers(),
-            config: SchedulerConfig::default(),
-        })
-        .await
     }
 
     fn spawn_scheduler(&mut self, args: BankingControlMsg) -> Result<(), ()> {
         let threads = (match args {
-            BankingControlMsg::Internal {
-                block_production_method,
-                num_workers,
-                config,
-            } => match block_production_method {
-                BlockProductionMethod::CentralScheduler => {
-                    self.spawn_internal_central(false, num_workers, config)
-                }
-                BlockProductionMethod::CentralSchedulerGreedy => {
-                    self.spawn_internal_central(true, num_workers, config)
-                }
-                BlockProductionMethod::UnifiedScheduler => self.spawn_internal_unified(),
-            },
             #[cfg(unix)]
             BankingControlMsg::External { session } => self.spawn_external(session),
-            #[cfg(unix)]
             BankingControlMsg::ExternalAsThread => self.spawn_external_as_thread(),
         })?;
 
@@ -546,151 +504,6 @@ impl BankingStage {
 
         info!("Scheduler spawned");
         Ok(())
-    }
-
-    fn spawn_internal_central(
-        &self,
-        use_greedy_scheduler: bool,
-        num_workers: NonZeroUsize,
-        scheduler_config: SchedulerConfig,
-    ) -> Result<Vec<JoinHandle<()>>, ()> {
-        info!("Spawning internal central scheduler");
-        // Toggling unified scheduler into the disabled state should always be a safe and idempotent
-        // operation.
-        assert!(self.toggle_internal_unified(false));
-
-        assert!(num_workers <= BankingStage::max_num_workers());
-        let num_workers = num_workers.get();
-
-        let exit = self.worker_exit_signal.clone();
-
-        // Setup receive & buffer.
-        let sharable_banks = self.bank_forks.read().unwrap().sharable_banks();
-        let receive_and_buffer = TransactionViewReceiveAndBuffer {
-            receiver: self.non_vote_receiver.clone(),
-            sharable_banks: sharable_banks.clone(),
-        };
-
-        // Spawn vote worker.
-        let mut threads = Vec::with_capacity(num_workers + 2);
-        threads.push(self.spawn_vote_worker());
-
-        // Create channels for communication between scheduler and workers
-        let (work_senders, work_receivers): (Vec<Sender<_>>, Vec<Receiver<_>>) =
-            (0..num_workers).map(|_| unbounded()).unzip();
-        let (finished_work_sender, finished_work_receiver) = unbounded();
-
-        // Spawn the worker threads
-        let decision_maker = DecisionMaker::from(self.poh_recorder.read().unwrap().deref());
-        let mut worker_metrics = Vec::with_capacity(num_workers);
-        for (index, work_receiver) in work_receivers.into_iter().enumerate() {
-            let id = index as u32;
-            let consume_worker = ConsumeWorker::new(
-                id,
-                exit.clone(),
-                work_receiver,
-                Consumer::new(
-                    self.committer.clone(),
-                    self.transaction_recorder.clone(),
-                    QosService::new(id),
-                    self.log_messages_bytes_limit,
-                ),
-                finished_work_sender.clone(),
-                self.poh_recorder.read().unwrap().shared_leader_state(),
-            );
-
-            worker_metrics.push(consume_worker.metrics_handle());
-            threads.push(
-                Builder::new()
-                    .name(format!("solCoWorker{id:02}"))
-                    .spawn(|| {
-                        if let Err(err) = consume_worker.run() {
-                            error!("Internal consume worker error; err={err}");
-                        }
-                    })
-                    .unwrap(),
-            )
-        }
-
-        // Macro to spawn the scheduler. Different type on `scheduler` and thus
-        // scheduler_controller mean we cannot have an easy if for `scheduler`
-        // assignment without introducing `dyn`.
-        macro_rules! spawn_scheduler {
-            ($scheduler:ident) => {
-                let exit = exit.clone();
-                let shutdown_signal = self.banking_shutdown_signal.clone();
-                threads.push(
-                    Builder::new()
-                        .name("solBnkTxSched".to_string())
-                        .spawn(move || {
-                            let mut scheduler_controller = SchedulerController::new(
-                                exit,
-                                scheduler_config,
-                                decision_maker,
-                                receive_and_buffer,
-                                sharable_banks,
-                                $scheduler,
-                                worker_metrics,
-                            );
-
-                            match scheduler_controller.run() {
-                                Ok(_) => info!("Scheduler exiting without error"),
-                                Err(SchedulerError::DisconnectedRecvChannel(_)) => {
-                                    info!("Upstream disconnected, shutting down banking");
-
-                                    // NB: We must signal shutdown before dropping the scheduler
-                                    //     controller, else, the workers may exit with an error and
-                                    //     trigger a new spawn before we have a chance to issue the
-                                    //     cancel.
-                                    shutdown_signal.cancel();
-                                    drop(scheduler_controller);
-                                }
-                                Err(SchedulerError::DisconnectedSendChannel(_)) => {
-                                    warn!("Unexpected worker disconnect from scheduler")
-                                }
-                            }
-                        })
-                        .unwrap(),
-                );
-            };
-        }
-
-        // Spawn the central scheduler thread
-        if use_greedy_scheduler {
-            let scheduler = GreedyScheduler::new(
-                work_senders,
-                finished_work_receiver,
-                GreedySchedulerConfig::default(),
-            );
-            spawn_scheduler!(scheduler);
-        } else {
-            let scheduler = PrioGraphScheduler::new(
-                work_senders,
-                finished_work_receiver,
-                PrioGraphSchedulerConfig::default(),
-            );
-            spawn_scheduler!(scheduler);
-        }
-
-        Ok(threads)
-    }
-
-    fn spawn_internal_unified(&self) -> Result<Vec<JoinHandle<()>>, ()> {
-        info!("Spawning internal unified scheduler");
-        if self.toggle_internal_unified(true) {
-            // All unified scheduler threads are managed by itself. So, return none here.
-            Ok(vec![])
-        } else {
-            error!("Spawning unified scheduler failed");
-            Err(())
-        }
-    }
-
-    fn toggle_internal_unified(&self, enable: bool) -> bool {
-        self.bank_forks
-            .read()
-            .unwrap()
-            .toggle_unified_scheduler_block_production_mode(enable)
     }
 
     fn spawn_vote_worker(&self) -> JoinHandle<()> {
@@ -745,14 +558,11 @@ mod external {
         super::*,
         crate::banking_stage::consume_worker::external::ExternalWorker,
         agave_bridge::SchedulerBindings,
-        agave_schedulers::{
-            greedy::{GreedyArgs, GreedyScheduler},
-            shared::PriorityId,
-        },
+        agave_scheduler_greedy::{GreedyArgs, GreedyScheduler},
+        agave_schedulers::shared::PriorityId,
         agave_scheduling_utils::handshake::{
-            client,
+            ClientLogon, client,
             server::{AgaveSession, AgaveWorkerSession, Server},
-            ClientLogon,
         },
         std::os::fd::IntoRawFd,
         tpu_to_pack::BankingPacketReceivers,
@@ -769,9 +579,6 @@ mod external {
             }: AgaveSession,
         ) -> Result<Vec<JoinHandle<()>>, ()> {
             info!("Spawning external scheduler");
-            // Toggling unified scheduler into the disabled state should always be a safe and
-            // idempotent operation.
-            assert!(self.toggle_internal_unified(false));
 
             static_assertions::const_assert!(
                 agave_scheduling_utils::handshake::MAX_WORKERS
@@ -924,16 +731,10 @@ impl BankingStageHandle {
 }
 
 pub enum BankingControlMsg {
-    Internal {
-        block_production_method: BlockProductionMethod,
-        num_workers: NonZeroUsize,
-        config: SchedulerConfig,
-    },
     #[cfg(unix)]
     External {
         session: agave_scheduling_utils::handshake::server::AgaveSession,
     },
-    #[cfg(unix)]
     ExternalAsThread,
 }
 

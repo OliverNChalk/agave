@@ -98,7 +98,7 @@ dependencies = [
 [[package]]
 name = "agave-bridge"
 version = "0.1.0"
-source = "git+https://github.com/OliverNChalk/agave-scheduler#626cea38021fde498a2c4b2f1e951a4d8b0bef4c"
+source = "git+https://github.com/OliverNChalk/agave-scheduler?rev=cdd23657327eb35aac48ec53a73aa0000d38a4b6#cdd23657327eb35aac48ec53a73aa0000d38a4b6"
 dependencies = [
  "agave-feature-set",
  "agave-scheduler-bindings",
@@ -276,21 +276,20 @@ name = "agave-scheduler-bindings"
 version = "4.0.0-alpha.0"
 
 [[package]]
-name = "agave-schedulers"
+name = "agave-scheduler-greedy"
 version = "0.1.0"
-source = "git+https://github.com/OliverNChalk/agave-scheduler#626cea38021fde498a2c4b2f1e951a4d8b0bef4c"
+source = "git+https://github.com/OliverNChalk/agave-scheduler?rev=cdd23657327eb35aac48ec53a73aa0000d38a4b6#cdd23657327eb35aac48ec53a73aa0000d38a4b6"
 dependencies = [
  "agave-bridge",
  "agave-scheduler-bindings",
+ "agave-schedulers",
  "agave-scheduling-utils",
  "agave-transaction-view",
- "chrono",
  "hashbrown 0.16.1",
  "indexmap 2.13.0",
  "metrics",
  "min-max-heap",
  "serde",
- "serde_with",
  "solana-clock",
  "solana-compute-budget-instruction",
  "solana-cost-model",
@@ -298,10 +297,22 @@ dependencies = [
  "solana-fee-structure",
  "solana-pubkey 3.0.0",
  "solana-runtime-transaction",
- "solana-signature",
  "solana-svm-transaction",
  "solana-transaction",
  "static_assertions",
+]
+
+[[package]]
+name = "agave-schedulers"
+version = "0.1.0"
+source = "git+https://github.com/OliverNChalk/agave-scheduler?rev=cdd23657327eb35aac48ec53a73aa0000d38a4b6#cdd23657327eb35aac48ec53a73aa0000d38a4b6"
+dependencies = [
+ "agave-bridge",
+ "chrono",
+ "serde",
+ "serde_with",
+ "solana-clock",
+ "solana-signature",
  "strum",
  "tokio",
 ]
@@ -6251,10 +6262,10 @@ dependencies = [
 [[package]]
 name = "rts-alloc"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0d46bfcacc6e65b67c547e5083ffd549fe80dee8ec337507dd7f01d26763f4"
+source = "git+https://github.com/anza-xyz/rts-alloc?rev=f4634ad9e25cc6ce1abd7d80e1c72683b57df509#f4634ad9e25cc6ce1abd7d80e1c72683b57df509"
 dependencies = [
  "libc",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6851,10 +6862,10 @@ dependencies = [
 [[package]]
 name = "shaq"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ff8d8358f614b394c8011e4aca6eb9c0bba29bd73d16be593745bd47838cb8"
+source = "git+https://github.com/anza-xyz/shaq?rev=1d1bcf34f43f8169c67afe09f8dd5aa3b7e057ce#1d1bcf34f43f8169c67afe09f8dd5aa3b7e057ce"
 dependencies = [
  "libc",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8120,6 +8131,7 @@ dependencies = [
  "agave-logger",
  "agave-reserved-account-keys",
  "agave-scheduler-bindings",
+ "agave-scheduler-greedy",
  "agave-schedulers",
  "agave-scheduling-utils",
  "agave-snapshots",

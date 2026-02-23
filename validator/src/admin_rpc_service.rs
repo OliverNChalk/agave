@@ -11,10 +11,7 @@ use {
     solana_accounts_db::accounts_index::AccountIndex,
     solana_core::{
         admin_rpc_post_init::AdminRpcRequestMetadataPostInit,
-        banking_stage::{
-            BankingControlMsg, BankingStage,
-            transaction_scheduler::scheduler_controller::SchedulerConfig,
-        },
+        banking_stage::{BankingControlMsg, BankingStage},
         consensus::{Tower, tower_storage::TowerStorage},
         repair::repair_service,
         validator::{
@@ -845,10 +842,11 @@ impl AdminRpc for AdminRpcImpl {
     fn manage_block_production(
         &self,
         meta: Self::Metadata,
-        block_production_method: BlockProductionMethod,
+        // TODO: Remove unused args/use them.
+        _block_production_method: BlockProductionMethod,
         transaction_struct: TransactionStructure,
         num_workers: NonZeroUsize,
-        scheduler_pacing: SchedulerPacing,
+        _scheduler_pacing: SchedulerPacing,
     ) -> Result<()> {
         debug!("manage_block_production rpc request received");
 
@@ -867,11 +865,7 @@ impl AdminRpc for AdminRpcImpl {
         meta.with_post_init(|post_init| {
             if post_init
                 .banking_control_sender
-                .try_send(BankingControlMsg::Internal {
-                    block_production_method,
-                    num_workers,
-                    config: SchedulerConfig { scheduler_pacing },
-                })
+                .try_send(BankingControlMsg::ExternalAsThread)
                 .is_err()
             {
                 error!("Banking stage already switching schedulers");
