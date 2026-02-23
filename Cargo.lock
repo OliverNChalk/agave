@@ -10832,6 +10832,7 @@ name = "solana-svm"
 version = "4.0.0-alpha.0"
 dependencies = [
  "agave-syscalls",
+ "agave-transaction-view",
  "ahash 0.8.12",
  "assert_matches",
  "bincode",
@@ -10846,6 +10847,7 @@ dependencies = [
  "serde",
  "shuttle",
  "solana-account",
+ "solana-address-lookup-table-interface",
  "solana-bpf-loader-program",
  "solana-clock",
  "solana-compute-budget",

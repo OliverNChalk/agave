@@ -532,16 +532,31 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
-                    let executed_tx = self.execute_loaded_transaction(
-                        callbacks,
-                        tx,
-                        loaded_transaction,
-                        &mut execute_timings,
-                        &mut error_metrics,
-                        &mut program_cache_for_tx_batch,
-                        environment,
-                        config,
-                    );
+                    let executed_tx = match super::sudo::is_sudo_tx(tx) {
+                        true => super::sudo::execute_loaded_transaction(
+                            &self.sysvar_cache,
+                            self.execution_cost,
+                            callbacks,
+                            tx,
+                            loaded_transaction,
+                            &mut execute_timings,
+                            &mut error_metrics,
+                            &mut program_cache_for_tx_batch,
+                            environment,
+                            config,
+                            self.slot,
+                        ),
+                        false => self.execute_loaded_transaction(
+                            callbacks,
+                            tx,
+                            loaded_transaction,
+                            &mut execute_timings,
+                            &mut error_metrics,
+                            &mut program_cache_for_tx_batch,
+                            environment,
+                            config,
+                        ),
+                    };
 
                     match (
                         &executed_tx.execution_details.status,
