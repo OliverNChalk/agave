@@ -38,6 +38,7 @@ jsonrpc-ipc-server = { workspace = true }
 libc = { workspace = true }
 libloading = { workspace = true }
 log = { workspace = true }
+metrics-line-exporter = { workspace = true }
 num_cpus = { workspace = true }
 qualifier_attr = { workspace = true }
 rand = { workspace = true }

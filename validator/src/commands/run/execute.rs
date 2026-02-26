@@ -135,6 +135,12 @@ pub fn execute(
 
     solana_metrics::set_host_id(identity_keypair.pubkey().to_string());
     solana_metrics::set_panic_hook("validator", Some(String::from(solana_version)));
+
+    // Install the metrics-line-exporter alongside solana-metrics so that metrics recorded
+    // via the `metrics` facade crate (used by agave-scheduler) are also shipped to
+    // InfluxDB.
+    let _metrics_line_handle = install_metrics_line_exporter(&identity_keypair.pubkey());
+
     solana_entry::entry::init_poh();
 
     let bind_addresses = {
@@ -1383,4 +1389,55 @@ fn new_snapshot_config(
     }
 
     Ok(snapshot_config)
+}
+
+fn install_metrics_line_exporter(identity_pubkey: &Pubkey) -> Option<std::thread::JoinHandle<()>> {
+    // Extract metrics config.
+    let config_var = env::var("SOLANA_METRICS_CONFIG").ok()?;
+    let mut host = String::new();
+    let mut db = String::new();
+    let mut username = None;
+    let mut password = None;
+    for pair in config_var.split(',') {
+        let (key, val) = pair.split_once('=')?;
+        match key {
+            "host" => host = val.to_string(),
+            "db" => db = val.to_string(),
+            "u" => username = Some(val.to_string()),
+            "p" => password = Some(val.to_string()),
+            _ => {}
+        }
+    }
+    if host.is_empty() || db.is_empty() {
+        return None;
+    }
+
+    // Setup LINE InfluxDB V1 exporter.
+    let cxl = metrics_line_exporter::CancellationToken::new();
+    let config = metrics_line_exporter::Config {
+        interval_min: std::time::Duration::from_millis(50),
+        interval_max: std::time::Duration::from_secs(1),
+        flush_interval: std::time::Duration::from_secs(10),
+        endpoint: host,
+        database: db,
+        username,
+        password,
+        metric_prefix: None,
+        default_tags: std::collections::BTreeMap::from([(
+            "host_id".to_string(),
+            identity_pubkey.to_string(),
+        )]),
+    };
+    match metrics_line_exporter::install(cxl, config) {
+        Ok(handle) => {
+            info!("metrics-line-exporter installed");
+
+            Some(handle)
+        }
+        Err(err) => {
+            warn!("Failed to install metrics-line-exporter; err={err}");
+
+            None
+        }
+    }
 }
