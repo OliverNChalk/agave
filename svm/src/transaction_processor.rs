@@ -43,7 +43,7 @@ use {
         },
         sysvar_cache::SysvarCache,
     },
-    solana_pubkey::Pubkey,
+    solana_pubkey::{Pubkey, pubkey},
     solana_rent::Rent,
     solana_svm_callback::TransactionProcessingCallback,
     solana_svm_feature_set::SVMFeatureSet,
@@ -532,16 +532,28 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
-                    let executed_tx = self.execute_loaded_transaction(
-                        callbacks,
-                        tx,
-                        loaded_transaction,
-                        &mut execute_timings,
-                        &mut error_metrics,
-                        &mut program_cache_for_tx_batch,
-                        environment,
-                        config,
-                    );
+                    let executed_tx = match Self::is_sudo_tx(tx) {
+                        true => self.execute_sudo_transaction(
+                            callbacks,
+                            tx,
+                            loaded_transaction,
+                            &mut execute_timings,
+                            &mut error_metrics,
+                            &mut program_cache_for_tx_batch,
+                            environment,
+                            config,
+                        ),
+                        false => self.execute_loaded_transaction(
+                            callbacks,
+                            tx,
+                            loaded_transaction,
+                            &mut execute_timings,
+                            &mut error_metrics,
+                            &mut program_cache_for_tx_batch,
+                            environment,
+                            config,
+                        ),
+                    };
 
                     match (
                         &executed_tx.execution_details.status,
@@ -913,6 +925,87 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 let _new_cookie = task_waiter.wait(task_cookie);
             }
         }
+    }
+
+    fn is_sudo_tx(tx: &impl SVMTransaction) -> bool {
+        const SUDO_PROGRAM_ID: Pubkey = pubkey!("Sudo111111111111111111111111111111111111111");
+
+        tx.program_instructions_iter()
+            .next()
+            .is_some_and(|(pid, _)| pid == &SUDO_PROGRAM_ID)
+    }
+
+    fn execute_sudo_transaction<CB: TransactionProcessingCallback>(
+        &self,
+        _callback: &CB,
+        _tx: &impl SVMTransaction,
+        _loaded_transaction: LoadedTransaction,
+        _execute_timings: &mut ExecuteTimings,
+        _error_metrics: &mut TransactionErrorMetrics,
+        _program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
+        _environment: &TransactionProcessingEnvironment,
+        _config: &TransactionProcessingConfig,
+    ) -> ExecutedTransaction {
+        // 1. Extract the inner legacy/V0 transaction.
+        //    - Outer transaction must contain all accounts referenced in the inner TX.
+        //    - Outer transaction calls Sudo11... with the account index mappings.
+        //
+        // 2. Handle inner TX pre-execute steps:
+        //    - Run precompiles (TODO: Do we advance durable nonce if precompile fails).
+        //    - Verify all EOA signatures.
+        //
+        // 3. Verify account resolution was performed accurately.
+        //    - For each account in inner TX:
+        //      - Verify outer_tx.account_keys[index_map[i]] == inner_tx.account_keys[i]
+        //      - TODO: We could compress the inner keys to just be u8s then reconstruct
+        //              & hash the inner message for validation.
+        //    - For each ALT reference in inner tx (if V0):
+        //      - Load ALT account from outer's account list
+        //      - Verify each index maps to correct address in the actual ALT
+        //      - Reject if any mismatch (prevents RPC from bricking signatures)
+        //
+        // 4. Verify resource limits are set correctly.
+        //    - To prevent a malicious outer TX from bricking inner TXs, the outer TX must
+        //      set outer resource limits in such a way that they cannot possibly cause
+        //      the inner to revert when it would have succeeded in its old format.
+        //
+        // 5. Validate replay protection.
+        //    - IF inner TX uses durable nonce:
+        //      - Load nonce account, verify state.
+        //      - Advance nonce account (this must be persisted even if inner fails).
+        //    - ELSE inner TX uses blockhash:
+        //      - Verify blockhash is present in recent blockhashes.
+        //      - Verify signature is not already used  (check for tombstone PDA).
+        //      - Create tombstone PDA, outer TX pays rent. This must be persisted regardless
+        //        of whether inner fails.
+        //
+        // 6. Deduct inner transaction fees.
+        //    - TODO: Do we transfer these to the outer tx payer or the current leader?
+        //
+        // 7. SVM call using the inner transaction:
+        //
+        // let inner_msg = to_message(&inner_tx);
+        // let process_result = process_message(
+        //     inner_message,
+        //     &loaded_transaction.program_indices,
+        //     &mut invoke_context,
+        //     execute_timings,
+        //     &mut executed_units,
+        // );
+        //
+        // 8. Handle inner message result:
+        //    - IF inner OK
+        //      - Apply inner account updates.
+        //      - Embed inner logs & instruction into the outer sudo logs/traces (outside
+        //        world thinks sudo executed the TX via CPI).
+        //    - If inner ERR
+        //      - TODO: Emit partial logs/traces or dump them?
+        //        - Dumping seems safer (while annoying for debugging).
+        //        - Emitting means log consumers may see fatal logs in TXs that OK, which
+        //          could be surprising to indexers.
+        //      - Just emit a notice that this signature errored.
+
+        unimplemented!()
     }
 
     /// Execute a transaction using the provided loaded accounts and update
