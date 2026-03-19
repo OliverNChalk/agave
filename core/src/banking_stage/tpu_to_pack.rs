@@ -5,6 +5,7 @@ use {
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     agave_scheduler_bindings::{SharableTransactionRegion, TpuToPackMessage, tpu_message_flags},
     agave_scheduling_utils::handshake::server::AgaveTpuToPackSession,
+    agave_telemetry::{TelemetryAction, TelemetryStage, TelemetryStamp, TelemetryStamper},
     rts_alloc::Allocator,
     solana_packet::PacketFlags,
     solana_perf::packet::PacketBatch,
@@ -40,7 +41,16 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("solTpu2Pack".to_string())
         .spawn(move || {
-            tpu_to_pack(exit, shutdown_signal, receivers, allocator, producer);
+            let telemetry = TelemetryStamper::open(TelemetryStage::TpuToPack);
+
+            tpu_to_pack(
+                exit,
+                shutdown_signal,
+                receivers,
+                allocator,
+                producer,
+                telemetry,
+            );
         })
         .unwrap()
 }
@@ -51,6 +61,7 @@ fn tpu_to_pack(
     receivers: BankingPacketReceivers,
     allocator: Allocator,
     mut producer: shaq::Producer<TpuToPackMessage>,
+    mut telemetry: TelemetryStamper,
 ) {
     // select! requires actual receivers, so in the case of None for vote receivers,
     // we create a dummy channel that can never receive.
@@ -77,7 +88,7 @@ fn tpu_to_pack(
                 break;
             }
         };
-        handle_packet_batches(&allocator, &mut producer, packet_batches);
+        handle_packet_batches(&allocator, &mut producer, packet_batches, &mut telemetry);
     }
 }
 
@@ -85,6 +96,7 @@ fn handle_packet_batches(
     allocator: &Allocator,
     producer: &mut shaq::Producer<TpuToPackMessage>,
     packet_batches: Arc<Vec<PacketBatch>>,
+    telemetry: &mut TelemetryStamper,
 ) {
     // Clean all remote frees in allocator so we have as much
     // room as possible.
@@ -95,6 +107,10 @@ fn handle_packet_batches(
 
     'batch_loop: for batch in packet_batches.iter() {
         for packet in batch.iter() {
+            // Grab a seq_id for each ingested packet (in the future we will try to do
+            // this at socket ingest point).
+            let seq_id = telemetry.ingest();
+
             // Check if the packet is valid and get the bytes.
             let Some(packet_bytes) = packet.data(..) else {
                 continue;
@@ -121,10 +137,14 @@ fn handle_packet_batches(
                 )
             };
 
-            if producer.try_write(message).is_err() {
-                // SAFETY: `allocated_ptr` was allocated by `allocator`
-                //         and not previously freed.
-                unsafe { allocator.free(allocated_ptr) };
+            match producer.try_write(message).is_ok() {
+                true => telemetry.stamp(seq_id, TelemetryAction::Send),
+                false => {
+                    // SAFETY: `allocated_ptr` was allocated by `allocator`
+                    //         and not previously freed.
+                    unsafe { allocator.free(allocated_ptr) };
+                    telemetry.stamp(seq_id, TelemetryAction::Drop);
+                }
             }
         }
     }

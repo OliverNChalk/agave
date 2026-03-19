@@ -372,6 +372,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-telemetry"
+version = "4.1.0-alpha.0"
+dependencies = [
+ "nix",
+ "shaq",
+ "strum",
+]
+
+[[package]]
 name = "agave-transaction-view"
 version = "4.1.0-alpha.0"
 dependencies = [
@@ -7905,6 +7914,7 @@ dependencies = [
  "agave-scheduler-bindings",
  "agave-scheduling-utils",
  "agave-snapshots",
+ "agave-telemetry",
  "agave-transaction-view",
  "agave-votor",
  "agave-votor-messages",

@@ -111,6 +111,7 @@ members = [
     "svm-type-overrides",
     "syscalls",
     "syscalls/gen-syscall-list",
+    "telemetry",
     "test-validator",
     "tls-utils",
     "tokens",
@@ -203,6 +204,7 @@ agave-scheduler-bindings = { path = "scheduler-bindings", version = "=4.1.0-alph
 agave-scheduling-utils = { path = "scheduling-utils", version = "=4.1.0-alpha.0", features = ["agave-unstable-api"] }
 agave-snapshots = { path = "snapshots", version = "=4.1.0-alpha.0", features = ["agave-unstable-api"] }
 agave-syscalls = { path = "syscalls", version = "=4.1.0-alpha.0", default-features = false, features = ["agave-unstable-api"] }
+agave-telemetry = { path = "telemetry" }
 agave-transaction-view = { path = "transaction-view", version = "=4.1.0-alpha.0", features = ["agave-unstable-api"] }
 agave-votor = { path = "votor", version = "=4.1.0-alpha.0", features = ["agave-unstable-api"] }
 agave-votor-messages = { path = "votor-messages", version = "=4.1.0-alpha.0", features = ["agave-unstable-api"] }
