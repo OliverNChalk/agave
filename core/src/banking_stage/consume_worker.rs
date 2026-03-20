@@ -202,7 +202,7 @@ pub(crate) mod external {
             responses_region::{allocate_check_response_region, execution_responses_from_iter},
             transaction_ptr::{TransactionPtr, TransactionPtrBatch},
         },
-        agave_telemetry::{TelemetryStage, TelemetryStamper},
+        agave_telemetry::{TelemetryAction, TelemetryStamp, TelemetryStamper},
         agave_transaction_view::{
             resolved_transaction_view::ResolvedTransactionView, result::TransactionViewError,
             transaction_data::TransactionData, transaction_view::SanitizedTransactionView,
@@ -261,7 +261,7 @@ pub(crate) mod external {
                 allocator,
                 shared_leader_state,
                 sharable_banks,
-                telemetry: TelemetryStamper::open(TelemetryStage::Worker),
+                telemetry: TelemetryStamper::open(&format!("worker-{id}")),
                 metrics: Arc::new(ConsumeWorkerMetrics::new(id)),
             }
         }
@@ -645,6 +645,24 @@ pub(crate) mod external {
             self.sender
                 .try_write(response_message)
                 .map_err(|_| ExternalConsumeWorkerError::SenderDisconnected)?;
+
+            // Update telemetry.
+            //
+            // SAFETY: batch region is valid (validated by caller).
+            let batch: TransactionPtrBatch<'_> = unsafe {
+                TransactionPtrBatch::from_sharable_transaction_batch_region(
+                    &message.batch,
+                    &self.allocator,
+                )
+            };
+            for seq_id in batch.seq_ids() {
+                self.telemetry.stamp(TelemetryStamp {
+                    seq_id,
+                    rdtsc: agave_telemetry::rdtsc(),
+                    action: TelemetryAction::Drop,
+                    code: u32::from(reason),
+                });
+            }
 
             Ok(())
         }

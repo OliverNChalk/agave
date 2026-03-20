@@ -25,16 +25,14 @@ pub fn seq_id() -> SeqId {
 pub struct SeqId(pub u64);
 
 pub struct TelemetryStamper {
-    stage: TelemetryStage,
     tx: Option<shaq::Producer<TelemetryStamp>>,
 }
 
 impl TelemetryStamper {
     #[cfg(unix)]
-    pub fn open(stage: TelemetryStage) -> Self {
+    pub fn open(name: &str) -> Self {
         Self {
-            stage,
-            tx: crate::unix::try_open(stage.into()),
+            tx: crate::unix::try_open(name),
         }
     }
 
@@ -43,23 +41,11 @@ impl TelemetryStamper {
         Self(None)
     }
 
-    pub fn ingest(&mut self) -> SeqId {
-        let seq_id = crate::seq_id();
-        self.stamp(seq_id, TelemetryAction::Recv);
-
-        seq_id
-    }
-
-    pub fn stamp(&mut self, seq_id: SeqId, action: TelemetryAction) {
+    pub fn stamp(&mut self, stamp: TelemetryStamp) {
         if let Some(tx) = self.tx.as_mut() {
             // PERF: Need a diff queue.
             tx.sync();
-            let _ = tx.try_write(TelemetryStamp {
-                seq_id,
-                rdtsc: crate::rdtsc(),
-                stage: self.stage,
-                action,
-            });
+            let _ = tx.try_write(stamp);
             tx.commit();
         }
     }
@@ -68,18 +54,14 @@ impl TelemetryStamper {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TelemetryStamp {
+    /// Unique sequence number for this transaction.
     pub seq_id: SeqId,
+    /// Raw CPU ticks this stamp was taken at.
     pub rdtsc: u64,
-    pub stage: TelemetryStage,
+    /// Standardize action taken against `seq_id`.
     pub action: TelemetryAction,
-}
-
-#[derive(Debug, Clone, Copy, strum::IntoStaticStr)]
-#[strum(serialize_all = "kebab-case")]
-#[repr(u32)]
-pub enum TelemetryStage {
-    TpuToPack = 1,
-    Worker = 2,
+    /// Free form code field.
+    pub code: u32,
 }
 
 #[derive(Debug, Clone, Copy)]

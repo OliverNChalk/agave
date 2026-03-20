@@ -5,7 +5,7 @@ use {
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     agave_scheduler_bindings::{SharableTransactionRegion, TpuToPackMessage, tpu_message_flags},
     agave_scheduling_utils::handshake::server::AgaveTpuToPackSession,
-    agave_telemetry::{SeqId, TelemetryAction, TelemetryStage, TelemetryStamper},
+    agave_telemetry::{SeqId, TelemetryAction, TelemetryStamp, TelemetryStamper},
     rts_alloc::Allocator,
     solana_packet::PacketFlags,
     solana_perf::packet::PacketBatch,
@@ -41,7 +41,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("solTpu2Pack".to_string())
         .spawn(move || {
-            let telemetry = TelemetryStamper::open(TelemetryStage::TpuToPack);
+            let telemetry = TelemetryStamper::open("tpu-to-pack");
 
             tpu_to_pack(
                 exit,
@@ -109,10 +109,17 @@ fn handle_packet_batches(
         for packet in batch.iter() {
             // Grab a seq_id for each ingested packet (in the future we will try to do
             // this at socket ingest point).
-            let seq_id = telemetry.ingest();
+            let seq_id = agave_telemetry::seq_id();
+            telemetry.stamp(TelemetryStamp {
+                seq_id,
+                rdtsc: agave_telemetry::rdtsc(),
+                action: TelemetryAction::Recv,
+                code: 0,
+            });
 
             // Check if the packet is valid and get the bytes.
             let Some(packet_bytes) = packet.data(..) else {
+                // TODO: Telemetry.
                 continue;
             };
             let packet_size = packet_bytes.len();
@@ -120,6 +127,8 @@ fn handle_packet_batches(
             // Allocate space for the packet to be copied into.
             let Some(allocated_ptr) = allocator.allocate(packet_size as u32) else {
                 warn!("Failed to allocate. Dropping the rest of the batch.");
+
+                // TODO: Telemetry.
                 break 'batch_loop;
             };
             // Get the offset of the allocated pointer in the allocator.
@@ -139,12 +148,22 @@ fn handle_packet_batches(
             };
 
             match producer.try_write(message).is_ok() {
-                true => telemetry.stamp(seq_id, TelemetryAction::Send),
+                true => telemetry.stamp(TelemetryStamp {
+                    seq_id,
+                    rdtsc: agave_telemetry::rdtsc(),
+                    action: TelemetryAction::Send,
+                    code: 0,
+                }),
                 false => {
                     // SAFETY: `allocated_ptr` was allocated by `allocator`
                     //         and not previously freed.
                     unsafe { allocator.free(allocated_ptr) };
-                    telemetry.stamp(seq_id, TelemetryAction::Drop);
+                    telemetry.stamp(TelemetryStamp {
+                        seq_id,
+                        rdtsc: agave_telemetry::rdtsc(),
+                        action: TelemetryAction::Drop,
+                        code: u32::MAX,
+                    });
                 }
             }
         }

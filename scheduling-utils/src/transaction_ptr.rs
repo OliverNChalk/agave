@@ -81,6 +81,10 @@ impl TransactionPtr {
         }
     }
 
+    pub fn seq_id(&self) -> SeqId {
+        self.seq_id
+    }
+
     /// Frees the memory region pointed to in the `allocator`.
     /// This should only be called by the owner of the memory
     /// i.e. the external scheduler.
@@ -163,6 +167,11 @@ impl<'a, M> TransactionPtrBatch<'a, M> {
 
             (tx, meta)
         })
+    }
+
+    /// Iterator returning only [`SeqId`] for each transaction in the batch.
+    pub fn seq_ids(&self) -> impl Iterator<Item = SeqId> + '_ {
+        (0..self.num_transactions).map(|idx| unsafe { self.tx_ptr.add(idx).as_ref().seq_id })
     }
 
     /// Free the transaction batch container.
