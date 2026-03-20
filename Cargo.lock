@@ -263,6 +263,9 @@ dependencies = [
 [[package]]
 name = "agave-scheduler-bindings"
 version = "4.1.0-alpha.0"
+dependencies = [
+ "agave-telemetry",
+]
 
 [[package]]
 name = "agave-scheduling-utils"

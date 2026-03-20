@@ -5,7 +5,7 @@ use {
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     agave_scheduler_bindings::{SharableTransactionRegion, TpuToPackMessage, tpu_message_flags},
     agave_scheduling_utils::handshake::server::AgaveTpuToPackSession,
-    agave_telemetry::{TelemetryAction, TelemetryStage, TelemetryStamp, TelemetryStamper},
+    agave_telemetry::{SeqId, TelemetryAction, TelemetryStage, TelemetryStamper},
     rts_alloc::Allocator,
     solana_packet::PacketFlags,
     solana_perf::packet::PacketBatch,
@@ -130,6 +130,7 @@ fn handle_packet_batches(
             // - `allocated_ptr` is valid for `packet_size` bytes.
             let message = unsafe {
                 copy_packet_and_populate_message(
+                    seq_id,
                     packet_bytes,
                     packet.meta(),
                     allocated_ptr,
@@ -157,6 +158,7 @@ fn handle_packet_batches(
 /// # Safety:
 /// - `allocated_ptr` must be valid for `packet_bytes.len()` bytes.
 unsafe fn copy_packet_and_populate_message(
+    seq_id: SeqId,
     packet_bytes: &[u8],
     packet_meta: &solana_packet::Meta,
     allocated_ptr: NonNull<u8>,
@@ -187,6 +189,7 @@ unsafe fn copy_packet_and_populate_message(
     let src_addr = map_src_addr(packet_meta.addr);
 
     TpuToPackMessage {
+        seq_id,
         transaction,
         flags: tpu_message_flags,
         src_addr,
@@ -236,6 +239,7 @@ mod tests {
 
         let tpu_to_pack_message = unsafe {
             copy_packet_and_populate_message(
+                SeqId(0),
                 packet_bytes.as_slice(),
                 &packet_meta,
                 NonNull::new(buffer.as_mut_ptr()).unwrap(),

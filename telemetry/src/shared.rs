@@ -20,7 +20,7 @@ pub fn seq_id() -> SeqId {
     SeqId(NEXT_SEQ_ID.fetch_add(1, Ordering::Relaxed))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct SeqId(pub u64);
 

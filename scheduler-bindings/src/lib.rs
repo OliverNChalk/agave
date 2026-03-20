@@ -48,6 +48,8 @@
 //!   of processing the transactions.
 //!
 
+use agave_telemetry::SeqId;
+
 /// Reference to a transaction that can shared safely across processes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -124,6 +126,7 @@ pub struct TransactionResponseRegion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TpuToPackMessage {
+    pub seq_id: SeqId,
     pub transaction: SharableTransactionRegion,
     /// See [`tpu_message_flags`] for details.
     pub flags: u8,
