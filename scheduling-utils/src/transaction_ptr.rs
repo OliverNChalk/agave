@@ -2,6 +2,7 @@ use {
     agave_scheduler_bindings::{
         MAX_TRANSACTIONS_PER_MESSAGE, SharableTransactionBatchRegion, SharableTransactionRegion,
     },
+    agave_telemetry::SeqId,
     agave_transaction_view::transaction_data::TransactionData,
     core::ptr::NonNull,
     rts_alloc::Allocator,
@@ -10,7 +11,9 @@ use {
 
 #[derive(Debug)]
 pub struct TransactionPtr {
+    seq_id: SeqId,
     ptr: NonNull<u8>,
+    // TODO: Should be `len`.
     count: usize,
 }
 
@@ -38,8 +41,8 @@ impl TransactionPtr {
     ///
     /// If you are trying to construct a pointer for use by Agave, you almost certainly want to use
     /// [`Self::from_sharable_transaction_region`].
-    pub unsafe fn from_raw_parts(ptr: NonNull<u8>, count: usize) -> Self {
-        Self { ptr, count }
+    pub unsafe fn from_raw_parts(seq_id: SeqId, ptr: NonNull<u8>, count: usize) -> Self {
+        Self { seq_id, ptr, count }
     }
 
     /// # Safety
@@ -52,6 +55,7 @@ impl TransactionPtr {
         // SAFETY: `sharable_transaction_region.offset` was allocated by `allocator`.
         let ptr = unsafe { allocator.ptr_from_offset(sharable_transaction_region.offset) };
         Self {
+            seq_id: sharable_transaction_region.seq_id,
             ptr,
             count: sharable_transaction_region.length as usize,
         }
@@ -71,6 +75,7 @@ impl TransactionPtr {
         // was satisfied translation back to offset is safe.
         let offset = unsafe { allocator.offset(self.ptr) };
         SharableTransactionRegion {
+            seq_id: self.seq_id,
             offset,
             length: self.count as u32,
         }

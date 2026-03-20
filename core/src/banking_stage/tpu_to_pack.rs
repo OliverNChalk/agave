@@ -178,6 +178,7 @@ unsafe fn copy_packet_and_populate_message(
 
     // Create a sharable transaction region for the packet.
     let transaction = SharableTransactionRegion {
+        seq_id,
         offset: allocated_ptr_offset_in_allocator,
         length: packet_bytes.len() as u32,
     };
@@ -189,7 +190,6 @@ unsafe fn copy_packet_and_populate_message(
     let src_addr = map_src_addr(packet_meta.addr);
 
     TpuToPackMessage {
-        seq_id,
         transaction,
         flags: tpu_message_flags,
         src_addr,

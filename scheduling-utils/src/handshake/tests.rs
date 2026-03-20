@@ -10,6 +10,7 @@ use {
         SharableTransactionRegion, TpuToPackMessage, TransactionResponseRegion,
         WorkerToPackMessage,
     },
+    agave_telemetry::SeqId,
     std::time::Duration,
     tempfile::NamedTempFile,
 };
@@ -23,6 +24,7 @@ fn message_passing_on_all_queues() {
     // Test messages.
     let tpu_to_pack = TpuToPackMessage {
         transaction: SharableTransactionRegion {
+            seq_id: SeqId(0),
             offset: 10,
             length: 5,
         },

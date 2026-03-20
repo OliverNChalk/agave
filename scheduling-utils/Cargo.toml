@@ -15,6 +15,7 @@ agave-unstable-api = []
 [dependencies]
 agave-scheduler-bindings = { workspace = true }
 ahash = { workspace = true }
+agave-telemetry = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-transaction-error = { workspace = true }
 

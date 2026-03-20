@@ -272,6 +272,7 @@ name = "agave-scheduling-utils"
 version = "4.1.0-alpha.0"
 dependencies = [
  "agave-scheduler-bindings",
+ "agave-telemetry",
  "agave-transaction-view",
  "ahash 0.8.12",
  "libc",

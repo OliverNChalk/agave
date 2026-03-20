@@ -54,6 +54,8 @@ use agave_telemetry::SeqId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct SharableTransactionRegion {
+    /// The unique telemetry sequence ID for the transaction.
+    pub seq_id: SeqId,
     /// Offset within the shared memory allocator.
     pub offset: usize,
     /// Length of the transaction in bytes.
@@ -126,7 +128,6 @@ pub struct TransactionResponseRegion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TpuToPackMessage {
-    pub seq_id: SeqId,
     pub transaction: SharableTransactionRegion,
     /// See [`tpu_message_flags`] for details.
     pub flags: u8,
