@@ -79,6 +79,7 @@ pub struct TelemetryStamp {
 #[repr(u32)]
 pub enum TelemetryStage {
     TpuToPack = 1,
+    Worker = 2,
 }
 
 #[derive(Debug, Clone, Copy)]

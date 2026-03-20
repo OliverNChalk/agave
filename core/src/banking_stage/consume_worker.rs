@@ -202,6 +202,7 @@ pub(crate) mod external {
             responses_region::{allocate_check_response_region, execution_responses_from_iter},
             transaction_ptr::{TransactionPtr, TransactionPtrBatch},
         },
+        agave_telemetry::{TelemetryStage, TelemetryStamper},
         agave_transaction_view::{
             resolved_transaction_view::ResolvedTransactionView, result::TransactionViewError,
             transaction_data::TransactionData, transaction_view::SanitizedTransactionView,
@@ -236,6 +237,7 @@ pub(crate) mod external {
 
         shared_leader_state: SharedLeaderState,
         sharable_banks: SharableBanks,
+        telemetry: TelemetryStamper,
         metrics: Arc<ConsumeWorkerMetrics>,
     }
 
@@ -259,6 +261,7 @@ pub(crate) mod external {
                 allocator,
                 shared_leader_state,
                 sharable_banks,
+                telemetry: TelemetryStamper::open(TelemetryStage::Worker),
                 metrics: Arc::new(ConsumeWorkerMetrics::new(id)),
             }
         }
