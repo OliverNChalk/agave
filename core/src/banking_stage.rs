@@ -518,6 +518,7 @@ impl BankingStage {
                 BlockProductionMethod::CentralSchedulerGreedy => {
                     self.spawn_internal_central(true, num_workers, config)
                 }
+                BlockProductionMethod::ExternalAsThread => self.spawn_external_as_thread(),
             },
             #[cfg(unix)]
             BankingControlMsg::External { session } => self.spawn_external(session),
@@ -713,16 +714,19 @@ impl BankingStage {
     }
 }
 
-#[cfg(unix)]
 mod external {
     use {
         super::*,
         crate::banking_stage::consume_worker::external::ExternalWorker,
-        agave_scheduling_utils::handshake::{AgaveSession, AgaveWorkerSession},
+        agave_scheduling_utils::handshake::{
+            AgaveSession, AgaveWorkerSession, ClientLogon, client, server::Server,
+        },
+        std::os::fd::IntoRawFd,
         tpu_to_pack::BankingPacketReceivers,
     };
 
     impl BankingStage {
+        #[cfg(unix)]
         pub(super) fn spawn_external(
             &self,
             AgaveSession {
@@ -810,6 +814,66 @@ mod external {
                 worker_metrics,
                 ticks_per_slot,
             ));
+
+            Ok(threads)
+        }
+
+        pub(super) fn spawn_external_as_thread(&self) -> Result<Vec<JoinHandle<()>>, ()> {
+            const WORKER_COUNT: usize = 5;
+
+            info!("Spawning external scheduler as thread");
+
+            let logon = ClientLogon {
+                worker_count: WORKER_COUNT,
+                allocator_size: 512 * 1024 * 1024,
+                allocator_handles: 1,
+                tpu_to_pack_capacity: 128,
+                progress_tracker_capacity: 128,
+                pack_to_worker_capacity: 128,
+                worker_to_pack_capacity: 128,
+                flags: 0,
+            };
+
+            // Agave-side session.
+            let (agave_session, files) = Server::setup_session(logon).map_err(|err| {
+                error!("Failed to setup in-process session; err={err}");
+            })?;
+
+            // Sscheduler-side session.
+            let fds: Vec<_> = files.into_iter().map(|file| file.into_raw_fd()).collect();
+            let client_session = client::setup_session(&logon, fds).map_err(|err| {
+                error!("Failed to setup client session; err={err}");
+            })?;
+
+            // Spawn Agave-side workers.
+            let mut threads = self.spawn_external(agave_session)?;
+
+            // Spawn the scheduler thread with the external greedy scheduler.
+            let worker_exit = self.worker_exit_signal.clone();
+            threads.push(
+                Builder::new()
+                    .name("solExtSched".to_string())
+                    .spawn(move || {
+                        // TODO: Need GreedyThroughput upstreamed.
+                        let mut bridge = SchedulerBindings::<PriorityId>::new(client_session);
+                        let mut scheduler = GreedyThroughputScheduler::new(
+                            None,
+                            GreedyThroughputArgs {
+                                // TODO: Do we let the operator set this or remove
+                                // num_workers from CLI?
+                                workers: WORKER_COUNT,
+                                unchecked_capacity: 2usize.pow(16),
+                                checked_capacity: 2usize.pow(16),
+                            },
+                        );
+
+                        // Run until banking manager tells us to exit.
+                        while !worker_exit.load(Ordering::Relaxed) {
+                            scheduler.poll(&mut bridge);
+                        }
+                    })
+                    .unwrap(),
+            );
 
             Ok(threads)
         }
