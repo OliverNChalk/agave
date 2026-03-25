@@ -23,6 +23,7 @@ use {
         validator::BlockProductionMethod,
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
+    agave_scheduler_greedy_throughput::PriorityId,
     crossbeam_channel::{Receiver, Sender, unbounded},
     futures::{StreamExt, stream::FuturesUnordered},
     histogram::Histogram,
@@ -718,10 +719,11 @@ mod external {
     use {
         super::*,
         crate::banking_stage::consume_worker::external::ExternalWorker,
-        agave_scheduling_utils::handshake::{
-            AgaveSession, AgaveWorkerSession, ClientLogon, client, server::Server,
+        agave_scheduler_greedy_throughput::{GreedyThroughputArgs, GreedyThroughputScheduler},
+        agave_scheduling_utils::{
+            bridge::SchedulerBindingsBridge,
+            handshake::{AgaveSession, AgaveWorkerSession, ClientLogon, client, server::Server},
         },
-        std::os::fd::IntoRawFd,
         tpu_to_pack::BankingPacketReceivers,
     };
 
@@ -840,8 +842,7 @@ mod external {
             })?;
 
             // Sscheduler-side session.
-            let fds: Vec<_> = files.into_iter().map(|file| file.into_raw_fd()).collect();
-            let client_session = client::setup_session(&logon, fds).map_err(|err| {
+            let client_session = client::setup_session(&logon, files).map_err(|err| {
                 error!("Failed to setup client session; err={err}");
             })?;
 
@@ -855,7 +856,7 @@ mod external {
                     .name("solExtSched".to_string())
                     .spawn(move || {
                         // TODO: Need GreedyThroughput upstreamed.
-                        let mut bridge = SchedulerBindings::<PriorityId>::new(client_session);
+                        let mut bridge = SchedulerBindingsBridge::<PriorityId>::new(client_session);
                         let mut scheduler = GreedyThroughputScheduler::new(
                             None,
                             GreedyThroughputArgs {

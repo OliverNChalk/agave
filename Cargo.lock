@@ -92,21 +92,7 @@ dependencies = [
  "solana-keypair",
  "solana-pubkey 4.1.0",
  "solana-sha256-hasher",
- "solana-svm-feature-set 4.1.0-alpha.0",
-]
-
-[[package]]
-name = "agave-feature-set"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "ahash 0.8.12",
- "solana-epoch-schedule",
- "solana-hash 4.2.0",
- "solana-keypair",
- "solana-pubkey 4.1.0",
- "solana-sha256-hasher",
- "solana-svm-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-svm-feature-set",
 ]
 
 [[package]]
@@ -212,7 +198,7 @@ dependencies = [
 name = "agave-precompiles"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-precompiles",
  "bincode",
@@ -251,7 +237,7 @@ dependencies = [
 name = "agave-reserved-account-keys"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-message",
@@ -265,32 +251,27 @@ name = "agave-scheduler-bindings"
 version = "4.1.0-alpha.0"
 
 [[package]]
-name = "agave-scheduler-bindings"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-
-[[package]]
 name = "agave-scheduler-greedy-throughput"
 version = "0.1.0"
-source = "git+https://github.com/OliverNChalk/agave-scheduler#f999139bd1a5423a212aa19ffa29ab13762d5b4b"
+source = "git+https://github.com/OliverNChalk/agave-scheduler#6efdfe68d8e8cc8f86cb34a3e5ade648dc883c18"
 dependencies = [
- "agave-scheduler-bindings 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "agave-scheduler-bindings",
  "agave-schedulers",
- "agave-scheduling-utils 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "agave-transaction-view 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "agave-scheduling-utils",
+ "agave-transaction-view",
  "hashbrown 0.16.1",
  "indexmap 2.13.0",
  "metrics",
  "min-max-heap",
  "serde",
  "solana-clock",
- "solana-compute-budget-instruction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-cost-model 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-fee 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-compute-budget-instruction",
+ "solana-cost-model",
+ "solana-fee",
  "solana-fee-structure",
  "solana-pubkey 3.0.0",
- "solana-runtime-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-runtime-transaction",
+ "solana-svm-transaction",
  "solana-transaction",
  "static_assertions",
 ]
@@ -298,9 +279,9 @@ dependencies = [
 [[package]]
 name = "agave-schedulers"
 version = "0.1.0"
-source = "git+https://github.com/OliverNChalk/agave-scheduler#f999139bd1a5423a212aa19ffa29ab13762d5b4b"
+source = "git+https://github.com/OliverNChalk/agave-scheduler#6efdfe68d8e8cc8f86cb34a3e5ade648dc883c18"
 dependencies = [
- "agave-scheduling-utils 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "agave-scheduling-utils",
  "chrono",
  "serde",
  "serde_repr",
@@ -315,42 +296,20 @@ dependencies = [
 name = "agave-scheduling-utils"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
- "agave-scheduler-bindings 4.1.0-alpha.0",
- "agave-transaction-view 4.1.0-alpha.0",
+ "agave-feature-set",
+ "agave-scheduler-bindings",
+ "agave-transaction-view",
  "ahash 0.8.12",
  "libc",
  "nix",
  "rts-alloc",
  "shaq",
  "slotmap",
- "solana-fee 4.1.0-alpha.0",
+ "solana-fee",
  "solana-pubkey 4.1.0",
  "solana-transaction",
  "solana-transaction-error",
  "tempfile",
- "thiserror 2.0.18",
- "wincode",
-]
-
-[[package]]
-name = "agave-scheduling-utils"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "agave-scheduler-bindings 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "agave-transaction-view 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "ahash 0.8.12",
- "libc",
- "nix",
- "rts-alloc",
- "shaq",
- "slotmap",
- "solana-fee 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-pubkey 4.1.0",
- "solana-transaction",
- "solana-transaction-error",
  "thiserror 2.0.18",
  "wincode",
 ]
@@ -376,7 +335,7 @@ dependencies = [
  "solana-hash 4.2.0",
  "solana-lattice-hash",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "strum 0.28.0",
  "symlink",
  "tar",
@@ -421,7 +380,7 @@ dependencies = [
  "solana-poseidon",
  "solana-program",
  "solana-program-entrypoint",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sbpf",
@@ -431,15 +390,15 @@ dependencies = [
  "solana-slot-hashes",
  "solana-stable-layout",
  "solana-stake-interface",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-feature-set 4.1.0-alpha.0",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-measure 4.1.0-alpha.0",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-log-collector",
+ "solana-svm-measure",
+ "solana-svm-timings",
+ "solana-svm-type-overrides",
  "solana-sysvar",
  "solana-sysvar-id",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "static_assertions",
  "test-case",
  "thiserror 2.0.18",
@@ -449,7 +408,7 @@ dependencies = [
 name = "agave-transaction-view"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-transaction-view 4.1.0-alpha.0",
+ "agave-transaction-view",
  "bincode",
  "criterion",
  "solana-hash 4.2.0",
@@ -457,33 +416,16 @@ dependencies = [
  "solana-keypair",
  "solana-message",
  "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-sdk-ids",
  "solana-short-vec",
  "solana-signature",
  "solana-signer",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
-]
-
-[[package]]
-name = "agave-transaction-view"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "solana-hash 4.2.0",
- "solana-message",
- "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-pubkey 4.1.0",
- "solana-sdk-ids",
- "solana-short-vec",
- "solana-signature",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-transaction-context 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-transaction-context",
 ]
 
 [[package]]
@@ -540,7 +482,7 @@ dependencies = [
  "solana-inflation",
  "solana-keypair",
  "solana-ledger",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-net-utils",
  "solana-perf",
@@ -567,7 +509,7 @@ dependencies = [
  "solana-unified-scheduler-pool",
  "solana-validator-exit",
  "solana-version",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "symlink",
  "tempfile",
  "test-case",
@@ -609,7 +551,7 @@ dependencies = [
  "solana-keypair",
  "solana-ledger",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-perf",
  "solana-pubkey 4.1.0",
@@ -624,7 +566,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-error",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "tempfile",
  "test-case",
  "thiserror 2.0.18",
@@ -636,7 +578,7 @@ dependencies = [
 name = "agave-votor-messages"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-votor-messages",
  "log",
  "serde",
@@ -666,7 +608,7 @@ dependencies = [
  "solana-cli-config",
  "solana-cli-output",
  "solana-hash 4.2.0",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-notifier",
  "solana-pubkey 4.1.0",
@@ -5540,7 +5482,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph",
@@ -5561,7 +5503,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -7102,7 +7044,7 @@ dependencies = [
  "solana-lattice-hash",
  "solana-measure",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-nohash-hasher",
  "solana-pubkey 4.1.0",
  "solana-rayon-threadlimit",
@@ -7115,14 +7057,14 @@ dependencies = [
  "solana-slot-hashes",
  "solana-slot-history",
  "solana-stake-interface",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-sysvar",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-generic-token",
  "static_assertions",
  "strum 0.28.0",
@@ -7219,7 +7161,7 @@ dependencies = [
  "solana-system-interface 3.1.0",
  "solana-sysvar",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "tarpc",
  "thiserror 2.0.18",
@@ -7240,7 +7182,7 @@ dependencies = [
  "solana-pubkey 4.1.0",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "tarpc",
 ]
@@ -7249,7 +7191,7 @@ dependencies = [
 name = "solana-banks-server"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "bincode",
  "crossbeam-channel",
  "futures 0.3.32",
@@ -7262,7 +7204,7 @@ dependencies = [
  "solana-net-utils",
  "solana-pubkey 4.1.0",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-send-transaction-service",
  "solana-signature",
  "solana-transaction",
@@ -7426,19 +7368,19 @@ dependencies = [
  "solana-loader-v4-interface",
  "solana-packet 4.1.0",
  "solana-program",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sbpf",
  "solana-sdk-ids",
  "solana-slot-hashes",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-feature-set 4.1.0-alpha.0",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-measure 4.1.0-alpha.0",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-log-collector",
+ "solana-svm-measure",
+ "solana-svm-type-overrides",
  "solana-system-interface 3.1.0",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "static_assertions",
  "test-case",
 ]
@@ -7489,16 +7431,16 @@ dependencies = [
 name = "solana-builtins"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "solana-bpf-loader-program",
  "solana-compute-budget-program",
  "solana-hash 4.2.0",
  "solana-loader-v4-program",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-sdk-ids",
  "solana-system-program",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "solana-zk-elgamal-proof-program",
  "solana-zk-token-proof-program",
 ]
@@ -7507,23 +7449,12 @@ dependencies = [
 name = "solana-builtins-default-costs"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "ahash 0.8.12",
  "qualifier_attr",
  "solana-pubkey 4.1.0",
  "solana-sdk-ids",
  "static_assertions",
-]
-
-[[package]]
-name = "solana-builtins-default-costs"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "ahash 0.8.12",
- "solana-pubkey 4.1.0",
- "solana-sdk-ids",
 ]
 
 [[package]]
@@ -7595,7 +7526,7 @@ dependencies = [
 name = "solana-cli"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-syscalls",
  "agave-votor-messages",
@@ -7646,7 +7577,7 @@ dependencies = [
  "solana-offchain-message",
  "solana-packet 4.1.0",
  "solana-presigner",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-pubsub-client",
  "solana-remote-wallet",
@@ -7669,7 +7600,7 @@ dependencies = [
  "solana-transaction-error",
  "solana-transaction-status",
  "solana-version",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-memo-interface",
  "tempfile",
  "test-case",
@@ -7727,10 +7658,10 @@ dependencies = [
  "solana-stake-interface",
  "solana-system-interface 3.1.0",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-status",
  "solana-transaction-status-client-types",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-memo-interface",
 ]
 
@@ -7862,30 +7793,21 @@ name = "solana-compute-budget"
 version = "4.1.0-alpha.0"
 dependencies = [
  "solana-fee-structure",
- "solana-program-runtime 4.1.0-alpha.0",
-]
-
-[[package]]
-name = "solana-compute-budget"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "solana-fee-structure",
- "solana-program-runtime 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-program-runtime",
 ]
 
 [[package]]
 name = "solana-compute-budget-instruction"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "bincode",
  "criterion",
  "rand 0.9.2",
  "solana-borsh",
- "solana-builtins-default-costs 4.1.0-alpha.0",
- "solana-compute-budget 4.1.0-alpha.0",
- "solana-compute-budget-instruction 4.1.0-alpha.0",
+ "solana-builtins-default-costs",
+ "solana-compute-budget",
+ "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-hash 4.2.0",
  "solana-instruction",
@@ -7896,27 +7818,9 @@ dependencies = [
  "solana-sdk-ids",
  "solana-signer",
  "solana-stake-interface",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-transaction",
- "solana-transaction-error",
-]
-
-[[package]]
-name = "solana-compute-budget-instruction"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-borsh",
- "solana-builtins-default-costs 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-compute-budget 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-compute-budget-interface",
- "solana-instruction",
- "solana-packet 4.1.0",
- "solana-pubkey 4.1.0",
- "solana-sdk-ids",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
  "solana-transaction-error",
 ]
 
@@ -7935,21 +7839,21 @@ dependencies = [
 name = "solana-compute-budget-program"
 version = "4.1.0-alpha.0"
 dependencies = [
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
 ]
 
 [[package]]
 name = "solana-compute-budget-program-bench"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "criterion",
- "solana-compute-budget 4.1.0-alpha.0",
- "solana-compute-budget-instruction 4.1.0-alpha.0",
+ "solana-compute-budget",
+ "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-message",
  "solana-sdk-ids",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
 ]
 
 [[package]]
@@ -7982,7 +7886,7 @@ dependencies = [
  "rand_chacha 0.9.0",
  "solana-keypair",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-time-utils",
  "solana-transaction-error",
@@ -7995,15 +7899,15 @@ version = "4.1.0-alpha.0"
 dependencies = [
  "agave-banking-stage-ingress-types",
  "agave-bls-cert-verify",
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-math-utils",
  "agave-reserved-account-keys",
- "agave-scheduler-bindings 4.1.0-alpha.0",
+ "agave-scheduler-bindings",
  "agave-scheduler-greedy-throughput",
- "agave-scheduling-utils 4.1.0-alpha.0",
+ "agave-scheduling-utils",
  "agave-snapshots",
- "agave-transaction-view 4.1.0-alpha.0",
+ "agave-transaction-view",
  "agave-votor",
  "agave-votor-messages",
  "agave-xdp",
@@ -8054,15 +7958,15 @@ dependencies = [
  "solana-client",
  "solana-clock",
  "solana-cluster-type",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-compute-budget-program",
  "solana-connection-cache",
  "solana-core",
- "solana-cost-model 4.1.0-alpha.0",
+ "solana-cost-model",
  "solana-entry",
  "solana-epoch-schedule",
- "solana-fee 4.1.0-alpha.0",
+ "solana-fee",
  "solana-fee-calculator",
  "solana-fee-structure",
  "solana-frozen-abi",
@@ -8080,7 +7984,7 @@ dependencies = [
  "solana-loader-v3-interface",
  "solana-measure",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-net-utils",
  "solana-nonce",
@@ -8096,7 +8000,7 @@ dependencies = [
  "solana-rpc",
  "solana-rpc-client-api",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sdk-ids",
  "solana-send-transaction-service",
  "solana-sha256-hasher",
@@ -8108,8 +8012,8 @@ dependencies = [
  "solana-slot-history",
  "solana-streamer",
  "solana-svm",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-timings",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-system-program",
  "solana-system-transaction",
@@ -8127,7 +8031,7 @@ dependencies = [
  "solana-validator-exit",
  "solana-version",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-memo-interface",
  "static_assertions",
  "strum 0.28.0",
@@ -8148,7 +8052,7 @@ dependencies = [
 name = "solana-cost-model"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-reserved-account-keys",
  "ahash 0.8.12",
@@ -8157,11 +8061,11 @@ dependencies = [
  "rand 0.9.2",
  "solana-bincode",
  "solana-clock",
- "solana-compute-budget 4.1.0-alpha.0",
- "solana-compute-budget-instruction 4.1.0-alpha.0",
+ "solana-compute-budget",
+ "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-compute-budget-program",
- "solana-cost-model 4.1.0-alpha.0",
+ "solana-cost-model",
  "solana-fee-structure",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
@@ -8169,48 +8073,23 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-packet 4.1.0",
  "solana-pubkey 4.1.0",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sdk-ids",
  "solana-signature",
  "solana-signer",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-system-program",
  "solana-system-transaction",
  "solana-transaction",
  "solana-transaction-error",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "static_assertions",
  "test-case",
-]
-
-[[package]]
-name = "solana-cost-model"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "ahash 0.8.12",
- "log",
- "solana-bincode",
- "solana-clock",
- "solana-compute-budget 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-compute-budget-instruction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-compute-budget-interface",
- "solana-fee-structure",
- "solana-metrics 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-packet 4.1.0",
- "solana-pubkey 4.1.0",
- "solana-runtime-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-sdk-ids",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-system-interface 3.1.0",
- "solana-transaction-error",
- "solana-vote-program 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
 ]
 
 [[package]]
@@ -8352,7 +8231,7 @@ dependencies = [
  "solana-packet 4.1.0",
  "solana-perf",
  "solana-pubkey 4.1.0",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sha256-hasher",
  "solana-signature",
  "solana-signer",
@@ -8454,7 +8333,7 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-packet 4.1.0",
  "solana-pubkey 4.1.0",
@@ -8478,7 +8357,7 @@ dependencies = [
  "solana-cli-config",
  "solana-faucet",
  "solana-keypair",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-version",
  "tokio",
 ]
@@ -8506,19 +8385,9 @@ dependencies = [
 name = "solana-fee"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "solana-fee-structure",
- "solana-svm-transaction 4.1.0-alpha.0",
-]
-
-[[package]]
-name = "solana-fee"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-fee-structure",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
+ "solana-svm-transaction",
 ]
 
 [[package]]
@@ -8598,7 +8467,7 @@ dependencies = [
 name = "solana-genesis"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-snapshots",
  "base64 0.22.1",
@@ -8640,7 +8509,7 @@ dependencies = [
  "solana-time-utils",
  "solana-version",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "tempfile",
  "test-case",
 ]
@@ -8758,7 +8627,7 @@ dependencies = [
  "solana-keypair",
  "solana-ledger",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-net-utils",
  "solana-packet 4.1.0",
@@ -8779,7 +8648,7 @@ dependencies = [
  "solana-version",
  "solana-vote",
  "solana-vote-interface",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "static_assertions",
  "test-case",
  "thiserror 2.0.18",
@@ -9004,7 +8873,7 @@ dependencies = [
 name = "solana-ledger"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-reserved-account-keys",
  "agave-snapshots",
@@ -9048,7 +8917,7 @@ dependencies = [
  "solana-address-lookup-table-interface",
  "solana-bls-signatures",
  "solana-clock",
- "solana-cost-model 4.1.0-alpha.0",
+ "solana-cost-model",
  "solana-entry",
  "solana-epoch-schedule",
  "solana-frozen-abi",
@@ -9062,7 +8931,7 @@ dependencies = [
  "solana-ledger",
  "solana-measure",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-net-utils",
  "solana-nohash-hasher",
@@ -9070,11 +8939,11 @@ dependencies = [
  "solana-perf",
  "solana-program-option",
  "solana-program-pack",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rayon-threadlimit",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sha256-hasher",
  "solana-shred-version",
  "solana-signature",
@@ -9084,17 +8953,17 @@ dependencies = [
  "solana-storage-proto",
  "solana-streamer",
  "solana-svm",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-timings",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-system-transaction",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-transaction-status",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-generic-token",
  "spl-pod",
  "static_assertions",
@@ -9166,22 +9035,22 @@ dependencies = [
  "solana-loader-v3-interface",
  "solana-loader-v4-interface",
  "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-sbpf",
  "solana-sdk-ids",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-measure 4.1.0-alpha.0",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-log-collector",
+ "solana-svm-measure",
+ "solana-svm-type-overrides",
  "solana-sysvar",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
 ]
 
 [[package]]
 name = "solana-local-cluster"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-snapshots",
  "agave-votor",
@@ -9244,7 +9113,7 @@ dependencies = [
  "solana-validator-exit",
  "solana-vote",
  "solana-vote-interface",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "static_assertions",
  "strum 0.28.0",
  "tempfile",
@@ -9298,22 +9167,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serial_test",
  "solana-cluster-type",
- "solana-metrics 4.1.0-alpha.0",
- "solana-sha256-hasher",
- "solana-time-utils",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "solana-metrics"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "crossbeam-channel",
- "gethostname",
- "log",
- "reqwest 0.12.28",
- "solana-cluster-type",
+ "solana-metrics",
  "solana-sha256-hasher",
  "solana-time-utils",
  "thiserror 2.0.18",
@@ -9355,7 +9209,7 @@ dependencies = [
  "socket2 0.6.3",
  "solana-net-utils",
  "solana-serde",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-type-overrides",
  "thiserror 2.0.18",
  "tokio",
  "url 2.5.8",
@@ -9482,7 +9336,7 @@ dependencies = [
  "solana-hash 4.2.0",
  "solana-keypair",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-packet 4.1.0",
  "solana-perf",
  "solana-pubkey 4.1.0",
@@ -9494,9 +9348,9 @@ dependencies = [
  "solana-system-transaction",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-vote",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "test-case",
  "tikv-jemallocator",
 ]
@@ -9524,7 +9378,7 @@ dependencies = [
  "solana-leader-schedule",
  "solana-ledger",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-perf",
  "solana-poh",
  "solana-poh-config",
@@ -9732,7 +9586,7 @@ dependencies = [
  "solana-loader-v3-interface",
  "solana-message",
  "solana-program-entrypoint",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sbpf",
@@ -9741,64 +9595,19 @@ dependencies = [
  "solana-slot-hashes",
  "solana-stable-layout",
  "solana-stake-interface",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-feature-set 4.1.0-alpha.0",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-measure 4.1.0-alpha.0",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-transaction 4.1.0-alpha.0",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-log-collector",
+ "solana-svm-measure",
+ "solana-svm-timings",
+ "solana-svm-transaction",
+ "solana-svm-type-overrides",
  "solana-system-interface 3.1.0",
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "test-case",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "solana-program-runtime"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "base64 0.22.1",
- "bincode",
- "cfg-if 1.0.4",
- "itertools 0.14.0",
- "log",
- "percentage",
- "rand 0.9.2",
- "serde",
- "solana-account 4.1.0",
- "solana-account-info",
- "solana-clock",
- "solana-epoch-rewards",
- "solana-epoch-schedule",
- "solana-fee-structure",
- "solana-hash 4.2.0",
- "solana-instruction",
- "solana-last-restart-slot",
- "solana-loader-v3-interface",
- "solana-program-entrypoint",
- "solana-pubkey 4.1.0",
- "solana-rent 4.1.0",
- "solana-sbpf",
- "solana-sdk-ids",
- "solana-slot-hashes",
- "solana-stable-layout",
- "solana-stake-interface",
- "solana-svm-callback 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-log-collector 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-measure 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-timings 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-svm-type-overrides 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-system-interface 3.1.0",
- "solana-sysvar",
- "solana-sysvar-id",
- "solana-transaction-context 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
  "thiserror 2.0.18",
 ]
 
@@ -9806,7 +9615,7 @@ dependencies = [
 name = "solana-program-test"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "assert_matches",
  "async-trait",
@@ -9824,7 +9633,7 @@ dependencies = [
  "solana-clock",
  "solana-cluster-type",
  "solana-commitment-config",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-cpi",
  "solana-epoch-rewards",
  "solana-epoch-schedule",
@@ -9842,7 +9651,7 @@ dependencies = [
  "solana-program-binaries",
  "solana-program-entrypoint",
  "solana-program-error",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-program-test",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
@@ -9851,15 +9660,15 @@ dependencies = [
  "solana-sdk-ids",
  "solana-signer",
  "solana-stake-interface",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-timings 4.1.0-alpha.0",
+ "solana-svm-log-collector",
+ "solana-svm-timings",
  "solana-system-interface 3.1.0",
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-generic-token",
  "test-case",
  "thiserror 2.0.18",
@@ -9923,7 +9732,7 @@ dependencies = [
  "solana-connection-cache",
  "solana-keypair",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-packet 4.1.0",
  "solana-perf",
@@ -10010,7 +9819,7 @@ dependencies = [
 name = "solana-rpc"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-reserved-account-keys",
  "agave-snapshots",
  "base64 0.22.1",
@@ -10057,7 +9866,7 @@ dependencies = [
  "solana-ledger",
  "solana-measure",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-nonce",
  "solana-nonce-account",
@@ -10066,14 +9875,14 @@ dependencies = [
  "solana-poh-config",
  "solana-program-option",
  "solana-program-pack",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rayon-threadlimit",
  "solana-rent 4.1.0",
  "solana-rpc",
  "solana-rpc-client-api",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sdk-ids",
  "solana-send-transaction-service",
  "solana-sha256-hasher",
@@ -10083,21 +9892,21 @@ dependencies = [
  "solana-stake-interface",
  "solana-storage-bigtable",
  "solana-svm",
- "solana-svm-log-collector 4.1.0-alpha.0",
+ "solana-svm-log-collector",
  "solana-system-interface 3.1.0",
  "solana-system-transaction",
  "solana-sysvar",
  "solana-time-utils",
  "solana-tls-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-transaction-status",
  "solana-validator-exit",
  "solana-version",
  "solana-vote",
  "solana-vote-interface",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-generic-token",
  "spl-pod",
  "spl-token-2022-interface",
@@ -10273,14 +10082,14 @@ name = "solana-runtime"
 version = "4.1.0-alpha.0"
 dependencies = [
  "agave-bls-cert-verify",
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-fs",
  "agave-logger",
  "agave-precompiles",
  "agave-reserved-account-keys",
  "agave-snapshots",
  "agave-syscalls",
- "agave-transaction-view 4.1.0-alpha.0",
+ "agave-transaction-view",
  "agave-votor-messages",
  "ahash 0.8.12",
  "aquamarine",
@@ -10326,11 +10135,11 @@ dependencies = [
  "solana-clock",
  "solana-cluster-type",
  "solana-commitment-config",
- "solana-compute-budget 4.1.0-alpha.0",
- "solana-compute-budget-instruction 4.1.0-alpha.0",
+ "solana-compute-budget",
+ "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-config-interface",
- "solana-cost-model 4.1.0-alpha.0",
+ "solana-cost-model",
  "solana-cpi",
  "solana-ed25519-program",
  "solana-entry",
@@ -10338,7 +10147,7 @@ dependencies = [
  "solana-epoch-rewards-hasher",
  "solana-epoch-schedule",
  "solana-feature-gate-interface",
- "solana-fee 4.1.0-alpha.0",
+ "solana-fee",
  "solana-fee-calculator",
  "solana-fee-structure",
  "solana-frozen-abi",
@@ -10356,7 +10165,7 @@ dependencies = [
  "solana-loader-v4-interface",
  "solana-measure",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-nonce",
  "solana-nonce-account",
@@ -10365,13 +10174,13 @@ dependencies = [
  "solana-poh-config",
  "solana-precompile-error",
  "solana-program-binaries",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rayon-threadlimit",
  "solana-rent 4.1.0",
  "solana-reward-info",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sdk-ids",
  "solana-secp256k1-program",
  "solana-seed-derivable",
@@ -10384,23 +10193,23 @@ dependencies = [
  "solana-slot-history",
  "solana-stake-interface",
  "solana-svm",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-timings",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-system-transaction",
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-transaction-status-client-types",
  "solana-unified-scheduler-logic",
  "solana-version",
  "solana-vote",
  "solana-vote-interface",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "spl-generic-token",
  "static_assertions",
  "strum 0.28.0",
@@ -10417,48 +10226,30 @@ dependencies = [
 name = "solana-runtime-transaction"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-reserved-account-keys",
- "agave-transaction-view 4.1.0-alpha.0",
+ "agave-transaction-view",
  "bincode",
  "criterion",
  "rand 0.9.2",
- "solana-compute-budget-instruction 4.1.0-alpha.0",
+ "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-hash 4.2.0",
  "solana-instruction",
  "solana-keypair",
  "solana-message",
  "solana-pubkey 4.1.0",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-sdk-ids",
  "solana-signature",
  "solana-signer",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-interface 3.1.0",
  "solana-system-transaction",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-vote-interface",
-]
-
-[[package]]
-name = "solana-runtime-transaction"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-transaction-view 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-compute-budget-instruction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-hash 4.2.0",
- "solana-message",
- "solana-pubkey 4.1.0",
- "solana-sdk-ids",
- "solana-signature",
- "solana-svm-transaction 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-transaction-error",
 ]
 
 [[package]]
@@ -10582,7 +10373,7 @@ dependencies = [
  "solana-hash 4.2.0",
  "solana-keypair",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-nonce",
  "solana-nonce-account",
@@ -10814,7 +10605,7 @@ dependencies = [
  "solana-hash 4.2.0",
  "solana-keypair",
  "solana-message",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-pubkey 4.1.0",
  "solana-serde",
  "solana-signature",
@@ -10822,7 +10613,7 @@ dependencies = [
  "solana-system-transaction",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-transaction-status",
  "thiserror 2.0.18",
@@ -10850,7 +10641,7 @@ dependencies = [
  "solana-serde",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "solana-transaction-status",
  "test-case",
@@ -10884,7 +10675,7 @@ dependencies = [
  "rustls",
  "smallvec",
  "solana-keypair",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-packet 4.1.0",
  "solana-perf",
@@ -10919,7 +10710,7 @@ dependencies = [
  "solana-account 4.1.0",
  "solana-bpf-loader-program",
  "solana-clock",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-compute-budget-program",
  "solana-ed25519-program",
@@ -10943,7 +10734,7 @@ dependencies = [
  "solana-program-binaries",
  "solana-program-entrypoint",
  "solana-program-pack",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sbpf",
@@ -10953,20 +10744,20 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-svm",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-feature-set 4.1.0-alpha.0",
- "solana-svm-log-collector 4.1.0-alpha.0",
- "solana-svm-measure 4.1.0-alpha.0",
- "solana-svm-timings 4.1.0-alpha.0",
- "solana-svm-transaction 4.1.0-alpha.0",
- "solana-svm-type-overrides 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-log-collector",
+ "solana-svm-measure",
+ "solana-svm-timings",
+ "solana-svm-transaction",
+ "solana-svm-type-overrides",
  "solana-system-interface 3.1.0",
  "solana-system-program",
  "solana-system-transaction",
  "solana-sysvar",
  "solana-sysvar-id",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "spl-generic-token",
  "spl-token-interface",
@@ -10985,24 +10776,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-svm-callback"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "solana-account 4.1.0",
- "solana-clock",
- "solana-precompile-error",
- "solana-pubkey 4.1.0",
-]
-
-[[package]]
 name = "solana-svm-feature-set"
 version = "4.1.0-alpha.0"
-
-[[package]]
-name = "solana-svm-feature-set"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
 
 [[package]]
 name = "solana-svm-log-collector"
@@ -11012,35 +10787,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-svm-log-collector"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "log",
-]
-
-[[package]]
 name = "solana-svm-measure"
 version = "4.1.0-alpha.0"
 
 [[package]]
-name = "solana-svm-measure"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-
-[[package]]
 name = "solana-svm-timings"
 version = "4.1.0-alpha.0"
-dependencies = [
- "eager",
- "enum-iterator",
- "solana-pubkey 4.1.0",
-]
-
-[[package]]
-name = "solana-svm-timings"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
 dependencies = [
  "eager",
  "enum-iterator",
@@ -11064,33 +10816,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-svm-transaction"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "solana-hash 4.2.0",
- "solana-message",
- "solana-pubkey 4.1.0",
- "solana-sdk-ids",
- "solana-signature",
- "solana-transaction",
-]
-
-[[package]]
 name = "solana-svm-type-overrides"
 version = "4.1.0-alpha.0"
 dependencies = [
  "futures 0.3.32",
  "rand 0.9.2",
  "shuttle",
-]
-
-[[package]]
-name = "solana-svm-type-overrides"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "rand 0.9.2",
 ]
 
 [[package]]
@@ -11134,25 +10865,25 @@ dependencies = [
  "log",
  "solana-account 4.1.0",
  "solana-bincode",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-fee-calculator",
  "solana-hash 4.2.0",
  "solana-instruction",
  "solana-nonce",
  "solana-nonce-account",
  "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sdk-ids",
  "solana-sha256-hasher",
- "solana-svm-callback 4.1.0-alpha.0",
- "solana-svm-feature-set 4.1.0-alpha.0",
- "solana-svm-log-collector 4.1.0-alpha.0",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-log-collector",
  "solana-system-interface 3.1.0",
  "solana-system-program",
  "solana-sysvar",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
 ]
 
 [[package]]
@@ -11220,7 +10951,7 @@ dependencies = [
 name = "solana-test-validator"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-snapshots",
  "agave-syscalls",
  "arc-swap",
@@ -11235,7 +10966,7 @@ dependencies = [
  "solana-clock",
  "solana-cluster-type",
  "solana-commitment-config",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-core",
  "solana-epoch-schedule",
  "solana-feature-gate-interface",
@@ -11252,7 +10983,7 @@ dependencies = [
  "solana-native-token",
  "solana-net-utils",
  "solana-program-binaries",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-program-test",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
@@ -11413,7 +11144,7 @@ dependencies = [
  "solana-commitment-config",
  "solana-keypair",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-net-utils",
  "solana-packet 4.1.0",
  "solana-pubkey 4.1.0",
@@ -11472,24 +11203,8 @@ dependencies = [
  "solana-sdk-ids",
  "solana-signature",
  "solana-system-interface 3.1.0",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "static_assertions",
-]
-
-[[package]]
-name = "solana-transaction-context"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "bincode",
- "serde",
- "solana-account 4.1.0",
- "solana-instruction",
- "solana-instructions-sysvar",
- "solana-pubkey 4.1.0",
- "solana-rent 4.1.0",
- "solana-sbpf",
- "solana-sdk-ids",
 ]
 
 [[package]]
@@ -11566,7 +11281,7 @@ dependencies = [
  "solana-reward-info",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-transaction-error",
  "test-case",
  "thiserror 2.0.18",
@@ -11576,7 +11291,7 @@ dependencies = [
 name = "solana-turbine"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "agave-votor",
  "agave-votor-messages",
@@ -11602,7 +11317,7 @@ dependencies = [
  "solana-keypair",
  "solana-ledger",
  "solana-measure",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-native-token",
  "solana-net-utils",
  "solana-perf",
@@ -11647,7 +11362,7 @@ dependencies = [
  "solana-instruction",
  "solana-message",
  "solana-pubkey 4.1.0",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-transaction",
  "static_assertions",
  "test-case",
@@ -11670,18 +11385,18 @@ dependencies = [
  "log",
  "scopeguard",
  "solana-clock",
- "solana-cost-model 4.1.0-alpha.0",
+ "solana-cost-model",
  "solana-entry",
  "solana-hash 4.2.0",
  "solana-keypair",
  "solana-ledger",
- "solana-metrics 4.1.0-alpha.0",
+ "solana-metrics",
  "solana-poh",
  "solana-pubkey 4.1.0",
  "solana-runtime",
- "solana-runtime-transaction 4.1.0-alpha.0",
+ "solana-runtime-transaction",
  "solana-svm",
- "solana-svm-timings 4.1.0-alpha.0",
+ "solana-svm-timings",
  "solana-system-transaction",
  "solana-transaction",
  "solana-transaction-error",
@@ -11703,7 +11418,7 @@ checksum = "c5d2face763df5afeaa9509b9019968860e69cc1531ec8b4a2e6c7b702204d5a"
 name = "solana-version"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "bincode",
  "rand 0.9.2",
  "semver 1.0.27",
@@ -11740,7 +11455,7 @@ dependencies = [
  "solana-sha256-hasher",
  "solana-signature",
  "solana-signer",
- "solana-svm-transaction 4.1.0-alpha.0",
+ "solana-svm-transaction",
  "solana-system-transaction",
  "solana-transaction",
  "solana-vote",
@@ -11782,7 +11497,7 @@ dependencies = [
 name = "solana-vote-program"
 version = "4.1.0-alpha.0"
 dependencies = [
- "agave-feature-set 4.1.0-alpha.0",
+ "agave-feature-set",
  "agave-logger",
  "assert_matches",
  "bincode",
@@ -11799,45 +11514,19 @@ dependencies = [
  "solana-hash 4.2.0",
  "solana-instruction",
  "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-pubkey 4.1.0",
  "solana-rent 4.1.0",
  "solana-sdk-ids",
  "solana-sha256-hasher",
  "solana-slot-hashes",
- "solana-svm-feature-set 4.1.0-alpha.0",
+ "solana-svm-feature-set",
  "solana-system-interface 3.1.0",
  "solana-system-program",
- "solana-transaction-context 4.1.0-alpha.0",
+ "solana-transaction-context",
  "solana-vote-interface",
- "solana-vote-program 4.1.0-alpha.0",
+ "solana-vote-program",
  "test-case",
-]
-
-[[package]]
-name = "solana-vote-program"
-version = "4.1.0-alpha.0"
-source = "git+https://github.com/anza-xyz/agave#43c8e5eb9bcc0513889e240dd51a587a6818d64e"
-dependencies = [
- "agave-feature-set 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "bincode",
- "log",
- "solana-account 4.1.0",
- "solana-bincode",
- "solana-bls-signatures",
- "solana-clock",
- "solana-epoch-schedule",
- "solana-hash 4.2.0",
- "solana-instruction",
- "solana-packet 4.1.0",
- "solana-program-runtime 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-pubkey 4.1.0",
- "solana-rent 4.1.0",
- "solana-sdk-ids",
- "solana-slot-hashes",
- "solana-system-interface 3.1.0",
- "solana-transaction-context 4.1.0-alpha.0 (git+https://github.com/anza-xyz/agave)",
- "solana-vote-interface",
 ]
 
 [[package]]
@@ -11858,9 +11547,9 @@ dependencies = [
  "criterion",
  "curve25519-dalek 4.1.3",
  "solana-instruction",
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
  "solana-sdk-ids",
- "solana-svm-log-collector 4.1.0-alpha.0",
+ "solana-svm-log-collector",
  "solana-zk-sdk 5.0.1",
 ]
 
@@ -11870,7 +11559,7 @@ version = "4.1.0-alpha.0"
 dependencies = [
  "bytemuck",
  "solana-account 4.1.0",
- "solana-compute-budget 4.1.0-alpha.0",
+ "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
@@ -11958,7 +11647,7 @@ dependencies = [
 name = "solana-zk-token-proof-program"
 version = "4.1.0-alpha.0"
 dependencies = [
- "solana-program-runtime 4.1.0-alpha.0",
+ "solana-program-runtime",
 ]
 
 [[package]]

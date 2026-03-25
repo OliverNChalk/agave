@@ -657,3 +657,26 @@ codegen-units = 1
 [patch.crates-io]
 # for details, see https://github.com/anza-xyz/crossbeam/commit/fd279d707025f0e60951e429bf778b4813d1b6bf
 crossbeam-epoch = { git = "https://github.com/anza-xyz/crossbeam", rev = "fd279d707025f0e60951e429bf778b4813d1b6bf" }
+
+[patch."https://github.com/anza-xyz/agave"]
+agave-feature-set = { path = "./feature-set" }
+agave-scheduler-bindings = { path = "./scheduler-bindings" }
+agave-scheduling-utils = { path = "./scheduling-utils" }
+agave-transaction-view = { path = "./transaction-view" }
+solana-builtins-default-costs = { path = "./builtins-default-costs" }
+solana-compute-budget = { path = "./compute-budget" }
+solana-compute-budget-instruction = { path = "./compute-budget-instruction" }
+solana-cost-model = { path = "./cost-model" }
+solana-fee = { path = "./fee" }
+solana-metrics = { path = "./metrics" }
+solana-program-runtime = { path = "./program-runtime" }
+solana-runtime-transaction = { path = "./runtime-transaction" }
+solana-svm-callback = { path = "./svm-callback" }
+solana-svm-feature-set = { path = "./svm-feature-set" }
+solana-svm-log-collector = { path = "./svm-log-collector" }
+solana-svm-measure = { path = "./svm-measure" }
+solana-svm-timings = { path = "./svm-timings" }
+solana-svm-transaction = { path = "./svm-transaction" }
+solana-svm-type-overrides = { path = "./svm-type-overrides" }
+solana-transaction-context = { path = "./transaction-context" }
+solana-vote-program = { path = "./programs/vote" }
