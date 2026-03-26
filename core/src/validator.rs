@@ -371,8 +371,8 @@ pub struct ValidatorConfig {
     pub block_production_scheduler_config: SchedulerConfig,
     pub enable_block_production_forwarding: bool,
     pub enable_scheduler_bindings: bool,
-    pub external_scheduler_binary_path: Option<PathBuf>,
-    pub external_scheduler_config_path: Option<PathBuf>,
+    pub external_scheduler_binary: Option<PathBuf>,
+    pub external_scheduler_config: Option<PathBuf>,
     pub generator_config: Option<GeneratorConfig>,
     pub use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup,
     pub unified_scheduler_handler_threads: Option<usize>,
@@ -453,8 +453,8 @@ impl ValidatorConfig {
             // enable forwarding by default for tests
             enable_block_production_forwarding: true,
             enable_scheduler_bindings: false,
-            external_scheduler_binary_path: None,
-            external_scheduler_config_path: None,
+            external_scheduler_binary: None,
+            external_scheduler_config: None,
             generator_config: None,
             use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup::default(),
             unified_scheduler_handler_threads: None,
@@ -1746,8 +1746,8 @@ impl Validator {
             key_notifiers.clone(),
             banking_control_reciever,
             {
-                let enable = config.enable_scheduler_bindings
-                    || config.external_scheduler_binary_path.is_some();
+                let enable =
+                    config.enable_scheduler_bindings || config.external_scheduler_binary.is_some();
 
                 enable.then(|| {
                     (
@@ -1756,16 +1756,13 @@ impl Validator {
                     )
                 })
             },
-            config
-                .external_scheduler_binary_path
-                .as_ref()
-                .map(
-                    |binary_path| crate::banking_stage::ExternalSchedulerConfig {
-                        binary_path: binary_path.clone(),
-                        ipc_path: ledger_path.join("scheduler_bindings.ipc"),
-                        config_path: config.external_scheduler_config_path.clone(),
-                    },
-                ),
+            config.external_scheduler_binary.as_ref().map(|binary| {
+                crate::banking_stage::ExternalSchedulerConfig {
+                    binary: binary.clone(),
+                    ipc: ledger_path.join("scheduler_bindings.ipc"),
+                    config: config.external_scheduler_config.clone(),
+                }
+            }),
             cancel,
             votor_event_sender,
         );

@@ -143,8 +143,8 @@ pub struct TestValidatorGenesis {
     pub max_genesis_archive_unpacked_size: Option<u64>,
     pub geyser_plugin_config_files: Option<Vec<PathBuf>>,
     pub enable_scheduler_bindings: bool,
-    pub external_scheduler_binary_path: Option<PathBuf>,
-    pub external_scheduler_config_path: Option<PathBuf>,
+    pub external_scheduler_binary: Option<PathBuf>,
+    pub external_scheduler_config: Option<PathBuf>,
     deactivate_feature_set: HashSet<Pubkey>,
     compute_unit_limit: Option<u64>,
     pub log_messages_bytes_limit: Option<usize>,
@@ -180,8 +180,8 @@ impl Default for TestValidatorGenesis {
             max_genesis_archive_unpacked_size: Option::<u64>::default(),
             geyser_plugin_config_files: Option::<Vec<PathBuf>>::default(),
             enable_scheduler_bindings: false,
-            external_scheduler_binary_path: None,
-            external_scheduler_config_path: None,
+            external_scheduler_binary: None,
+            external_scheduler_config: None,
             deactivate_feature_set,
             compute_unit_limit: Option::<u64>::default(),
             log_messages_bytes_limit: Option::<usize>::default(),
@@ -1227,9 +1227,9 @@ impl TestValidator {
             accounts_db_config,
             runtime_config,
             enable_scheduler_bindings: config.enable_scheduler_bindings
-                || config.external_scheduler_binary_path.is_some(),
-            external_scheduler_binary_path: config.external_scheduler_binary_path.clone(),
-            external_scheduler_config_path: config.external_scheduler_config_path.clone(),
+                || config.external_scheduler_binary.is_some(),
+            external_scheduler_binary: config.external_scheduler_binary.clone(),
+            external_scheduler_config: config.external_scheduler_config.clone(),
             ..ValidatorConfig::default_for_test()
         };
         if let Some(ref tower_storage) = config.tower_storage {

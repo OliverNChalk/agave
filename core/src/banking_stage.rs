@@ -740,20 +740,20 @@ impl BankingStage {
     pub(super) fn spawn_external_managed(
         &mut self,
         ExternalSchedulerConfig {
-            binary_path,
-            ipc_path,
-            config_path,
+            binary,
+            ipc,
+            config,
         }: &ExternalSchedulerConfig,
     ) {
         info!(
             "Spawning managed external scheduler; binary={}",
-            binary_path.display()
+            binary.display()
         );
 
         // Setup command call.
-        let mut cmd = tokio::process::Command::new(binary_path);
-        cmd.arg("--bindings-ipc").arg(ipc_path);
-        if let Some(config) = config_path {
+        let mut cmd = tokio::process::Command::new(binary);
+        cmd.arg("--bindings-ipc").arg(ipc);
+        if let Some(config) = config {
             cmd.arg("--config").arg(config);
         }
 
@@ -763,7 +763,7 @@ impl BankingStage {
             .map_err(move |err| {
                 error!(
                     "Failed to spawn managed external scheduler; err={err}; binary={}",
-                    binary_path.display()
+                    binary.display()
                 );
             })
             .unwrap();
@@ -943,9 +943,9 @@ impl BankingStageHandle {
 
 #[derive(Clone)]
 pub struct ExternalSchedulerConfig {
-    pub binary_path: PathBuf,
-    pub ipc_path: PathBuf,
-    pub config_path: Option<PathBuf>,
+    pub binary: PathBuf,
+    pub ipc: PathBuf,
+    pub config: Option<PathBuf>,
 }
 
 pub enum BankingControlMsg {
