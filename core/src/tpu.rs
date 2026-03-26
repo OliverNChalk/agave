@@ -5,7 +5,7 @@ use {
     crate::{
         admin_rpc_post_init::{KeyUpdaterType, KeyUpdaters},
         banking_stage::{
-            BankingControlMsg, BankingStage, BankingStageHandle,
+            BankingControlMsg, BankingStage, BankingStageHandle, ExternalSchedulerConfig,
             transaction_scheduler::scheduler_controller::SchedulerConfig,
         },
         banking_trace::{Channels, TracerThread},
@@ -149,7 +149,7 @@ impl Tpu {
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         scheduler_bindings: Option<(PathBuf, mpsc::Sender<BankingControlMsg>)>,
-        external_scheduler_config: Option<crate::banking_stage::ExternalSchedulerConfig>,
+        external_scheduler_config: Option<ExternalSchedulerConfig>,
         cancel: CancellationToken,
         votor_event_sender: VotorEventSender,
     ) -> Self {
