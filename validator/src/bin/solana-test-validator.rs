@@ -407,6 +407,12 @@ fn main() {
     genesis.transaction_account_lock_limit =
         value_t!(matches, "transaction_account_lock_limit", usize).ok();
     genesis.enable_scheduler_bindings = matches.is_present("enable_scheduler_bindings");
+    genesis.external_scheduler_binary_path = matches
+        .value_of("external_scheduler_binary_path")
+        .map(PathBuf::from);
+    genesis.external_scheduler_config_path = matches
+        .value_of("external_scheduler_config_path")
+        .map(PathBuf::from);
 
     let tower_storage = Arc::new(FileTowerStorage::new(ledger_path.clone()));
 

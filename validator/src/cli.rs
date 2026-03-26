@@ -778,6 +778,21 @@ pub fn test_app<'a>(version: &'a str, default_args: &'a DefaultTestArgs) -> App<
                 .help("Enables external processes to connect and manage block production"),
         )
         .arg(
+            Arg::with_name("external_scheduler_binary_path")
+                .long("external-scheduler-binary-path")
+                .value_name("PATH")
+                .takes_value(true)
+                .help("Path to the external scheduler binary to spawn as a managed child process"),
+        )
+        .arg(
+            Arg::with_name("external_scheduler_config_path")
+                .long("external-scheduler-config-path")
+                .value_name("PATH")
+                .takes_value(true)
+                .requires("external_scheduler_binary_path")
+                .help("Path to the config file passed to the managed external scheduler binary"),
+        )
+        .arg(
             Arg::with_name("deactivate_feature")
                 .long("deactivate-feature")
                 .takes_value(true)
