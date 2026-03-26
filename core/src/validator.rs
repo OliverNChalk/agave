@@ -1748,6 +1748,7 @@ impl Validator {
             {
                 let enable = config.enable_scheduler_bindings
                     || config.external_scheduler_binary_path.is_some();
+
                 enable.then(|| {
                     (
                         ledger_path.join("scheduler_bindings.ipc"),
