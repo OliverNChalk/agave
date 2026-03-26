@@ -579,7 +579,7 @@ impl BankingStage {
             // Try graceful shutdown via SIGINT first.
             // SAFETY: Sending SIGINT to a known child process.
             unsafe {
-                libc::kill(pid as i32, libc::SIGINT);
+                libc::kill(pid.try_into().unwrap(), libc::SIGINT);
             }
 
             // Give the child a brief window to exit cleanly.
