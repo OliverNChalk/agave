@@ -579,7 +579,7 @@ impl BankingStage {
             // Try graceful shutdown via SIGINT first.
             // SAFETY: Sending SIGINT to a known child process.
             unsafe {
-                libc::kill(pid.try_into().unwrap(), libc::SIGINT);
+                libc::kill(pid.try_into().expect("PID exceeds i32"), libc::SIGINT);
             }
 
             // Give the child a brief window to exit cleanly.
@@ -601,11 +601,9 @@ impl BankingStage {
             }
         }
 
-        // Cross platform fallback, forceful termination.
-        child
-            .kill()
-            .await
-            .unwrap_or_else(|err| panic!("Failed to kill child; pid={pid:?}; err={err}"));
+        // Cross platform fallback, forceful termination. Note that because we have a
+        // SIGINT active we ignore kill failures.
+        let _ = child.kill().await;
 
         // Reap the exit code to ensure we don't leak PIDs.
         let code = child.wait().await.unwrap();
