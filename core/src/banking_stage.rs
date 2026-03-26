@@ -607,8 +607,6 @@ impl BankingStage {
             .await
             .unwrap_or_else(|err| panic!("Failed to kill child; pid={pid:?}; err={err}"));
 
-        // TODO: Panic or bubble up errors?
-
         // Reap the exit code to ensure we don't leak PIDs.
         let code = child.wait().await.unwrap();
         info!("Managed scheduler exited; code={code:?}")
