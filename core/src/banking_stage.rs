@@ -43,7 +43,7 @@ use {
     std::{
         num::{NonZeroU64, NonZeroUsize, Saturating},
         ops::Deref,
-        path::{Path, PathBuf},
+        path::PathBuf,
         sync::{
             Arc, RwLock,
             atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -430,12 +430,8 @@ impl BankingStage {
         };
 
         // Build initial args.
-        let initial_args = match &external_scheduler_config {
-            Some(config) => BankingControlMsg::ExternalManaged {
-                binary_path: config.binary_path.clone(),
-                ipc_path: config.ipc_path.clone(),
-                config_path: config.config_path.clone(),
-            },
+        let initial_args = match external_scheduler_config {
+            Some(config) => BankingControlMsg::ExternalManaged(config),
             None => BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
@@ -518,15 +514,11 @@ impl BankingStage {
     }
 
     async fn cycle_threads_fallback(&mut self) {
-        match &self.managed_config {
+        match self.managed_config.clone() {
             Some(config) => {
                 error!("Respawning managed external scheduler as fallback...");
-                self.cycle_threads(BankingControlMsg::ExternalManaged {
-                    binary_path: config.binary_path.clone(),
-                    ipc_path: config.ipc_path.clone(),
-                    config_path: config.config_path.clone(),
-                })
-                .await
+                self.cycle_threads(BankingControlMsg::ExternalManaged(config))
+                    .await
             }
             None => {
                 error!("Spawning the default block production method as a fallback...");
@@ -556,16 +548,8 @@ impl BankingStage {
             },
             #[cfg(unix)]
             BankingControlMsg::External { session } => self.spawn_external(session),
-            BankingControlMsg::ExternalManaged {
-                binary_path,
-                ipc_path,
-                config_path,
-            } => {
-                return self.spawn_external_managed(
-                    &binary_path,
-                    &ipc_path,
-                    config_path.as_deref(),
-                );
+            BankingControlMsg::ExternalManaged(config) => {
+                return self.spawn_external_managed(&config);
             }
         };
 
@@ -759,9 +743,11 @@ impl BankingStage {
 
     pub(super) fn spawn_external_managed(
         &mut self,
-        binary_path: &Path,
-        ipc_path: &Path,
-        config_path: Option<&Path>,
+        ExternalSchedulerConfig {
+            binary_path,
+            ipc_path,
+            config_path,
+        }: &ExternalSchedulerConfig,
     ) {
         info!(
             "Spawning managed external scheduler; binary={}",
@@ -778,7 +764,7 @@ impl BankingStage {
         // Spawn as child process.
         let child = cmd
             .spawn()
-            .map_err(|err| {
+            .map_err(move |err| {
                 error!(
                     "Failed to spawn managed external scheduler; err={err}; binary={}",
                     binary_path.display()
@@ -976,11 +962,7 @@ pub enum BankingControlMsg {
     External {
         session: agave_scheduling_utils::handshake::AgaveSession,
     },
-    ExternalManaged {
-        binary_path: PathBuf,
-        ipc_path: PathBuf,
-        config_path: Option<PathBuf>,
-    },
+    ExternalManaged(ExternalSchedulerConfig),
 }
 
 #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
