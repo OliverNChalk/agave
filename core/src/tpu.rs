@@ -149,6 +149,7 @@ impl Tpu {
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         scheduler_bindings: Option<(PathBuf, mpsc::Sender<BankingControlMsg>)>,
+        external_scheduler_config: Option<crate::banking_stage::ExternalSchedulerConfig>,
         cancel: CancellationToken,
         votor_event_sender: VotorEventSender,
     ) -> Self {
@@ -322,6 +323,7 @@ impl Tpu {
             log_messages_bytes_limit,
             bank_forks.clone(),
             prioritization_fee_cache,
+            external_scheduler_config,
         );
 
         #[cfg(unix)]

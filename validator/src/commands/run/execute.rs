@@ -876,7 +876,14 @@ pub fn execute(
             ),
         },
         enable_block_production_forwarding: staked_nodes_overrides_path.is_some(),
-        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings"),
+        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings")
+            || matches.is_present("external_scheduler_binary_path"),
+        external_scheduler_binary_path: matches
+            .value_of("external_scheduler_binary_path")
+            .map(PathBuf::from),
+        external_scheduler_config_path: matches
+            .value_of("external_scheduler_config_path")
+            .map(PathBuf::from),
         banking_trace_dir_byte_limit: parse_banking_trace_dir_byte_limit(matches),
         validator_exit: Arc::new(RwLock::new(Exit::default())),
         validator_exit_backpressure: [(

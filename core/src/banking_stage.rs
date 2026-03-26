@@ -24,7 +24,7 @@ use {
     },
     agave_banking_stage_ingress_types::BankingPacketReceiver,
     crossbeam_channel::{Receiver, Sender, unbounded},
-    futures::{StreamExt, stream::FuturesUnordered},
+    futures::{StreamExt, future::OptionFuture, stream::FuturesUnordered},
     histogram::Histogram,
     solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfoQuery},
     solana_ledger::blockstore_processor::TransactionStatusSender,
@@ -43,6 +43,7 @@ use {
     std::{
         num::{NonZeroU64, NonZeroUsize, Saturating},
         ops::Deref,
+        path::{Path, PathBuf},
         sync::{
             Arc, RwLock,
             atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -380,6 +381,8 @@ pub struct BankingStage {
     committer: Committer,
     log_messages_bytes_limit: Option<usize>,
     threads: FuturesUnordered<NamedTask<std::thread::Result<()>>>,
+    managed_config: Option<ExternalSchedulerConfig>,
+    managed_handle: Option<tokio::process::Child>,
 }
 
 impl BankingStage {
@@ -399,6 +402,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: Option<Arc<PrioritizationFeeCache>>,
+        external_scheduler_config: Option<ExternalSchedulerConfig>,
     ) -> BankingStageHandle {
         let committer = Committer::new(
             transaction_status_sender,
@@ -421,6 +425,22 @@ impl BankingStage {
             committer,
             log_messages_bytes_limit,
             threads: FuturesUnordered::default(),
+            managed_handle: None,
+            managed_config: external_scheduler_config.clone(),
+        };
+
+        // Build initial args.
+        let initial_args = match &external_scheduler_config {
+            Some(config) => BankingControlMsg::ExternalManaged {
+                binary_path: config.binary_path.clone(),
+                ipc_path: config.ipc_path.clone(),
+                config_path: config.config_path.clone(),
+            },
+            None => BankingControlMsg::Internal {
+                block_production_method,
+                num_workers,
+                config: scheduler_config,
+            },
         };
 
         // Spawn the manager thread.
@@ -431,11 +451,7 @@ impl BankingStage {
                     .enable_all()
                     .build()
                     .unwrap();
-                rt.block_on(manager.run(BankingControlMsg::Internal {
-                    block_production_method,
-                    num_workers,
-                    config: scheduler_config,
-                }))
+                rt.block_on(manager.run(initial_args))
             })
             .unwrap();
 
@@ -446,30 +462,35 @@ impl BankingStage {
     }
 
     async fn run(mut self, initial_args: BankingControlMsg) -> std::thread::Result<()> {
-        self.spawn_scheduler(initial_args).unwrap();
+        self.spawn_scheduler(initial_args);
 
         loop {
             tokio::select! {
                 biased;
 
                 _ = self.banking_shutdown_signal.cancelled() => break,
-                Some(args) = self.banking_control_receiver.recv() => {
-                    if self.cycle_threads(args).await.is_err() {
-                        self.cycle_threads_fallback().await.unwrap();
-                    }
+                Some(args) = self.banking_control_receiver.recv() => match self.threads.is_empty() {
+                    true => self.spawn_scheduler(args),
+                    false => self.cycle_threads(args).await,
                 },
+                Some(status) = OptionFuture::from(
+                    self.managed_handle.as_mut().map(|child| child.wait())
+                ) => {
+                    panic!("Managed external scheduler crashed; status={status:?}");
+                }
                 Some((name, res)) = self.threads.next() => {
                     match res.unwrap() {
                         Ok(()) => error!("Banking worker exited unexpectedly; name={name}"),
                         Err(err) => error!("Banking worker exited with error; name={name}; err={err:?}"),
                     };
-                    self.cycle_threads_fallback().await.unwrap();
+                    self.cycle_threads_fallback().await;
                 },
             }
         }
 
         // Signal shutdown & wait for all threads to exit.
         self.worker_exit_signal.store(true, Ordering::Relaxed);
+        self.start_shutdown().await;
         while let Some((_, res)) = self.threads.next().await {
             res.unwrap()?;
         }
@@ -477,9 +498,11 @@ impl BankingStage {
         Ok(())
     }
 
-    async fn cycle_threads(&mut self, args: BankingControlMsg) -> Result<(), ()> {
+    async fn cycle_threads(&mut self, args: BankingControlMsg) {
         // Shutdown all current threads.
-        self.worker_exit_signal.store(true, Ordering::Relaxed);
+        self.start_shutdown().await;
+
+        // Wait for all threads to drain.
         while let Some((name, res)) = self.threads.next().await {
             match res.unwrap() {
                 Ok(()) => info!("Banking worker exited cleanly; name={name}"),
@@ -491,22 +514,34 @@ impl BankingStage {
         self.worker_exit_signal.store(false, Ordering::Relaxed);
 
         // Spawn the requested threads.
-        self.spawn_scheduler(args)
+        self.spawn_scheduler(args);
     }
 
-    async fn cycle_threads_fallback(&mut self) -> Result<(), ()> {
-        error!("Spawning the default block production method as a fallback...");
-
-        self.cycle_threads(BankingControlMsg::Internal {
-            block_production_method: BlockProductionMethod::default(),
-            num_workers: BankingStage::default_num_workers(),
-            config: SchedulerConfig::default(),
-        })
-        .await
+    async fn cycle_threads_fallback(&mut self) {
+        match &self.managed_config {
+            Some(config) => {
+                error!("Respawning managed external scheduler as fallback...");
+                self.cycle_threads(BankingControlMsg::ExternalManaged {
+                    binary_path: config.binary_path.clone(),
+                    ipc_path: config.ipc_path.clone(),
+                    config_path: config.config_path.clone(),
+                })
+                .await
+            }
+            None => {
+                error!("Spawning the default block production method as a fallback...");
+                self.cycle_threads(BankingControlMsg::Internal {
+                    block_production_method: BlockProductionMethod::default(),
+                    num_workers: BankingStage::default_num_workers(),
+                    config: SchedulerConfig::default(),
+                })
+                .await
+            }
+        }
     }
 
-    fn spawn_scheduler(&mut self, args: BankingControlMsg) -> Result<(), ()> {
-        let threads = (match args {
+    fn spawn_scheduler(&mut self, args: BankingControlMsg) {
+        let threads = match args {
             BankingControlMsg::Internal {
                 block_production_method,
                 num_workers,
@@ -521,7 +556,18 @@ impl BankingStage {
             },
             #[cfg(unix)]
             BankingControlMsg::External { session } => self.spawn_external(session),
-        })?;
+            BankingControlMsg::ExternalManaged {
+                binary_path,
+                ipc_path,
+                config_path,
+            } => {
+                return self.spawn_external_managed(
+                    &binary_path,
+                    &ipc_path,
+                    config_path.as_deref(),
+                );
+            }
+        };
 
         self.threads.extend(threads.into_iter().map(|handle| {
             let name = handle.thread().name().unwrap().to_string();
@@ -530,7 +576,53 @@ impl BankingStage {
         }));
 
         info!("Scheduler spawned");
-        Ok(())
+    }
+
+    async fn start_shutdown(&mut self) {
+        // Signal worker exit.
+        self.worker_exit_signal.store(true, Ordering::Relaxed);
+
+        // Bail if we have no child process to manage.
+        let Some(mut child) = self.managed_handle.take() else {
+            return;
+        };
+
+        let pid = child.id();
+        info!("Terminating managed child; pid={pid:?}");
+
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            // Try graceful shutdown via SIGINT first.
+            // SAFETY: Sending SIGINT to a known child process.
+            unsafe {
+                libc::kill(pid as i32, libc::SIGINT);
+            }
+
+            // Give the child a brief window to exit cleanly.
+            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            // If still alive, force kill.
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    info!("Managed child exited after SIGINT; pid={pid}; status={status}");
+
+                    return;
+                }
+                Ok(None) => {
+                    info!("Managed child did not exit after SIGINT, killing; pid={pid}");
+                }
+                Err(err) => {
+                    error!("Failed to check managed child status; pid={pid}; err={err}");
+                }
+            }
+        }
+
+        // Cross platform fallback, forceful termination.
+        child
+            .kill()
+            .await
+            // TODO: This or bubble up error?
+            .unwrap_or_else(|err| panic!("Failed to kill child; pid={pid:?}; err={err}"));
     }
 
     fn spawn_internal_central(
@@ -538,7 +630,7 @@ impl BankingStage {
         use_greedy_scheduler: bool,
         num_workers: NonZeroUsize,
         scheduler_config: SchedulerConfig,
-    ) -> Result<Vec<JoinHandle<()>>, ()> {
+    ) -> Vec<JoinHandle<()>> {
         info!("Spawning internal central scheduler");
         // Toggling unified scheduler into the disabled state should always be a safe and idempotent
         // operation.
@@ -657,7 +749,41 @@ impl BankingStage {
             spawn_scheduler!(scheduler);
         }
 
-        Ok(threads)
+        threads
+    }
+
+    pub(super) fn spawn_external_managed(
+        &mut self,
+        binary_path: &Path,
+        ipc_path: &Path,
+        config_path: Option<&Path>,
+    ) {
+        info!(
+            "Spawning managed external scheduler; binary={}",
+            binary_path.display()
+        );
+
+        // Setup command call.
+        let mut cmd = tokio::process::Command::new(binary_path);
+        cmd.arg("--bindings-ipc").arg(ipc_path);
+        if let Some(config) = config_path {
+            cmd.arg("--config").arg(config);
+        }
+
+        // Spawn as child process.
+        let child = cmd
+            .spawn()
+            .map_err(|err| {
+                error!(
+                    "Failed to spawn managed external scheduler; err={err}; binary={}",
+                    binary_path.display()
+                );
+            })
+            .unwrap();
+        info!("Managed external scheduler spawned; pid={:?}", child.id());
+
+        // Store the handle.
+        self.managed_handle = Some(child);
     }
 
     fn toggle_internal_unified(&self, enable: bool) -> bool {
@@ -731,7 +857,7 @@ mod external {
                 progress_tracker,
                 workers,
             }: AgaveSession,
-        ) -> Result<Vec<JoinHandle<()>>, ()> {
+        ) -> Vec<JoinHandle<()>> {
             info!("Spawning external scheduler");
             // Toggling unified scheduler into the disabled state should always be a safe and
             // idempotent operation.
@@ -811,7 +937,7 @@ mod external {
                 ticks_per_slot,
             ));
 
-            Ok(threads)
+            threads
         }
     }
 }
@@ -828,6 +954,13 @@ impl BankingStageHandle {
     }
 }
 
+#[derive(Clone)]
+pub struct ExternalSchedulerConfig {
+    pub binary_path: PathBuf,
+    pub ipc_path: PathBuf,
+    pub config_path: Option<PathBuf>,
+}
+
 pub enum BankingControlMsg {
     Internal {
         block_production_method: BlockProductionMethod,
@@ -837,6 +970,11 @@ pub enum BankingControlMsg {
     #[cfg(unix)]
     External {
         session: agave_scheduling_utils::handshake::AgaveSession,
+    },
+    ExternalManaged {
+        binary_path: PathBuf,
+        ipc_path: PathBuf,
+        config_path: Option<PathBuf>,
     },
 }
 
@@ -991,6 +1129,7 @@ mod tests {
             None,
             bank_forks,
             None,
+            None,
         );
         drop(non_vote_sender);
         drop(tpu_vote_sender);
@@ -1050,6 +1189,7 @@ mod tests {
             replay_vote_sender,
             None,
             bank_forks, // keep a local-copy of bank-forks so worker threads do not lose weak access to bank-forks
+            None,
             None,
         );
 
@@ -1205,6 +1345,7 @@ mod tests {
                 None,
                 bank_forks,
                 None,
+                None,
             );
 
             // wait for banking_stage to eat the packets
@@ -1357,6 +1498,7 @@ mod tests {
             replay_vote_sender,
             None,
             bank_forks,
+            None,
             None,
         );
 
