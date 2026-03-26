@@ -132,6 +132,7 @@ fn main() {
         None
     };
     agave_logger::initialize_logging(logfile);
+    solana_metrics::set_panic_hook("validator", None);
 
     info!("{} {}", crate_name!(), solana_version::version!());
     info!("Starting validator with: {:#?}", std::env::args_os());
