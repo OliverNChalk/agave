@@ -466,6 +466,7 @@ impl BankingStage {
 
                 _ = self.banking_shutdown_signal.cancelled() => break,
                 Some(args) = self.banking_control_receiver.recv() => match self.threads.is_empty() {
+                    // TODO: What if third party & managed schedulers race and managed clobbers third party? seems safe but ugly?
                     true => self.spawn_scheduler(args),
                     false => self.cycle_threads(args).await,
                 },
