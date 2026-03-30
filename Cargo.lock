@@ -198,6 +198,8 @@ dependencies = [
 name = "agave-orchestrator"
 version = "4.1.0-alpha.0"
 dependencies = [
+ "agave-scheduler-bindings",
+ "agave-scheduling-utils",
  "nix",
 ]
 
