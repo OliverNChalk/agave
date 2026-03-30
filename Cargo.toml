@@ -55,6 +55,7 @@ members = [
     "metrics",
     "net-utils",
     "notifier",
+    "orchestrator",
     "perf",
     "platform-tools-sdk/gen-headers",
     "poh",

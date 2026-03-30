@@ -195,6 +195,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-orchestrator"
+version = "4.1.0-alpha.0"
+dependencies = [
+ "nix",
+]
+
+[[package]]
 name = "agave-precompiles"
 version = "4.1.0-alpha.0"
 dependencies = [

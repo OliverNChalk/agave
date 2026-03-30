@@ -1,0 +1,22 @@
+[package]
+name = "agave-orchestrator"
+readme = "../README.md"
+documentation = "https://docs.rs/agave-orchestrator"
+version = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+nix = { workspace = true, features = ["socket", "process", "signal", "poll", "fs"] }
+
+[[example]]
+name = "fake_validator"
+path = "examples/fake_validator.rs"
+
+[[example]]
+name = "fake_scheduler"
+path = "examples/fake_scheduler.rs"
