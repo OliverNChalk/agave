@@ -19,6 +19,7 @@ agave-unstable-api = []
 
 [dependencies]
 agave-logger = { workspace = true }
+agave-orchestrator = { workspace = true }
 agave-snapshots = { workspace = true }
 agave-votor = { workspace = true }
 agave-xdp = { workspace = true }
@@ -98,6 +99,7 @@ jemallocator = { workspace = true }
 caps = { workspace = true }
 
 [target."cfg(unix)".dependencies]
+nix = { workspace = true, features = ["socket", "process", "signal", "fs"] }
 libc = { workspace = true }
 
 [dev-dependencies]
