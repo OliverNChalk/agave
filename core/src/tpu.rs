@@ -24,6 +24,7 @@ use {
         tpu_entry_notifier::TpuEntryNotifier,
         validator::{BlockProductionMethod, GeneratorConfig},
     },
+    agave_orchestrator::OrchestratorStream,
     agave_votor::event::VotorEventSender,
     crossbeam_channel::{Receiver, bounded, unbounded},
     solana_clock::Slot,
@@ -149,6 +150,7 @@ impl Tpu {
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         scheduler_bindings: Option<(PathBuf, mpsc::Sender<BankingControlMsg>)>,
+        orchestrator_stream: Option<OrchestratorStream>,
         cancel: CancellationToken,
         votor_event_sender: VotorEventSender,
     ) -> Self {
@@ -326,10 +328,17 @@ impl Tpu {
 
         #[cfg(unix)]
         if let Some((path, banking_control_sender)) = scheduler_bindings {
-            super::scheduler_bindings_server::spawn(&path, banking_control_sender);
+            super::scheduler_bindings_server::spawn(
+                &path,
+                banking_control_sender,
+                orchestrator_stream,
+            );
         }
         #[cfg(not(unix))]
-        assert!(scheduler_bindings.is_none());
+        {
+            assert!(scheduler_bindings.is_none());
+            assert!(orchestrator_stream.is_none());
+        }
 
         let SpawnForwardingStageResult {
             join_handle: forwarding_stage,

@@ -103,6 +103,15 @@ pub fn execute(
 
     let run_args = RunArgs::from_clap_arg_match(matches)?;
 
+    // Spawn orchestrator child process as early as possible (fork safety).
+    #[cfg(unix)]
+    let orchestrator_stream = matches
+        .value_of("orchestrator")
+        // SAFETY: No threads have been spawned yet.
+        .map(|bin| unsafe { super::orchestrator::spawn_orchestrator(std::path::Path::new(bin)) });
+    #[cfg(not(unix))]
+    let orchestrator_stream = None;
+
     let cli::thread_args::NumThreadConfig {
         accounts_db_background_threads,
         accounts_db_foreground_threads,
@@ -1126,6 +1135,7 @@ pub fn execute(
         },
         admin_service_post_init,
         xdp_builder_with_src_addr,
+        orchestrator_stream,
         exit,
     )
     .map_err(|err| format!("{err:?}"))?;

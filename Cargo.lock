@@ -340,6 +340,7 @@ name = "agave-validator"
 version = "4.1.0-alpha.0"
 dependencies = [
  "agave-logger",
+ "agave-orchestrator",
  "agave-snapshots",
  "agave-votor",
  "agave-xdp",
@@ -359,6 +360,7 @@ dependencies = [
  "jsonrpc-ipc-server",
  "libc",
  "log",
+ "nix",
  "num_cpus",
  "predicates",
  "pretty_assertions",
@@ -7718,6 +7720,7 @@ dependencies = [
  "agave-feature-set",
  "agave-logger",
  "agave-math-utils",
+ "agave-orchestrator",
  "agave-reserved-account-keys",
  "agave-scheduler-bindings",
  "agave-scheduling-utils",

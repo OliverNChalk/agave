@@ -1167,6 +1167,7 @@ impl TestValidator {
             ValidatorTpuConfig::new_for_tests(),
             config.admin_rpc_service_post_init.clone(),
             None,
+            None, // orchestrator_stream
         )?);
 
         let test_validator = TestValidator {
