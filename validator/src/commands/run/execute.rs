@@ -105,17 +105,24 @@ pub fn execute(
 
     // Spawn orchestrator child process as early as possible (fork safety).
     #[cfg(unix)]
-    let orchestrator_stream = matches.value_of("orchestrator").map(|bin| {
+    let orchestrator_stream = matches.value_of("orchestrator").map(|config_path| {
+        let config_bytes =
+            std::fs::read(config_path).expect("failed to read orchestrator config");
+        let config: serde_yaml::Value =
+            serde_yaml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
+        let bin = config["orchestrator"]["bin"]
+            .as_str()
+            .expect("orchestrator config missing orchestrator.bin");
+
         let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
         let ipc_str = ipc_path.to_str().expect("ipc path not valid UTF-8");
-        let config = matches
-            .value_of("orchestrator_config")
-            .expect("orchestrator needs config");
 
-        let extra_args: Vec<&str> = vec!["--ipc-path", ipc_str, "--config", config];
+        let extra_args: Vec<&str> = vec!["--ipc-path", ipc_str, "--config", config_path];
 
         // SAFETY: No threads have been spawned yet.
-        unsafe { super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args) }
+        unsafe {
+            super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args)
+        }
     });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
