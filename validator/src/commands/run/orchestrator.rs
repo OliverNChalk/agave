@@ -12,11 +12,7 @@ use {
 };
 
 /// Spawns the orchestrator and returns agave's side of the UDS pair.
-///
-/// # Safety
-/// - Must be called before any threads are spawned (allocating CString between fork &
-///   execv is not multithread safe).
-pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream {
+pub fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream {
     let (validator_fd, orch_fd) = socket::socketpair(
         AddressFamily::Unix,
         SockType::Stream,
@@ -25,7 +21,8 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
     )
     .expect("socketpair failed");
 
-    // Construct our execv arguments before forking.
+    // Construct our execv arguments before forking (allocations are not
+    // async-signal-safe and must not happen in the child).
     let bin_str = bin
         .to_str()
         .expect("orchestrator bin path is not valid UTF-8");
@@ -39,17 +36,19 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
         args.push(std::ffi::CString::new(*arg).unwrap());
     }
 
-    // SAFETY: Caller ensures no other threads exist.
+    // SAFETY: Only async-signal-safe operations are performed in the child arm.
     match unsafe { unistd::fork() }.expect("fork failed") {
         ForkResult::Child => {
-            // Clear CLOEXEC on orch_raw so it survives execv.
-            fcntl(&orch_fd, FcntlArg::F_SETFD(FdFlag::empty())).expect("clear CLOEXEC");
+            // Clear CLOEXEC on orch_fd so it survives execv.
+            if fcntl(&orch_fd, FcntlArg::F_SETFD(FdFlag::empty())).is_err() {
+                die(b"orchestrator: fcntl CLOEXEC failed\n");
+            }
 
             // Execv into the new binary.
-            let err = unistd::execv(&c_bin, &args).err().unwrap();
+            let _ = unistd::execv(&c_bin, &args);
 
             // Only reachable if execv fails.
-            panic!("execv failed; bin={bin_str}; err={err:?}");
+            die(b"orchestrator: execv failed\n");
         }
         ForkResult::Parent { child } => {
             info!(
@@ -59,5 +58,13 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
 
             UnixStream::from(validator_fd)
         }
+    }
+}
+
+/// Writes a message to stderr and exits. All operations are async-signal-safe.
+fn die(msg: &[u8]) -> ! {
+    unsafe {
+        libc::write(libc::STDERR_FILENO, msg.as_ptr().cast(), msg.len());
+        libc::_exit(1);
     }
 }

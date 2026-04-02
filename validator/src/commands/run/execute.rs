@@ -119,10 +119,7 @@ pub fn execute(
 
         let extra_args: Vec<&str> = vec!["--ipc-path", ipc_str, "--config", config_path];
 
-        // SAFETY: No threads have been spawned yet.
-        unsafe {
-            super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args)
-        }
+        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args)
     });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
