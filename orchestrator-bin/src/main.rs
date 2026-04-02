@@ -1,3 +1,5 @@
+// TODO: This will just straight up break builds for windows in the workspace, maybe its
+//       fine if all windows builds do `cargo build -p <package>`?
 #![cfg(unix)]
 
 mod config;
