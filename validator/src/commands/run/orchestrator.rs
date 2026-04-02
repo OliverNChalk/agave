@@ -16,7 +16,7 @@ use {
 /// # Safety
 /// - Must be called before any threads are spawned (allocating CString between fork &
 ///   execv is not multithread safe).
-pub unsafe fn spawn_orchestrator(bin: &Path) -> UnixStream {
+pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream {
     let (validator_fd, orch_fd) = socket::socketpair(
         AddressFamily::Unix,
         SockType::Stream,
@@ -38,11 +38,14 @@ pub unsafe fn spawn_orchestrator(bin: &Path) -> UnixStream {
                 .to_str()
                 .expect("orchestrator bin path is not valid UTF-8");
             let c_bin = std::ffi::CString::new(bin_str).unwrap();
-            let args = [
+            let mut args = vec![
                 c_bin.clone(),
                 std::ffi::CString::new("--orch-fd").unwrap(),
                 std::ffi::CString::new(orch_fd.as_raw_fd().to_string()).unwrap(),
             ];
+            for arg in extra_args {
+                args.push(std::ffi::CString::new(*arg).unwrap());
+            }
             let err = unistd::execv(&c_bin, &args).err().unwrap();
 
             // Only reachable if execv fails.

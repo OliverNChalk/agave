@@ -1192,7 +1192,24 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .long("orchestrator")
             .takes_value(true)
             .value_name("PATH")
+            .requires("external_scheduler_bin")
             .help("Path to orchestrator binary. Spawns an orchestrator child process to manage external scheduler lifecycle."),
+    )
+    .arg(
+        Arg::with_name("external_scheduler_bin")
+            .long("external-scheduler-bin")
+            .takes_value(true)
+            .value_name("PATH")
+            .requires("orchestrator")
+            .help("Path to external scheduler binary, spawned by the orchestrator"),
+    )
+    .arg(
+        Arg::with_name("external_scheduler_config")
+            .long("external-scheduler-config")
+            .takes_value(true)
+            .value_name("PATH")
+            .requires("external_scheduler_bin")
+            .help("Path to config file passed to the external scheduler"),
     )
     .arg(
         Arg::with_name("unified_scheduler_handler_threads")

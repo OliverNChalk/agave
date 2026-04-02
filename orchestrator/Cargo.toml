@@ -11,3 +11,6 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+
+[target."cfg(unix)".dependencies]
+nix = { workspace = true, features = ["process", "signal"] }

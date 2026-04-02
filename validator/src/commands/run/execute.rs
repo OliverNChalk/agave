@@ -105,10 +105,25 @@ pub fn execute(
 
     // Spawn orchestrator child process as early as possible (fork safety).
     #[cfg(unix)]
-    let orchestrator_stream = matches
-        .value_of("orchestrator")
+    let orchestrator_stream = matches.value_of("orchestrator").map(|bin| {
+        let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
+        let ipc_str = ipc_path.to_str().expect("ipc path not valid UTF-8");
+
+        let mut extra_args: Vec<&str> = vec![
+            "--ipc-path",
+            ipc_str,
+            "--external-scheduler-bin",
+            matches
+                .value_of("external_scheduler_bin")
+                .expect("orchestrator needs scheduler bin"),
+        ];
+        if let Some(path) = matches.value_of("external_scheduler_config") {
+            extra_args.extend(["--external-scheduler-config", path]);
+        }
+
         // SAFETY: No threads have been spawned yet.
-        .map(|bin| unsafe { super::orchestrator::spawn_orchestrator(std::path::Path::new(bin)) });
+        unsafe { super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args) }
+    });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
 
@@ -881,7 +896,8 @@ pub fn execute(
             ),
         },
         enable_block_production_forwarding: staked_nodes_overrides_path.is_some(),
-        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings"),
+        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings")
+            || matches.is_present("orchestrator"),
         banking_trace_dir_byte_limit: parse_banking_trace_dir_byte_limit(matches),
         validator_exit: Arc::new(RwLock::new(Exit::default())),
         validator_exit_backpressure: [(
