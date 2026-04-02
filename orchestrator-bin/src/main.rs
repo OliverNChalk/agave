@@ -4,43 +4,43 @@ mod config;
 
 use {
     crate::config::Config,
+    clap::Parser,
+    clap_v4 as clap,
     command_fds::{CommandFdExt, FdMapping},
     std::{
         io::Read,
         os::{fd::FromRawFd, unix::net::UnixStream},
+        path::PathBuf,
     },
     tokio::{io::AsyncReadExt, net::UnixStream as TokioUnixStream, process::Command},
 };
 
-// TODO: Replace manual parsing with CLAP, just ideally not more clap v2.
+#[derive(Parser)]
+#[command(name = "agave-orchestrator")]
+struct Args {
+    /// File descriptor for the validator<>orchestrator UDS.
+    #[arg(long = "orch-fd")]
+    orch_fd: i32,
 
-fn parse_arg<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter().position(|a| a == name).map(|i| {
-        args.get(i + 1)
-            .unwrap_or_else(|| panic!("{name} value missing"))
-            .as_str()
-    })
-}
+    /// Path to the scheduler bindings IPC socket.
+    #[arg(long = "ipc-path")]
+    ipc_path: PathBuf,
 
-fn require_arg<'a>(args: &'a [String], name: &str) -> &'a str {
-    parse_arg(args, name).unwrap_or_else(|| panic!("missing {name}"))
+    /// Path to the orchestrator YAML config file.
+    #[arg(long)]
+    config: PathBuf,
 }
 
 fn main() {
-    // Parse args.
-    let args: Vec<String> = std::env::args().collect();
-    let fd: i32 = require_arg(&args, "--orch-fd").parse().expect("bad fd");
-    let ipc_path = require_arg(&args, "--ipc-path");
-    let scheduler_bin = require_arg(&args, "--external-scheduler-bin");
-    let scheduler_config = parse_arg(&args, "--external-scheduler-config");
-    eprintln!("[orchestrator] started; orch-fd={fd}");
+    let args = Args::parse();
+    eprintln!("[orchestrator] started; orch-fd={}", args.orch_fd);
 
     // Load config.
-    let config = std::fs::read(&args.config).unwrap();
-    let config: Config = serde_yaml::from_slice(&config).unwrap();
+    let config_bytes = std::fs::read(&args.config).expect("failed to read config file");
+    let config: Config = serde_yaml::from_slice(&config_bytes).expect("failed to parse config");
 
     // SAFETY: FD was passed to us by the parent process via fork+exec.
-    let mut validator_rx = unsafe { UnixStream::from_raw_fd(fd) };
+    let mut validator_rx = unsafe { UnixStream::from_raw_fd(args.orch_fd) };
 
     // Set CLOEXEC so the scheduler child does not inherit this FD.
     nix::fcntl::fcntl(
@@ -62,7 +62,8 @@ fn main() {
         UnixStream::pair().expect("create orchestrator↔scheduler UDS pair");
 
     // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-    let scheduler_pid = spawn_scheduler(scheduler_bin, ipc_path, scheduler_config, scheduler_tx);
+    let ipc_path = args.ipc_path.to_str().expect("ipc path not valid UTF-8");
+    let scheduler_pid = spawn_scheduler(&config, ipc_path, scheduler_tx);
     eprintln!("[orchestrator] spawned scheduler; pid={scheduler_pid}");
 
     // Convert both streams to async for monitoring.
@@ -90,16 +91,12 @@ fn main() {
     eprintln!("[orchestrator] exiting");
 }
 
-fn spawn_scheduler(
-    bin: &str,
-    ipc_path: &str,
-    config: Option<&str>,
-    scheduler_tx: UnixStream,
-) -> u32 {
+fn spawn_scheduler(config: &Config, ipc_path: &str, scheduler_tx: UnixStream) -> u32 {
+    let bin = &config.scheduler.bin;
     let mut cmd = std::process::Command::new(bin);
     cmd.args(["--bindings-ipc", ipc_path]);
-    if let Some(cfg) = config {
-        cmd.args(["--config", cfg]);
+    if let Some(cfg) = &config.scheduler.config {
+        cmd.args(["--config", &cfg.to_string_lossy()]);
     }
 
     // Map the scheduler end of the UDS pair to the well-known fd in the child.
@@ -109,9 +106,12 @@ fn spawn_scheduler(
     }])
     .unwrap();
 
-    let child = Command::from(cmd)
-        .spawn()
-        .unwrap_or_else(|err| panic!("failed to spawn scheduler; bin={bin}; err={err}"));
+    let child = Command::from(cmd).spawn().unwrap_or_else(|err| {
+        panic!(
+            "failed to spawn scheduler; bin={}; err={err}",
+            bin.display()
+        )
+    });
 
     child.id().unwrap()
 }

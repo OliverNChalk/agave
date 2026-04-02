@@ -108,18 +108,11 @@ pub fn execute(
     let orchestrator_stream = matches.value_of("orchestrator").map(|bin| {
         let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
         let ipc_str = ipc_path.to_str().expect("ipc path not valid UTF-8");
+        let config = matches
+            .value_of("orchestrator_config")
+            .expect("orchestrator needs config");
 
-        let mut extra_args: Vec<&str> = vec![
-            "--ipc-path",
-            ipc_str,
-            "--external-scheduler-bin",
-            matches
-                .value_of("external_scheduler_bin")
-                .expect("orchestrator needs scheduler bin"),
-        ];
-        if let Some(path) = matches.value_of("external_scheduler_config") {
-            extra_args.extend(["--external-scheduler-config", path]);
-        }
+        let extra_args: Vec<&str> = vec!["--ipc-path", ipc_str, "--config", config];
 
         // SAFETY: No threads have been spawned yet.
         unsafe { super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args) }
