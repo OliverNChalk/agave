@@ -12,9 +12,11 @@ use {
 // TODO: Replace manual parsing with CLAP, just ideally not more clap v2.
 
 fn parse_arg<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|a| a == name)
-        .map(|i| args[i + 1].as_str())
+    args.iter().position(|a| a == name).map(|i| {
+        args.get(i + 1)
+            .unwrap_or_else(|| panic!("{name} value missing"))
+            .as_str()
+    })
 }
 
 fn require_arg<'a>(args: &'a [String], name: &str) -> &'a str {
