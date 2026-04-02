@@ -1,0 +1,37 @@
+/// Orchestrator places the FD at this ID.
+pub const ORCHESTRATOR_FD: std::os::unix::io::RawFd = 3;
+
+/// Recovers the orchestrator UDS from the well-known fd ([`ORCHESTRATOR_FD`]).
+///
+/// # Panics
+///
+/// Panics if [`ORCHESTRATOR_FD`] is not open or is not a Unix socket.
+///
+/// # Safety
+///
+/// The caller must ensure no other code has taken ownership of [`ORCHESTRATOR_FD`]
+/// (this includes via FD ID collision if this process was spawned outside of an
+/// orchestrator session).
+pub unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
+    use std::os::fd::FromRawFd;
+
+    // SAFETY:
+    // - `mem::zeroed` is valid for `libc::stat`.
+    // - `libc::fstat` is safe for any i32.
+    // - Call ensures `ORCHESTRATOR_FD` has not already been claimed.
+    unsafe {
+        let mut stat: nix::libc::stat = std::mem::zeroed();
+        assert!(
+            nix::libc::fstat(ORCHESTRATOR_FD, &mut stat) == 0,
+            "orchestrator UDS fd 3 is not open (errno={})",
+            std::io::Error::last_os_error(),
+        );
+        assert!(
+            (stat.st_mode & nix::libc::S_IFMT) == nix::libc::S_IFSOCK,
+            "orchestrator UDS fd 3 is not a socket (st_mode={:#o})",
+            stat.st_mode,
+        );
+
+        std::os::unix::net::UnixStream::from_raw_fd(ORCHESTRATOR_FD)
+    }
+}
