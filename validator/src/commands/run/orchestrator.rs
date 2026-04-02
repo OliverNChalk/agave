@@ -25,6 +25,20 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
     )
     .expect("socketpair failed");
 
+    // Construct our execv arguments before forking.
+    let bin_str = bin
+        .to_str()
+        .expect("orchestrator bin path is not valid UTF-8");
+    let c_bin = std::ffi::CString::new(bin_str).unwrap();
+    let mut args = vec![
+        c_bin.clone(),
+        std::ffi::CString::new("--orch-fd").unwrap(),
+        std::ffi::CString::new(orch_fd.as_raw_fd().to_string()).unwrap(),
+    ];
+    for arg in extra_args {
+        args.push(std::ffi::CString::new(*arg).unwrap());
+    }
+
     // SAFETY: Caller ensures no other threads exist.
     match unsafe { unistd::fork() }.expect("fork failed") {
         ForkResult::Child => {
@@ -32,18 +46,6 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
             fcntl(&orch_fd, FcntlArg::F_SETFD(FdFlag::empty())).expect("clear CLOEXEC");
 
             // Execv into the new binary.
-            let bin_str = bin
-                .to_str()
-                .expect("orchestrator bin path is not valid UTF-8");
-            let c_bin = std::ffi::CString::new(bin_str).unwrap();
-            let mut args = vec![
-                c_bin.clone(),
-                std::ffi::CString::new("--orch-fd").unwrap(),
-                std::ffi::CString::new(orch_fd.as_raw_fd().to_string()).unwrap(),
-            ];
-            for arg in extra_args {
-                args.push(std::ffi::CString::new(*arg).unwrap());
-            }
             let err = unistd::execv(&c_bin, &args).err().unwrap();
 
             // Only reachable if execv fails.
