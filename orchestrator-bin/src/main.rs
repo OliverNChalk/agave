@@ -79,9 +79,13 @@ async fn main() {
     tokio::select! {
         () = read_until_eof(&mut scheduler_rx) => {
             eprintln!("[orchestrator] scheduler exited (UDS EOF)");
+            read_until_eof(&mut validator_rx).await;
+            eprintln!("[orchestrator] validator exited (UDS EOF)");
         }
         () = read_until_eof(&mut validator_rx) => {
             eprintln!("[orchestrator] validator exited (UDS EOF)");
+            read_until_eof(&mut scheduler_rx).await;
+            eprintln!("[orchestrator] scheduler exited (UDS EOF)");
         }
     }
 
