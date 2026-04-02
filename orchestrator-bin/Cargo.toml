@@ -10,6 +10,10 @@ homepage = { workspace = true }
 license = { workspace = true }
 edition = { workspace = true }
 
+[[bin]]
+name = "agave-orchestrator"
+path = "src/main.rs"
+
 [dependencies]
 
 [target."cfg(unix)".dependencies]

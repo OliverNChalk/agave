@@ -31,7 +31,8 @@ struct Args {
     config: PathBuf,
 }
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     let args = Args::parse();
     eprintln!("[orchestrator] started; orch-fd={}", args.orch_fd);
 
@@ -73,20 +74,14 @@ fn main() {
     let mut scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
 
     // Monitor both: scheduler UDS EOF and validator UDS EOF.
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(async move {
-        tokio::select! {
-            () = read_until_eof(&mut scheduler_rx) => {
-                eprintln!("[orchestrator] scheduler exited (UDS EOF)");
-            }
-            () = read_until_eof(&mut validator_rx) => {
-                eprintln!("[orchestrator] validator exited (UDS EOF)");
-            }
+    tokio::select! {
+        () = read_until_eof(&mut scheduler_rx) => {
+            eprintln!("[orchestrator] scheduler exited (UDS EOF)");
         }
-    });
+        () = read_until_eof(&mut validator_rx) => {
+            eprintln!("[orchestrator] validator exited (UDS EOF)");
+        }
+    }
 
     eprintln!("[orchestrator] exiting");
 }
