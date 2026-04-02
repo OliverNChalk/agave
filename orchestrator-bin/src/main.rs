@@ -1,6 +1,9 @@
 #![cfg(unix)]
 
+mod config;
+
 use {
+    crate::config::Config,
     command_fds::{CommandFdExt, FdMapping},
     std::{
         io::Read,
@@ -31,6 +34,10 @@ fn main() {
     let scheduler_bin = require_arg(&args, "--external-scheduler-bin");
     let scheduler_config = parse_arg(&args, "--external-scheduler-config");
     eprintln!("[orchestrator] started; orch-fd={fd}");
+
+    // Load config.
+    let config = std::fs::read(&args.config).unwrap();
+    let config: Config = serde_yaml::from_slice(&config).unwrap();
 
     // SAFETY: FD was passed to us by the parent process via fork+exec.
     let mut validator_rx = unsafe { UnixStream::from_raw_fd(fd) };
