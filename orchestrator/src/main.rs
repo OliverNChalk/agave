@@ -4,10 +4,7 @@ use {
     command_fds::{CommandFdExt, FdMapping},
     std::{
         io::Read,
-        os::{
-            fd::{AsFd, FromRawFd},
-            unix::net::UnixStream,
-        },
+        os::{fd::FromRawFd, unix::net::UnixStream},
     },
     tokio::{io::AsyncReadExt, net::UnixStream as TokioUnixStream, process::Command},
 };
@@ -35,45 +32,44 @@ async fn main() {
     eprintln!("[orchestrator] started; orch-fd={fd}");
 
     // SAFETY: FD was passed to us by the parent process via fork+exec.
-    let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
+    let mut validator_rx = unsafe { UnixStream::from_raw_fd(fd) };
 
     // Set CLOEXEC so the scheduler child does not inherit this FD.
     nix::fcntl::fcntl(
-        &stream,
+        &validator_rx,
         nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
     )
-    .expect("set CLOEXEC on orchestrator stream");
+    .expect("set CLOEXEC on validator stream");
 
     // Wait for validator readiness.
     let mut buf = [0u8; 1];
-    stream.read_exact(&mut buf).expect("read readiness byte");
+    validator_rx
+        .read_exact(&mut buf)
+        .expect("read readiness byte");
     assert_eq!(buf[0], 0x01, "unexpected readiness byte");
     eprintln!("[orchestrator] validator is ready");
 
-    // Spawn the external scheduler (FD is still valid for command-fds to dup).
-    let mut scheduler = spawn_scheduler(scheduler_bin, ipc_path, scheduler_config, &stream);
-    eprintln!(
-        "[orchestrator] spawned scheduler; pid={}",
-        scheduler.id().unwrap_or(0)
-    );
+    // Create a fresh UDS pair for orchestrator↔scheduler communication.
+    let (scheduler_rx, scheduler_tx) =
+        UnixStream::pair().expect("create orchestrator↔scheduler UDS pair");
 
-    // Convert to async for monitoring.
-    stream
-        .set_nonblocking(true)
-        .expect("set nonblocking on orchestrator stream");
-    let mut stream = TokioUnixStream::from_std(stream).expect("wrap stream in tokio");
+    // Spawn the external scheduler, passing the scheduler end at the well-known fd.
+    let scheduler_pid = spawn_scheduler(scheduler_bin, ipc_path, scheduler_config, scheduler_tx);
+    eprintln!("[orchestrator] spawned scheduler; pid={scheduler_pid}");
 
-    // Wait for scheduler or Agave to exit.
+    // Convert both streams to async for monitoring.
+    validator_rx.set_nonblocking(true).unwrap();
+    scheduler_rx.set_nonblocking(true).unwrap();
+    let mut validator_rx = TokioUnixStream::from_std(validator_rx).unwrap();
+    let mut scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
+
+    // Monitor both: scheduler UDS EOF and validator UDS EOF.
     tokio::select! {
-        status = scheduler.wait() => {
-            match status {
-                Ok(status) => eprintln!("[orchestrator] scheduler exited; status={status}"),
-                Err(err) => eprintln!("[orchestrator] scheduler wait failed; err={err}"),
-            }
+        () = read_until_eof(&mut scheduler_rx) => {
+            eprintln!("[orchestrator] scheduler exited (UDS EOF)");
         }
-        () = read_until_eof(&mut stream) => {
+        () = read_until_eof(&mut validator_rx) => {
             eprintln!("[orchestrator] validator exited (UDS EOF)");
-            let _ = scheduler.kill().await;
         }
     }
 
@@ -84,27 +80,26 @@ fn spawn_scheduler(
     bin: &str,
     ipc_path: &str,
     config: Option<&str>,
-    orchestrator_stream: &UnixStream,
-) -> tokio::process::Child {
+    scheduler_tx: UnixStream,
+) -> u32 {
     let mut cmd = std::process::Command::new(bin);
     cmd.args(["--bindings-ipc", ipc_path]);
     if let Some(cfg) = config {
         cmd.args(["--config", cfg]);
     }
 
-    // Map the orchestrator UDS to the well-known FD in the child.
+    // Map the scheduler end of the UDS pair to the well-known fd in the child.
     cmd.fd_mappings(vec![FdMapping {
-        parent_fd: orchestrator_stream
-            .as_fd()
-            .try_clone_to_owned()
-            .expect("dup fd"),
+        parent_fd: scheduler_tx.into(),
         child_fd: agave_orchestrator::ORCHESTRATOR_FD,
     }])
-    .expect("fd_mappings");
+    .unwrap();
 
-    Command::from(cmd)
+    let child = Command::from(cmd)
         .spawn()
-        .unwrap_or_else(|err| panic!("failed to spawn scheduler; bin={bin}; err={err}"))
+        .unwrap_or_else(|err| panic!("failed to spawn scheduler; bin={bin}; err={err}"));
+
+    child.id().unwrap()
 }
 
 async fn read_until_eof(stream: &mut TokioUnixStream) {
