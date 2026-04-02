@@ -198,6 +198,14 @@ dependencies = [
 name = "agave-orchestrator"
 version = "4.1.0-alpha.0"
 dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "agave-orchestrator-bin"
+version = "4.1.0-alpha.0"
+dependencies = [
+ "agave-orchestrator",
  "command-fds",
  "nix 0.31.2",
  "tokio",

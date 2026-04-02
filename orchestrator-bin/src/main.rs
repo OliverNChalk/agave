@@ -23,8 +23,7 @@ fn require_arg<'a>(args: &'a [String], name: &str) -> &'a str {
     parse_arg(args, name).unwrap_or_else(|| panic!("missing {name}"))
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
     // Parse args.
     let args: Vec<String> = std::env::args().collect();
     let fd: i32 = require_arg(&args, "--orch-fd").parse().expect("bad fd");
@@ -66,14 +65,20 @@ async fn main() {
     let mut scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
 
     // Monitor both: scheduler UDS EOF and validator UDS EOF.
-    tokio::select! {
-        () = read_until_eof(&mut scheduler_rx) => {
-            eprintln!("[orchestrator] scheduler exited (UDS EOF)");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async move {
+        tokio::select! {
+            () = read_until_eof(&mut scheduler_rx) => {
+                eprintln!("[orchestrator] scheduler exited (UDS EOF)");
+            }
+            () = read_until_eof(&mut validator_rx) => {
+                eprintln!("[orchestrator] validator exited (UDS EOF)");
+            }
         }
-        () = read_until_eof(&mut validator_rx) => {
-            eprintln!("[orchestrator] validator exited (UDS EOF)");
-        }
-    }
+    });
 
     eprintln!("[orchestrator] exiting");
 }

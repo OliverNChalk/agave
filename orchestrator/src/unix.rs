@@ -20,14 +20,14 @@ pub unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
     // - `libc::fstat` is safe for any i32.
     // - Call ensures `ORCHESTRATOR_FD` has not already been claimed.
     unsafe {
-        let mut stat: nix::libc::stat = std::mem::zeroed();
+        let mut stat: libc::stat = std::mem::zeroed();
         assert!(
-            nix::libc::fstat(ORCHESTRATOR_FD, &mut stat) == 0,
+            libc::fstat(ORCHESTRATOR_FD, &mut stat) == 0,
             "orchestrator UDS fd 3 is not open (errno={})",
             std::io::Error::last_os_error(),
         );
         assert!(
-            (stat.st_mode & nix::libc::S_IFMT) == nix::libc::S_IFSOCK,
+            (stat.st_mode & libc::S_IFMT) == libc::S_IFSOCK,
             "orchestrator UDS fd 3 is not a socket (st_mode={:#o})",
             stat.st_mode,
         );
