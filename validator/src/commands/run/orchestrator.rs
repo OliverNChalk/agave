@@ -25,8 +25,6 @@ pub unsafe fn spawn_orchestrator(bin: &Path, extra_args: &[&str]) -> UnixStream 
     )
     .expect("socketpair failed");
 
-    // let orch_raw = orch_fd.into_raw_fd();
-
     // SAFETY: Caller ensures no other threads exist.
     match unsafe { unistd::fork() }.expect("fork failed") {
         ForkResult::Child => {
