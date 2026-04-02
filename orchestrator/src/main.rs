@@ -29,6 +29,10 @@ fn main() {
     // SAFETY: fd was passed to us by the parent process via fork+exec.
     let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
 
+    // Set CLOEXEC so the scheduler child does not inherit this fd.
+    nix::fcntl::fcntl(&stream, nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC))
+        .expect("set CLOEXEC on orchestrator stream");
+
     // Wait for validator readiness.
     let mut buf = [0u8; 1];
     stream.read_exact(&mut buf).expect("read readiness byte");
