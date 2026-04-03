@@ -28,7 +28,7 @@ struct Args {
     #[arg(long = "ipc-path")]
     ipc_path: PathBuf,
 
-    /// Path to the orchestrator YAML config file.
+    /// Path to the orchestrator TOML config file.
     #[arg(long)]
     config: PathBuf,
 }
@@ -40,7 +40,7 @@ async fn main() {
 
     // Load config.
     let config_bytes = std::fs::read(&args.config).expect("failed to read config file");
-    let config: Config = serde_yaml::from_slice(&config_bytes).expect("failed to parse config");
+    let config: Config = toml::from_slice(&config_bytes).expect("failed to parse config");
 
     // SAFETY: FD was passed to us by the parent process via fork+exec.
     let mut validator_rx = unsafe { UnixStream::from_raw_fd(args.orch_fd) };

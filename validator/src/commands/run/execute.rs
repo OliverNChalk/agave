@@ -106,10 +106,9 @@ pub fn execute(
     // Spawn orchestrator child process as early as possible (fork safety).
     #[cfg(unix)]
     let orchestrator_stream = matches.value_of("orchestrator").map(|config_path| {
-        let config_bytes =
-            std::fs::read(config_path).expect("failed to read orchestrator config");
-        let config: serde_yaml::Value =
-            serde_yaml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
+        let config_bytes = std::fs::read(config_path).expect("failed to read orchestrator config");
+        let config: toml::Value =
+            toml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
         let bin = config["orchestrator"]["bin"]
             .as_str()
             .expect("orchestrator config missing orchestrator.bin");

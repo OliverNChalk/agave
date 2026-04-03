@@ -22,5 +22,5 @@ clap-v4 = { workspace = true, features = ["std", "derive"] }
 command-fds = { workspace = true }
 nix = { workspace = true, features = ["fs"] }
 serde = { workspace = true }
-serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "process", "rt", "io-util"] }
+toml = { workspace = true }
