@@ -13,4 +13,9 @@ edition = { workspace = true }
 [dependencies]
 
 [target."cfg(unix)".dependencies]
+agave-scheduler-bindings = { workspace = true }
 libc = { workspace = true }
+nix = { workspace = true, features = ["socket", "uio"] }
+rts-alloc = { workspace = true }
+serde = { workspace = true }
+shaq = { workspace = true }

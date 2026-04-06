@@ -113,10 +113,9 @@ pub fn execute(
             .as_str()
             .expect("orchestrator config missing orchestrator.bin");
 
-        let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
         let config_path = std::path::Path::new(config_path);
 
-        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &ipc_path, config_path)
+        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), config_path)
     });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
@@ -890,8 +889,6 @@ pub fn execute(
             ),
         },
         enable_block_production_forwarding: staked_nodes_overrides_path.is_some(),
-        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings")
-            || matches.is_present("orchestrator"),
         banking_trace_dir_byte_limit: parse_banking_trace_dir_byte_limit(matches),
         validator_exit: Arc::new(RwLock::new(Exit::default())),
         validator_exit_backpressure: [(

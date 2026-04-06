@@ -6,6 +6,7 @@ mod config;
 
 use {
     crate::config::Config,
+    agave_orchestrator::SessionHeader,
     clap::Parser,
     clap_v4 as clap,
     command_fds::{CommandFdExt, FdMapping},
@@ -23,10 +24,6 @@ struct Args {
     /// File descriptor for the validator<>orchestrator UDS.
     #[arg(long = "orch-fd")]
     orch_fd: i32,
-
-    /// Path to the scheduler bindings IPC socket.
-    #[arg(long = "ipc-path")]
-    ipc_path: PathBuf,
 
     /// Path to the orchestrator TOML config file.
     #[arg(long)]
@@ -52,7 +49,23 @@ async fn main() {
     )
     .expect("set CLOEXEC on validator stream");
 
-    // Wait for validator readiness.
+    // Grab scheduler topology.
+    let topology = &config.topology.scheduler;
+    let header = SessionHeader::new(
+        topology.worker_count,
+        topology.allocator_handles,
+        topology.flags,
+    );
+
+    // Allocate all shared memory regions.
+    let files = agave_orchestrator::create_session(topology);
+    eprintln!("[orchestrator] created shmem; fds={}", files.len(),);
+
+    // Send shmem FDs to agave.
+    agave_orchestrator::send_session(&validator_rx, &files, header);
+    eprintln!("[orchestrator] sent session to validator");
+
+    // Wait for agave readiness (banking stage has switched to external mode).
     let mut buf = [0u8; 1];
     validator_rx
         .read_exact(&mut buf)
@@ -65,9 +78,12 @@ async fn main() {
         UnixStream::pair().expect("create orchestrator↔scheduler UDS pair");
 
     // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-    let ipc_path = args.ipc_path.to_str().expect("ipc path not valid UTF-8");
-    let scheduler_pid = spawn_scheduler(&config, ipc_path, scheduler_tx);
+    let scheduler_pid = spawn_scheduler(&config, scheduler_tx);
     eprintln!("[orchestrator] spawned scheduler; pid={scheduler_pid}");
+
+    // Send shmem FDs to scheduler.
+    agave_orchestrator::send_session(&scheduler_rx, &files, header);
+    eprintln!("[orchestrator] sent session to scheduler");
 
     // Convert both streams to async for monitoring.
     validator_rx.set_nonblocking(true).unwrap();
@@ -92,10 +108,9 @@ async fn main() {
     eprintln!("[orchestrator] exiting");
 }
 
-fn spawn_scheduler(config: &Config, ipc_path: &str, scheduler_tx: UnixStream) -> u32 {
+fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> u32 {
     let bin = &config.scheduler.bin;
     let mut cmd = std::process::Command::new(bin);
-    cmd.args(["--bindings-ipc", ipc_path]);
     if let Some(cfg) = &config.scheduler.config {
         cmd.args(["--config", &cfg.to_string_lossy()]);
     }
@@ -114,6 +129,8 @@ fn spawn_scheduler(config: &Config, ipc_path: &str, scheduler_tx: UnixStream) ->
         )
     });
 
+    // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
+    // It's None only after the process has been reaped (to prevent PID reuse bugs).
     child.id().expect("we haven't polled to completion")
 }
 

@@ -12,7 +12,7 @@ pub const ORCHESTRATOR_FD: std::os::unix::io::RawFd = 3;
 /// The caller must ensure no other code has taken ownership of [`ORCHESTRATOR_FD`]
 /// (this includes via FD ID collision if this process was spawned outside of an
 /// orchestrator session).
-pub unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
+pub(crate) unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
     use std::os::fd::FromRawFd;
 
     // SAFETY:
