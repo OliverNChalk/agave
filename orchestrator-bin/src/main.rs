@@ -114,7 +114,7 @@ fn spawn_scheduler(config: &Config, ipc_path: &str, scheduler_tx: UnixStream) ->
         )
     });
 
-    child.id().unwrap()
+    child.id().expect("we haven't polled to completion")
 }
 
 async fn read_until_eof(stream: &mut TokioUnixStream) {
