@@ -1193,7 +1193,7 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .takes_value(true)
             .value_name("PATH")
             .help(
-                "Path to orchestrator YAML config file. Spawns an orchestrator child process to \
+                "Path to orchestrator TOML config file. Spawns an orchestrator child process to \
                  manage external scheduler lifecycle.",
             ),
     )
