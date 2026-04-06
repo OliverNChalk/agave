@@ -114,11 +114,9 @@ pub fn execute(
             .expect("orchestrator config missing orchestrator.bin");
 
         let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
-        let ipc_str = ipc_path.to_str().expect("ipc path not valid UTF-8");
+        let config_path = std::path::Path::new(config_path);
 
-        let extra_args: Vec<&str> = vec!["--ipc-path", ipc_str, "--config", config_path];
-
-        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &extra_args)
+        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &ipc_path, config_path)
     });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
