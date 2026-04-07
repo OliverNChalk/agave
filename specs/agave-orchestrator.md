@@ -1,19 +1,6 @@
 # Agave Orchestrator
 
-## Overview
-
-Agave could be split into separate processes:
-
-- QUIC
-- Core
-- Scheduler
-- Sigverify
-- Broadcast
-- Similar logically seperable components.
-
-These processes will communicate via shared memory. Core (which contains
-accounts DB) will be the primary long-lived process (as it is highly stateful &
-slow to restart - accounts db needs to reload).
+## Why split into separate processes
 
 Splitting out these components enables a few advantages:
 
@@ -28,6 +15,21 @@ Splitting out these components enables a few advantages:
 To realize these benefits, we believe `agave-orchestrator` is necessary. Its
 role is to manage the lifecycle of these components and broker the shared memory
 that connects them.
+
+## Overview
+
+Agave could be split into separate processes:
+
+- QUIC
+- Core
+- Scheduler
+- Sigverify
+- Broadcast
+- Similar logically separable components.
+
+These processes will communicate via shared memory. Core (which contains
+accounts DB) will be the primary long-lived process (as it is highly stateful &
+slow to restart - accounts db needs to reload).
 
 ## Orchestrator's two jobs
 
