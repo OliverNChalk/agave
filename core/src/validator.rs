@@ -33,6 +33,7 @@ use {
         tpu::{Tpu, TpuSockets},
         tvu::{AlpenglowInitializationState, Tvu, TvuConfig, TvuSockets},
     },
+    agave_orchestrator::OrchestratorStream,
     agave_snapshots::{
         SnapshotInterval, snapshot_archive_info::SnapshotArchiveInfoGetter as _,
         snapshot_config::SnapshotConfig, snapshot_hash::StartingSnapshotHashes,
@@ -676,6 +677,7 @@ impl Validator {
         tpu_config: ValidatorTpuConfig,
         admin_rpc_service_post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
         xdp_builder_with_src_addr: Option<(TransmitterBuilder, SocketAddrV4)>,
+        orchestrator_stream: Option<OrchestratorStream>,
     ) -> Result<Self> {
         let exit = Arc::new(AtomicBool::new(false));
         Self::new_with_exit(
@@ -693,6 +695,7 @@ impl Validator {
             tpu_config,
             admin_rpc_service_post_init,
             xdp_builder_with_src_addr,
+            orchestrator_stream,
             exit,
         )
     }
@@ -713,6 +716,7 @@ impl Validator {
         tpu_config: ValidatorTpuConfig,
         admin_rpc_service_post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
         xdp_builder_with_src_addr: Option<(TransmitterBuilder, SocketAddrV4)>,
+        orchestrator_stream: Option<OrchestratorStream>,
         exit: Arc<AtomicBool>,
     ) -> Result<Self> {
         #[cfg(debug_assertions)]
@@ -1747,6 +1751,7 @@ impl Validator {
                     banking_control_sender.clone(),
                 )
             }),
+            orchestrator_stream,
             cancel,
             votor_event_sender,
         );
@@ -2999,6 +3004,7 @@ mod tests {
             ValidatorTpuConfig::new_for_tests(),
             Arc::new(RwLock::new(None)),
             None,
+            None, // orchestrator_stream
         )
         .expect("assume successful validator start");
         assert_eq!(
@@ -3218,6 +3224,7 @@ mod tests {
                     ValidatorTpuConfig::new_for_tests(),
                     Arc::new(RwLock::new(None)),
                     None,
+                    None, // orchestrator_stream
                 )
                 .expect("assume successful validator start")
             })

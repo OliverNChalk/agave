@@ -103,6 +103,24 @@ pub fn execute(
 
     let run_args = RunArgs::from_clap_arg_match(matches)?;
 
+    // Spawn orchestrator child process as early as possible (fork safety).
+    #[cfg(unix)]
+    let orchestrator_stream = matches.value_of("orchestrator").map(|config_path| {
+        let config_bytes = std::fs::read(config_path).expect("failed to read orchestrator config");
+        let config: toml::Value =
+            toml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
+        let bin = config["orchestrator"]["bin"]
+            .as_str()
+            .expect("orchestrator config missing orchestrator.bin");
+
+        let ipc_path = run_args.ledger_path.join("scheduler_bindings.ipc");
+        let config_path = std::path::Path::new(config_path);
+
+        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), &ipc_path, config_path)
+    });
+    #[cfg(not(unix))]
+    let orchestrator_stream = None;
+
     let cli::thread_args::NumThreadConfig {
         accounts_db_background_threads,
         accounts_db_foreground_threads,
@@ -872,7 +890,8 @@ pub fn execute(
             ),
         },
         enable_block_production_forwarding: staked_nodes_overrides_path.is_some(),
-        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings"),
+        enable_scheduler_bindings: matches.is_present("enable_scheduler_bindings")
+            || matches.is_present("orchestrator"),
         banking_trace_dir_byte_limit: parse_banking_trace_dir_byte_limit(matches),
         validator_exit: Arc::new(RwLock::new(Exit::default())),
         validator_exit_backpressure: [(
@@ -1126,6 +1145,7 @@ pub fn execute(
         },
         admin_service_post_init,
         xdp_builder_with_src_addr,
+        orchestrator_stream,
         exit,
     )
     .map_err(|err| format!("{err:?}"))?;
