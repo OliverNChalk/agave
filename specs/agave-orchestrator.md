@@ -1,6 +1,6 @@
 # Agave Orchestrator
 
-## Why split into separate processes
+## Why do we split into separate processes?
 
 Splitting out these components enables a few advantages:
 
@@ -16,7 +16,7 @@ To realize these benefits, we believe `agave-orchestrator` is necessary. Its
 role is to manage the lifecycle of these components and broker the shared memory
 that connects them.
 
-## Overview
+## How do we split into separate processes?
 
 Agave could be split into separate processes:
 
