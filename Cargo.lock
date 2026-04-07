@@ -199,7 +199,12 @@ dependencies = [
 name = "agave-orchestrator"
 version = "4.1.0-alpha.0"
 dependencies = [
+ "agave-scheduler-bindings",
  "libc",
+ "nix 0.31.2",
+ "rts-alloc",
+ "serde",
+ "shaq",
 ]
 
 [[package]]
@@ -274,11 +279,11 @@ name = "agave-scheduling-utils"
 version = "4.1.0-alpha.0"
 dependencies = [
  "agave-feature-set",
+ "agave-orchestrator",
  "agave-scheduler-bindings",
  "agave-transaction-view",
  "ahash 0.8.12",
  "libc",
- "nix 0.31.2",
  "rts-alloc",
  "shaq",
  "slotmap",
@@ -286,7 +291,6 @@ dependencies = [
  "solana-pubkey 4.2.0",
  "solana-transaction",
  "solana-transaction-error",
- "tempfile",
  "thiserror 2.0.18",
  "wincode",
 ]

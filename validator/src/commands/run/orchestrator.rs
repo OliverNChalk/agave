@@ -12,7 +12,7 @@ use {
 };
 
 /// Spawns the orchestrator and returns agave's side of the UDS pair.
-pub fn spawn_orchestrator(bin: &Path, ipc_path: &Path, config_path: &Path) -> UnixStream {
+pub fn spawn_orchestrator(bin: &Path, config_path: &Path) -> UnixStream {
     let (validator_fd, orch_fd) = socket::socketpair(
         AddressFamily::Unix,
         SockType::Stream,
@@ -26,9 +26,6 @@ pub fn spawn_orchestrator(bin: &Path, ipc_path: &Path, config_path: &Path) -> Un
     let bin_str = bin
         .to_str()
         .expect("orchestrator bin path is not valid UTF-8");
-    let ipc_str = ipc_path
-        .to_str()
-        .expect("ipc path is not valid UTF-8");
     let config_str = config_path
         .to_str()
         .expect("config path is not valid UTF-8");
@@ -37,8 +34,6 @@ pub fn spawn_orchestrator(bin: &Path, ipc_path: &Path, config_path: &Path) -> Un
         c_bin.clone(),
         std::ffi::CString::new("--orch-fd").unwrap(),
         std::ffi::CString::new(orch_fd.as_raw_fd().to_string()).unwrap(),
-        std::ffi::CString::new("--ipc-path").unwrap(),
-        std::ffi::CString::new(ipc_str).unwrap(),
         std::ffi::CString::new("--config").unwrap(),
         std::ffi::CString::new(config_str).unwrap(),
     ];

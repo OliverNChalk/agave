@@ -64,7 +64,6 @@ use {
         collections::HashMap,
         net::UdpSocket,
         num::NonZeroUsize,
-        path::PathBuf,
         sync::{Arc, RwLock, atomic::AtomicBool},
         thread::{self, JoinHandle},
     },
@@ -149,7 +148,6 @@ impl Tpu {
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
-        scheduler_bindings: Option<(PathBuf, mpsc::Sender<BankingControlMsg>)>,
         orchestrator_stream: Option<OrchestratorStream>,
         cancel: CancellationToken,
         votor_event_sender: VotorEventSender,
@@ -309,16 +307,41 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
+        // If orchestrator is present, block on receiving the external scheduler session.
+        // This ensures the banking stage starts directly in external mode.
+        #[cfg(unix)]
+        let initial_scheduler_msg = match &orchestrator_stream {
+            Some(stream) => {
+                let timeout = std::time::Duration::from_secs(1);
+                let session = agave_orchestrator::recv_agave_session(stream, timeout);
+                log::info!("Received external scheduler session from orchestrator");
+
+                BankingControlMsg::External { session }
+            }
+            None => BankingControlMsg::Internal {
+                block_production_method,
+                num_workers: block_production_num_workers,
+                config: block_production_scheduler_config,
+            },
+        };
+        #[cfg(not(unix))]
+        let initial_scheduler_msg = {
+            assert!(orchestrator_stream.is_none());
+            BankingControlMsg::Internal {
+                block_production_method,
+                num_workers: block_production_num_workers,
+                config: block_production_scheduler_config,
+            }
+        };
+
         let banking_stage = BankingStage::new_num_threads(
-            block_production_method,
             poh_recorder.clone(),
             transaction_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
             banking_control_receiver,
-            block_production_num_workers,
-            block_production_scheduler_config,
+            initial_scheduler_msg,
             transaction_status_sender,
             replay_vote_sender,
             log_messages_bytes_limit,
@@ -326,18 +349,15 @@ impl Tpu {
             prioritization_fee_cache,
         );
 
+        // Signal readiness to orchestrator now that banking stage is running external.
         #[cfg(unix)]
-        if let Some((path, banking_control_sender)) = scheduler_bindings {
-            super::scheduler_bindings_server::spawn(
-                &path,
-                banking_control_sender,
-                orchestrator_stream,
-            );
-        }
-        #[cfg(not(unix))]
-        {
-            assert!(scheduler_bindings.is_none());
-            assert!(orchestrator_stream.is_none());
+        if let Some(mut stream) = orchestrator_stream {
+            use std::io::Write;
+
+            match stream.write_all(&[0x01]) {
+                Ok(()) => log::info!("Sent readiness signal to orchestrator"),
+                Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
+            }
         }
 
         let SpawnForwardingStageResult {

@@ -1,7 +1,11 @@
-use {serde::Deserialize, std::path::PathBuf};
+use {agave_orchestrator::SchedulerTopology, serde::Deserialize, std::path::PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
+    // Topology.
+    pub(crate) topology: TopologyConfig,
+
+    // Services.
     #[allow(dead_code, reason = "agave raw indexes this json")]
     pub(crate) orchestrator: OrchestratorConfig,
     pub(crate) scheduler: SchedulerConfig,
@@ -17,4 +21,9 @@ pub(crate) struct OrchestratorConfig {
 pub(crate) struct SchedulerConfig {
     pub(crate) bin: PathBuf,
     pub(crate) config: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct TopologyConfig {
+    pub(crate) scheduler: SchedulerTopology,
 }
