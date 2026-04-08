@@ -10,12 +10,12 @@ homepage = { workspace = true }
 license = { workspace = true }
 edition = { workspace = true }
 
-[features]
-dev-context-only-utils = []
-
 [[bin]]
 name = "agave-orchestrator"
 path = "src/main.rs"
+
+[features]
+dev-context-only-utils = []
 
 [dependencies]
 
