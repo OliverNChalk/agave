@@ -12,12 +12,7 @@ pub fn spawn_orchestrator(bin: &Path, config_path: &Path) -> UnixStream {
     let (validator_fd, orch_fd) = UnixStream::pair().expect("socketpair failed");
 
     let mut cmd = Command::new(bin);
-    cmd.args([
-        "--orch-fd",
-        &agave_orchestrator::ORCHESTRATOR_FD.to_string(),
-        "--config",
-        &config_path.to_string_lossy(),
-    ]);
+    cmd.args(["--config", &config_path.to_string_lossy()]);
     cmd.fd_mappings(vec![FdMapping {
         parent_fd: orch_fd.into(),
         child_fd: agave_orchestrator::ORCHESTRATOR_FD,

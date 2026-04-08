@@ -1,8 +1,5 @@
 use {
-    crate::{
-        args::Args,
-        component::{Component, Role},
-    },
+    crate::component::{Component, Role},
     agave_orchestrator::{Config, SessionHeader},
     command_fds::{CommandFdExt, FdMapping},
     futures::{StreamExt, stream::FuturesUnordered},
@@ -20,17 +17,17 @@ pub(crate) struct ControlThread {
 }
 
 impl ControlThread {
-    pub(crate) fn run_in_place(args: &Args, config: Config) {
+    pub(crate) fn run_in_place(config: Config) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let server = rt.block_on(ControlThread::setup(args, config));
+        let server = rt.block_on(ControlThread::setup(config));
 
         rt.block_on(server.run())
     }
 
-    async fn setup(args: &Args, config: Config) -> Self {
+    async fn setup(config: Config) -> Self {
         // Grab scheduler topology.
         let topology = &config.topology.scheduler;
         let header = SessionHeader::new(
@@ -39,8 +36,8 @@ impl ControlThread {
             topology.flags,
         );
 
-        // SAFETY: FD was passed to us by the parent process via fork+exec.
-        let mut validator_rx = unsafe { UnixStream::from_raw_fd(args.orch_fd) };
+        // SAFETY: FD 3 was mapped by the parent process via command-fds.
+        let mut validator_rx = unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
 
         // Set CLOEXEC so the scheduler child does not inherit this FD.
         nix::fcntl::fcntl(

@@ -19,7 +19,7 @@ fn main() {
 
     // Initialize logging.
     agave_logger::initialize_logging(Some(config.orchestrator.log.clone()));
-    log::info!("Started; orch-fd={}", args.orch_fd);
+    log::info!("Started");
 
-    ControlThread::run_in_place(&args, config)
+    ControlThread::run_in_place(config)
 }
