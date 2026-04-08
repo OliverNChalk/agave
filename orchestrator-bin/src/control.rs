@@ -1,20 +1,20 @@
 use {
-    crate::args::Args,
+    crate::{
+        args::Args,
+        component::{Component, Role},
+    },
     agave_orchestrator::{Config, SessionHeader},
     command_fds::{CommandFdExt, FdMapping},
+    futures::{StreamExt, stream::FuturesUnordered},
     std::{
         io::Read,
         os::{fd::FromRawFd, unix::net::UnixStream},
     },
-    tokio::{
-        io::AsyncReadExt, net::UnixStream as TokioUnixStream, process::Command,
-        signal::unix::SignalKind,
-    },
+    tokio::{net::UnixStream as TokioUnixStream, process::Command, signal::unix::SignalKind},
 };
 
 pub(crate) struct ControlThread {
-    validator_rx: TokioUnixStream,
-    scheduler_rx: TokioUnixStream,
+    components: FuturesUnordered<Component>,
 }
 
 impl ControlThread {
@@ -82,8 +82,10 @@ impl ControlThread {
         let scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
 
         ControlThread {
-            validator_rx,
-            scheduler_rx,
+            components: FuturesUnordered::from_iter([
+                Component::new(Role::Validator, validator_rx),
+                Component::new(Role::Scheduler, scheduler_rx),
+            ]),
         }
     }
 
@@ -93,22 +95,26 @@ impl ControlThread {
 
         tokio::select! {
             _ = sigterm.recv() => {
-                eprintln!("SIGTERM caught, stopping server");
+                eprintln!("[orchestrator] SIGTERM caught, stopping server");
             },
             _ = sigint.recv() => {
-                eprintln!("SIGINT caught, stopping server");
+                eprintln!("[orchestrator] SIGINT caught, stopping server");
             },
-            () = Self::read_until_eof(&mut self.scheduler_rx) => {
-                eprintln!("[orchestrator] scheduler exited (UDS EOF)");
-                Self::read_until_eof(&mut self.validator_rx).await;
-                eprintln!("[orchestrator] validator exited (UDS EOF)");
-            }
-            () = Self::read_until_eof(&mut self.validator_rx) => {
-                eprintln!("[orchestrator] validator exited (UDS EOF)");
-                Self::read_until_eof(&mut self.scheduler_rx).await;
-                eprintln!("[orchestrator] scheduler exited (UDS EOF)");
-            }
+            opt = self.components.next() => {
+                let role = opt.unwrap();
+                eprintln!("[orchestrator] Component exited unexpectedly; role={role:?}");
+            },
         };
+
+        // Signal shutdown to remaining components.
+        for component in self.components.iter_mut() {
+            component.shutdown().await;
+        }
+
+        // Wait for remaining components to exit.
+        while let Some(role) = self.components.next().await {
+            eprintln!("[orchestrator] Component exited; role={role:?}");
+        }
 
         eprintln!("[orchestrator] exiting");
     }
@@ -137,19 +143,5 @@ impl ControlThread {
         // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
         // It's None only after the process has been reaped (to prevent PID reuse bugs).
         child.id().expect("we haven't polled to completion")
-    }
-
-    async fn read_until_eof(stream: &mut TokioUnixStream) {
-        let mut buf = [0u8; 64];
-        loop {
-            match stream.read(&mut buf).await {
-                Ok(0) => return,
-                Ok(_) => continue,
-                Err(err) => {
-                    eprintln!("[orchestrator] UDS read error; err={err}");
-                    return;
-                }
-            }
-        }
     }
 }
