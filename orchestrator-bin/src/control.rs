@@ -50,11 +50,11 @@ impl ControlThread {
 
         // Allocate all shared memory regions.
         let files = agave_orchestrator::create_session(topology);
-        eprintln!("[orchestrator] created shmem; fds={}", files.len(),);
+        log::info!("Created shmem; fds={}", files.len());
 
         // Send shmem FDs to agave.
         agave_orchestrator::send_session(&validator_rx, &files, header);
-        eprintln!("[orchestrator] sent session to validator");
+        log::info!("Sent session to validator");
 
         // Wait for agave readiness (banking stage has switched to external mode).
         let mut buf = [0u8; 1];
@@ -62,7 +62,7 @@ impl ControlThread {
             .read_exact(&mut buf)
             .expect("read readiness byte");
         assert_eq!(buf[0], 0x01, "unexpected readiness byte");
-        eprintln!("[orchestrator] validator is ready");
+        log::info!("Validator is ready");
 
         // Create a fresh UDS pair for orchestrator <> scheduler communication.
         let (scheduler_rx, scheduler_tx) =
@@ -70,11 +70,11 @@ impl ControlThread {
 
         // Spawn the external scheduler, passing the scheduler end at the well-known fd.
         let scheduler_pid = Self::spawn_scheduler(&config, scheduler_tx);
-        eprintln!("[orchestrator] spawned scheduler; pid={scheduler_pid}");
+        log::info!("Spawned scheduler; pid={scheduler_pid}");
 
         // Send shmem FDs to scheduler.
         agave_orchestrator::send_session(&scheduler_rx, &files, header);
-        eprintln!("[orchestrator] sent session to scheduler");
+        log::info!("Sent session to scheduler");
 
         // Convert both streams to async for monitoring.
         validator_rx.set_nonblocking(true).unwrap();
@@ -97,14 +97,14 @@ impl ControlThread {
 
         tokio::select! {
             _ = sigterm.recv() => {
-                eprintln!("[orchestrator] SIGTERM caught, stopping server");
+                log::info!("SIGTERM caught, stopping");
             },
             _ = sigint.recv() => {
-                eprintln!("[orchestrator] SIGINT caught, stopping server");
+                log::info!("SIGINT caught, stopping");
             },
             opt = self.components.next() => {
                 let role = opt.unwrap();
-                eprintln!("[orchestrator] Component exited unexpectedly; role={role:?}");
+                log::error!("Component exited unexpectedly; role={role:?}");
             },
         };
 
@@ -115,10 +115,10 @@ impl ControlThread {
 
         // Wait for remaining components to exit.
         while let Some(role) = self.components.next().await {
-            eprintln!("[orchestrator] Component exited; role={role:?}");
+            log::info!("Component exited; role={role:?}");
         }
 
-        eprintln!("[orchestrator] exiting");
+        log::info!("Exiting");
     }
 
     fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> Pid {
@@ -145,7 +145,6 @@ impl ControlThread {
         // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
         // It's None only after the process has been reaped (to prevent PID reuse bugs).
         let pid = child.id().expect("we haven't polled to completion");
-
         Pid::from_raw(pid as i32)
     }
 }

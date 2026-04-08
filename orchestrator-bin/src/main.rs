@@ -12,11 +12,14 @@ fn main() {
     };
 
     let args = args::Args::parse();
-    eprintln!("[orchestrator] started; orch-fd={}", args.orch_fd);
 
     // Load config.
     let config_bytes = std::fs::read(&args.config).expect("failed to read config file");
     let config: Config = toml::from_slice(&config_bytes).expect("failed to parse config");
+
+    // Initialize logging.
+    agave_logger::initialize_logging(Some(config.orchestrator.log.clone()));
+    log::info!("Started; orch-fd={}", args.orch_fd);
 
     ControlThread::run_in_place(&args, config)
 }

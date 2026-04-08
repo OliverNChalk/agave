@@ -23,10 +23,7 @@ impl Component {
     }
 
     pub(crate) fn shutdown(&self) {
-        eprintln!(
-            "[orchestrator] sending SIGTERM; role={:?}; pid={}",
-            self.role, self.pid
-        );
+        log::info!("Sending SIGTERM; role={:?}; pid={}", self.role, self.pid);
         signal::kill(self.pid, Signal::SIGTERM).unwrap();
     }
 }

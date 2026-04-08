@@ -211,10 +211,12 @@ dependencies = [
 name = "agave-orchestrator-bin"
 version = "4.1.0-alpha.0"
 dependencies = [
+ "agave-logger",
  "agave-orchestrator",
  "clap 4.5.31",
  "command-fds",
  "futures 0.3.32",
+ "log",
  "nix 0.31.2",
  "serde",
  "tokio",

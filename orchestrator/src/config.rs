@@ -10,6 +10,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct OrchestratorConfig {
     pub bin: PathBuf,
+    pub log: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
