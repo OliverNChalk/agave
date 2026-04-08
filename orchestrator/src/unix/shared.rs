@@ -20,7 +20,7 @@ pub(crate) unsafe fn orchestrator_uds() -> UnixStream {
     // SAFETY:
     // - `mem::zeroed` is valid for `libc::stat`.
     // - `libc::fstat` is safe for any i32.
-    // - Call ensures `ORCHESTRATOR_FD` has not already been claimed.
+    // - Caller ensures `ORCHESTRATOR_FD` has not already been claimed.
     unsafe {
         let mut stat: libc::stat = std::mem::zeroed();
         assert!(
