@@ -8,6 +8,11 @@ pub struct Config {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TopologyConfig {
+    pub scheduler: SchedulerTopology,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct OrchestratorConfig {
     pub bin: PathBuf,
     pub log: PathBuf,
@@ -18,9 +23,4 @@ pub struct SchedulerConfig {
     pub bin: PathBuf,
     pub log: PathBuf,
     pub config: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TopologyConfig {
-    pub scheduler: SchedulerTopology,
 }
