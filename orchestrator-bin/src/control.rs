@@ -6,6 +6,7 @@ use {
     agave_orchestrator::{Config, SessionHeader},
     command_fds::{CommandFdExt, FdMapping},
     futures::{StreamExt, stream::FuturesUnordered},
+    nix::unistd::Pid,
     std::{
         io::Read,
         os::{fd::FromRawFd, unix::net::UnixStream},
@@ -80,11 +81,12 @@ impl ControlThread {
         scheduler_rx.set_nonblocking(true).unwrap();
         let validator_rx = TokioUnixStream::from_std(validator_rx).unwrap();
         let scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
+        let validator_pid = nix::unistd::getppid();
 
         ControlThread {
             components: FuturesUnordered::from_iter([
-                Component::new(Role::Validator, validator_rx),
-                Component::new(Role::Scheduler, scheduler_rx),
+                Component::new(Role::Validator, validator_pid, validator_rx),
+                Component::new(Role::Scheduler, scheduler_pid, scheduler_rx),
             ]),
         }
     }
@@ -108,7 +110,7 @@ impl ControlThread {
 
         // Signal shutdown to remaining components.
         for component in self.components.iter_mut() {
-            component.shutdown().await;
+            component.shutdown();
         }
 
         // Wait for remaining components to exit.
@@ -119,7 +121,7 @@ impl ControlThread {
         eprintln!("[orchestrator] exiting");
     }
 
-    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> u32 {
+    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> Pid {
         let bin = &config.scheduler.bin;
         let mut cmd = std::process::Command::new(bin);
         if let Some(cfg) = &config.scheduler.config {
@@ -142,6 +144,8 @@ impl ControlThread {
 
         // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
         // It's None only after the process has been reaped (to prevent PID reuse bugs).
-        child.id().expect("we haven't polled to completion")
+        let pid = child.id().expect("we haven't polled to completion");
+
+        Pid::from_raw(pid as i32)
     }
 }
