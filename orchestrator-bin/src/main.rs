@@ -2,11 +2,8 @@
 //       fine if all windows builds do `cargo build -p <package>`?
 #![cfg(unix)]
 
-mod config;
-
 use {
-    crate::config::Config,
-    agave_orchestrator::SessionHeader,
+    agave_orchestrator::{Config, SessionHeader},
     clap::Parser,
     clap_v4 as clap,
     command_fds::{CommandFdExt, FdMapping},

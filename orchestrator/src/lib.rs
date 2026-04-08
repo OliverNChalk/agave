@@ -1,6 +1,10 @@
 #[cfg(unix)]
+mod config;
+#[cfg(unix)]
 mod unix;
 
+#[cfg(unix)]
+pub use config::*;
 #[cfg(unix)]
 pub use unix::*;
 

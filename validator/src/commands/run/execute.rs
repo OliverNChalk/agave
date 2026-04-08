@@ -108,14 +108,13 @@ pub fn execute(
     #[cfg(unix)]
     let orchestrator_stream = matches.value_of("orchestrator").map(|config_path| {
         let config_bytes = std::fs::read(config_path).expect("failed to read orchestrator config");
-        let config: toml::Value =
+        let config: agave_orchestrator::Config =
             toml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
-        let bin = config["orchestrator"]["bin"]
-            .as_str()
-            .expect("orchestrator config missing orchestrator.bin");
-        let config_path = std::path::Path::new(config_path);
 
-        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), config_path)
+        super::orchestrator::spawn_orchestrator(
+            &config.orchestrator.bin,
+            std::path::Path::new(config_path),
+        )
     });
     #[cfg(not(unix))]
     let orchestrator_stream = None;
