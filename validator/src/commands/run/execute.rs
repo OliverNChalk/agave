@@ -104,20 +104,28 @@ pub fn execute(
 
     let run_args = RunArgs::from_clap_arg_match(matches)?;
 
-    // Spawn orchestrator child process as early as possible (fork safety).
+    // Spawn orchestrator child process if configured.
     #[cfg(unix)]
-    let orchestrator_stream = matches.value_of("orchestrator").map(|config_path| {
-        let config_bytes = std::fs::read(config_path).expect("failed to read orchestrator config");
-        let config: toml::Value =
-            toml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
-        let bin = config["orchestrator"]["bin"]
-            .as_str()
-            .expect("orchestrator config missing orchestrator.bin");
+    let (orchestrator_stream, _orchestrator_child) = match matches.value_of("orchestrator") {
+        Some(config_path) => {
+            // Extract bin from orchestrator config.
+            let config_bytes =
+                std::fs::read(config_path).expect("failed to read orchestrator config");
+            let config: toml::Value =
+                toml::from_slice(&config_bytes).expect("failed to parse orchestrator config");
+            let bin = config["orchestrator"]["bin"]
+                .as_str()
+                .expect("orchestrator config missing orchestrator.bin");
+            let config_path = std::path::Path::new(config_path);
 
-        let config_path = std::path::Path::new(config_path);
+            // Spawn orchestrator - returns UDS for shmem & process handle.
+            let (stream, child) =
+                super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), config_path);
 
-        super::orchestrator::spawn_orchestrator(std::path::Path::new(bin), config_path)
-    });
+            (Some(stream), Some(child))
+        }
+        None => (None, None),
+    };
     #[cfg(not(unix))]
     let orchestrator_stream = None;
 
