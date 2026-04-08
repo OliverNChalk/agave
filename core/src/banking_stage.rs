@@ -710,7 +710,8 @@ impl BankingStage {
 #[cfg(unix)]
 mod external {
     use {
-        super::*, crate::banking_stage::consume_worker::external::ExternalWorker,
+        super::*,
+        crate::banking_stage::consume_worker::external::ExternalWorker,
         agave_orchestrator::{AgaveSession, AgaveWorkerSession},
         tpu_to_pack::BankingPacketReceivers,
     };
