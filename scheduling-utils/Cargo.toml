@@ -32,8 +32,6 @@ wincode = { workspace = true, optional = true }
 [target."cfg(unix)".dependencies]
 libc = { workspace = true }
 
-[dev-dependencies]
-
 [target."cfg(unix)".dev-dependencies]
 agave-scheduler-bindings = { workspace = true }
 
