@@ -37,7 +37,8 @@ impl ControlThread {
         );
 
         // SAFETY: FD 3 was mapped by the parent process via command-fds.
-        let mut validator_rx = unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
+        let mut validator_rx =
+            unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
 
         // Set CLOEXEC so the scheduler child does not inherit this FD.
         nix::fcntl::fcntl(

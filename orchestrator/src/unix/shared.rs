@@ -1,5 +1,7 @@
+use std::os::{fd::RawFd, unix::net::UnixStream};
+
 /// Orchestrator places the FD at this ID.
-pub const ORCHESTRATOR_FD: std::os::unix::io::RawFd = 3;
+pub const ORCHESTRATOR_FD: RawFd = 3;
 
 /// Recovers the orchestrator UDS from the well-known fd ([`ORCHESTRATOR_FD`]).
 ///
@@ -12,7 +14,7 @@ pub const ORCHESTRATOR_FD: std::os::unix::io::RawFd = 3;
 /// The caller must ensure no other code has taken ownership of [`ORCHESTRATOR_FD`]
 /// (this includes via FD ID collision if this process was spawned outside of an
 /// orchestrator session).
-pub(crate) unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
+pub(crate) unsafe fn orchestrator_uds() -> UnixStream {
     use std::os::fd::FromRawFd;
 
     // SAFETY:
@@ -32,6 +34,6 @@ pub(crate) unsafe fn orchestrator_uds() -> std::os::unix::net::UnixStream {
             stat.st_mode,
         );
 
-        std::os::unix::net::UnixStream::from_raw_fd(ORCHESTRATOR_FD)
+        UnixStream::from_raw_fd(ORCHESTRATOR_FD)
     }
 }
