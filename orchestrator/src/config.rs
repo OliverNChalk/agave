@@ -16,6 +16,7 @@ pub struct OrchestratorConfig {
 #[derive(Debug, Deserialize)]
 pub struct SchedulerConfig {
     pub bin: PathBuf,
+    pub log: PathBuf,
     pub config: Option<PathBuf>,
 }
 

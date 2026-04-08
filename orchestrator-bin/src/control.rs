@@ -10,6 +10,7 @@ use {
     std::{
         io::Read,
         os::{fd::FromRawFd, unix::net::UnixStream},
+        process::Stdio,
     },
     tokio::{net::UnixStream as TokioUnixStream, process::Command, signal::unix::SignalKind},
 };
@@ -124,6 +125,15 @@ impl ControlThread {
     fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> Pid {
         let bin = &config.scheduler.bin;
         let mut cmd = std::process::Command::new(bin);
+
+        // Don't inherit stdout/stderr.
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+
+        // Set the log path.
+        cmd.args(["--logs", &config.scheduler.log.to_string_lossy()]);
+
+        // Set config if provided.
         if let Some(cfg) = &config.scheduler.config {
             cmd.args(["--config", &cfg.to_string_lossy()]);
         }

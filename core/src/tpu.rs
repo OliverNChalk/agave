@@ -358,6 +358,11 @@ impl Tpu {
                 Ok(()) => log::info!("Sent readiness signal to orchestrator"),
                 Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
             }
+
+            // NB: Forget the stream so orchestrator can observe our process
+            //     exit (if we dropped the stream here it would think we've
+            //     exited prematurely).
+            core::mem::forget(stream);
         }
 
         let SpawnForwardingStageResult {

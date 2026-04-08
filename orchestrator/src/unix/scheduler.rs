@@ -200,6 +200,11 @@ pub unsafe fn recv_client_session() -> ClientSession {
     let stream = unsafe { crate::orchestrator_uds() };
     stream.set_nonblocking(true).expect("set_nonblocking");
     let (header, files) = recv_session(&stream);
+
+    // NB: We want the FD to release on process exit, not at the end of this
+    // function.
+    core::mem::forget(stream);
+
     join_client_session(&header, &files)
 }
 
