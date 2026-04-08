@@ -104,6 +104,13 @@ impl ControlThread {
             opt = self.components.next() => {
                 let role = opt.unwrap();
                 log::error!("Component exited unexpectedly; role={role:?}");
+
+                // NB: Shutting down the validator is a massive pain until the
+                // validator becomes our child. So we panic which causes agave
+                // to abort.
+                if matches!(role, Role::Scheduler) {
+                    panic!("Can't shutdown our parent");
+                }
             },
         };
 
