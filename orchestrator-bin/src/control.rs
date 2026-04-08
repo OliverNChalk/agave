@@ -155,6 +155,7 @@ impl ControlThread {
         // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
         // It's None only after the process has been reaped (to prevent PID reuse bugs).
         let pid = child.id().expect("we haven't polled to completion");
+
         Pid::from_raw(pid as i32)
     }
 }
