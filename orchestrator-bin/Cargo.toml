@@ -10,6 +10,9 @@ homepage = { workspace = true }
 license = { workspace = true }
 edition = { workspace = true }
 
+[features]
+dev-context-only-utils = []
+
 [[bin]]
 name = "agave-orchestrator"
 path = "src/main.rs"
@@ -22,5 +25,5 @@ clap-v4 = { workspace = true, features = ["std", "derive"] }
 command-fds = { workspace = true }
 nix = { workspace = true, features = ["fs"] }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "process", "rt", "io-util"] }
+tokio = { workspace = true, features = ["macros", "net", "process", "rt", "signal", "io-util"] }
 toml = { workspace = true }
