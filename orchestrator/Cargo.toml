@@ -11,9 +11,6 @@ license = { workspace = true }
 edition = { workspace = true }
 publish = false
 
-[lints]
-workspace = true
-
 [dependencies]
 
 [target."cfg(unix)".dependencies]
@@ -23,3 +20,6 @@ nix = { workspace = true, features = ["socket", "uio"] }
 rts-alloc = { workspace = true }
 serde = { workspace = true }
 shaq = { workspace = true }
+
+[lints]
+workspace = true

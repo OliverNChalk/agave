@@ -14,9 +14,6 @@ edition = { workspace = true }
 name = "agave-orchestrator"
 path = "src/main.rs"
 
-[lints]
-workspace = true
-
 [features]
 dev-context-only-utils = []
 
@@ -33,3 +30,6 @@ nix = { workspace = true, features = ["fs", "signal"] }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "process", "rt", "signal", "io-util"] }
 toml = { workspace = true }
+
+[lints]
+workspace = true
