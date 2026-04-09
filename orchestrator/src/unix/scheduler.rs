@@ -227,7 +227,7 @@ pub fn join_agave_session(header: &SessionHeader, files: &[File]) -> AgaveSessio
         unsafe { shaq::spsc::Producer::join(progress_tracker_file) }.expect("progress join");
 
     // Per-worker: pack_to_worker as Consumer, worker_to_pack as Producer.
-    assert_eq!(worker_files.len(), worker_count * 2);
+    assert_eq!(worker_files.len(), worker_count.checked_mul(2).unwrap());
     let workers = worker_files
         .chunks(2)
         .map(|chunk| {
@@ -283,7 +283,7 @@ pub fn join_client_session(header: &SessionHeader, files: &[File]) -> ClientSess
         unsafe { shaq::spsc::Consumer::join(progress_tracker_file) }.expect("progress join");
 
     // Per-worker: pack_to_worker as Producer, worker_to_pack as Consumer.
-    assert_eq!(worker_files.len(), worker_count * 2);
+    assert_eq!(worker_files.len(), worker_count.checked_mul(2).unwrap());
     let workers = worker_files
         .chunks(2)
         .map(|chunk| {
@@ -342,7 +342,9 @@ fn recv_session(stream: &UnixStream) -> (SessionHeader, Vec<File>) {
 
     let header = SessionHeader::from_bytes(&buf).expect("invalid session header");
 
-    let expected_count = GLOBAL_SHMEM + (header.worker_count as usize) * 2;
+    let expected_count = GLOBAL_SHMEM
+        .checked_add((header.worker_count as usize).checked_mul(2).unwrap())
+        .unwrap();
     assert_eq!(
         fds.len(),
         expected_count,
