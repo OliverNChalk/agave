@@ -213,6 +213,7 @@ version = "4.1.0-alpha.0"
 dependencies = [
  "agave-logger",
  "agave-orchestrator",
+ "anyhow",
  "clap 4.5.31",
  "command-fds",
  "futures 0.3.32",

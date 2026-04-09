@@ -1,5 +1,8 @@
 use {
-    crate::component::{Component, Role},
+    crate::{
+        args::Args,
+        component::{Component, Role},
+    },
     agave_orchestrator::{Config, SessionHeader},
     command_fds::{CommandFdExt, FdMapping},
     futures::{StreamExt, stream::FuturesUnordered},
@@ -19,23 +22,25 @@ use {
 };
 
 pub(crate) struct ControlThread {
+    args: Args,
     config: Config,
+
     validator_rx: TokioUnixStream,
     components: FuturesUnordered<Component>,
 }
 
 impl ControlThread {
-    pub(crate) fn run_in_place(config: Config) {
+    pub(crate) fn run_in_place(args: Args, config: Config) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let server = rt.block_on(ControlThread::setup(config));
+        let server = rt.block_on(ControlThread::setup(args, config));
 
         rt.block_on(server.run())
     }
 
-    async fn setup(config: Config) -> Self {
+    async fn setup(args: Args, config: Config) -> Self {
         // SAFETY: FD 3 was mapped by the parent process via command-fds.
         let mut validator_rx =
             unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
@@ -61,7 +66,9 @@ impl ControlThread {
 
         // Setup thread structure.
         let mut thread = ControlThread {
+            args,
             config,
+
             validator_rx,
             components: FuturesUnordered::new(),
         };
@@ -76,29 +83,64 @@ impl ControlThread {
     async fn run(mut self) {
         let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate()).unwrap();
         let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt()).unwrap();
+        let mut sighup = tokio::signal::unix::signal(SignalKind::hangup()).unwrap();
 
-        tokio::select! {
-            _ = sigterm.recv() => {
-                log::info!("SIGTERM caught, stopping");
-            },
-            _ = sigint.recv() => {
-                log::info!("SIGINT caught, stopping");
-            },
+        loop {
+            tokio::select! {
+                _ = sigterm.recv() => {
+                    log::info!("SIGTERM caught, stopping");
 
-            () = Self::read_until_eof(&mut self.validator_rx) => {
-                log::error!("Validator exited unexpectedly");
-            },
-            opt = self.components.next() => {
-                let role = opt.unwrap();
-                log::error!("Component exited unexpectedly; role={role:?}");
+                    break;
+                },
+                _ = sigint.recv() => {
+                    log::info!("SIGINT caught, stopping");
 
-                // NB: Shutting down the validator is a massive pain until the
-                // validator becomes our child. So we panic which causes agave
-                // to abort.
-                panic!("Can't shutdown our parent");
-            },
-        };
+                    break;
+                },
+                _ = sighup.recv() => {
+                    log::info!("SIGHUP caught, reloading config");
+                    if let Err(err) = self.reload().await {
+                        log::error!("Failed to reload; err={err}");
+                    }
+                },
 
+                () = Self::read_until_eof(&mut self.validator_rx) => {
+                    log::error!("Validator exited unexpectedly");
+
+                    break;
+                },
+                opt = self.components.next() => {
+                    let role = opt.unwrap();
+                    log::error!("Component exited unexpectedly; role={role:?}");
+
+                    // NB: Shutting down the validator is a massive pain until the
+                    // validator becomes our child. So we panic which causes agave
+                    // to abort.
+                    panic!("Can't shutdown our parent");
+                },
+            };
+        }
+
+        self.shutdown_components().await;
+
+        log::info!("Exiting");
+    }
+
+    async fn reload(&mut self) -> anyhow::Result<()> {
+        // Load config.
+        let config_bytes = std::fs::read(&self.args.config)?;
+        self.config = toml::from_slice(&config_bytes)?;
+
+        // Tear down existing components.
+        self.shutdown_components().await;
+
+        // Spawn new components.
+        self.spawn_components();
+
+        Ok(())
+    }
+
+    async fn shutdown_components(&mut self) {
         // Signal shutdown to remaining components.
         for component in self.components.iter_mut() {
             component.shutdown();
@@ -108,8 +150,6 @@ impl ControlThread {
         while let Some(role) = self.components.next().await {
             log::info!("Component exited; role={role:?}");
         }
-
-        log::info!("Exiting");
     }
 
     fn spawn_components(&mut self) {
@@ -195,7 +235,7 @@ impl ControlThread {
                 Ok(0) => return,
                 Ok(_) => continue,
                 Err(err) => {
-                    eprintln!("[orchestrator] UDS read error; err={err}");
+                    log::error!("UDS read error; err={err}");
                     return;
                 }
             }

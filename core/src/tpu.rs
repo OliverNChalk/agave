@@ -147,6 +147,7 @@ impl Tpu {
         enable_block_production_forwarding: bool,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
+        banking_control_sender: mpsc::Sender<BankingControlMsg>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
         orchestrator_stream: Option<OrchestratorStream>,
         cancel: CancellationToken,
@@ -322,11 +323,14 @@ impl Tpu {
 
                 // Recv shmem.
                 let timeout = std::time::Duration::from_secs(1);
-                let session = agave_orchestrator::recv_agave_session(&stream, timeout);
+                let session = agave_orchestrator::recv_agave_session(&stream, Some(timeout));
                 log::info!("Received external scheduler session from orchestrator");
 
-                // TODO: Spawn thread to handle future cycling.
-                core::mem::forget(stream);
+                // Spawn the listener thread to handle future hot-swap sessions.
+                crate::banking_stage::orchestrator_server::spawn(
+                    stream,
+                    banking_control_sender.clone(),
+                );
 
                 BankingControlMsg::External { session }
             }

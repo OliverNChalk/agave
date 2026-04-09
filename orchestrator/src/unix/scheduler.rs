@@ -179,13 +179,14 @@ pub fn send_session(stream: BorrowedFd, files: &[File], header: SessionHeader) {
 
 /// Receives shmem FDs from the orchestrator and constructs an [`AgaveSession`].
 ///
-/// Applies the given timeout to the underlying socket before receiving. The orchestrator
-/// may not have sent FDs yet (it runs in a separate process), so the caller should pick a
-/// generous timeout (e.g. 5 s) to cover the race.
-pub fn recv_agave_session(stream: &UnixStream, timeout: std::time::Duration) -> AgaveSession {
-    stream
-        .set_read_timeout(Some(timeout))
-        .expect("set_read_timeout");
+/// Applies the given timeout to the underlying socket before receiving. Pass `None` to
+/// block indefinitely (useful for hot-swap listener threads). For one-shot recvs, the
+/// caller should pick a generous timeout (e.g. 5 s) to cover the orchestrator spawn race.
+pub fn recv_agave_session(
+    stream: &UnixStream,
+    timeout: Option<std::time::Duration>,
+) -> AgaveSession {
+    stream.set_read_timeout(timeout).expect("set_read_timeout");
     let (header, files) = recv_session(stream);
     join_agave_session(&header, &files)
 }

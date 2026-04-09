@@ -21,5 +21,5 @@ fn main() {
     agave_logger::initialize_logging(Some(config.orchestrator.log.clone()));
     log::info!("Started");
 
-    ControlThread::run_in_place(config)
+    ControlThread::run_in_place(args, config)
 }
