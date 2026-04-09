@@ -61,7 +61,6 @@ pub struct FeatureSnapshot {
     pub raise_cpi_nesting_limit_to_8: bool,
     pub provide_instruction_data_offset_in_vm_r2: bool,
     pub create_account_allow_prefund: bool,
-    pub vote_state_v4: bool,
     pub delay_commission_updates: bool,
     pub increase_cpi_account_info_limit: bool,
     pub deprecate_rent_exemption_threshold: bool,
@@ -167,7 +166,6 @@ impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
                 &provide_instruction_data_offset_in_vm_r2::ID,
             ),
             create_account_allow_prefund: is_active(&create_account_allow_prefund::ID),
-            vote_state_v4: is_active(&vote_state_v4::ID),
             delay_commission_updates: is_active(&delay_commission_updates::ID),
             increase_cpi_account_info_limit: is_active(&increase_cpi_account_info_limit::ID),
             deprecate_rent_exemption_threshold: is_active(&deprecate_rent_exemption_threshold::ID),
@@ -348,7 +346,6 @@ impl FeatureSet {
             delay_commission_updates: snapshot.delay_commission_updates,
             raise_cpi_nesting_limit_to_8: snapshot.raise_cpi_nesting_limit_to_8,
             increase_cpi_account_info_limit: snapshot.increase_cpi_account_info_limit,
-            vote_state_v4: snapshot.vote_state_v4,
             poseidon_enforce_padding: snapshot.poseidon_enforce_padding,
             fix_alt_bn128_pairing_length_check: snapshot.fix_alt_bn128_pairing_length_check,
             alt_bn128_little_endian: snapshot.alt_bn128_little_endian,
@@ -1305,7 +1302,7 @@ pub mod enshrine_slashing_program {
 }
 
 pub mod enable_extend_program_checked {
-    solana_pubkey::declare_id!("2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz");
+    solana_pubkey::declare_id!("ExtendProgCheckedWi11BeDe1eted11111111111111");
 }
 
 pub mod formalize_loaded_transaction_data_size {
@@ -1377,7 +1374,7 @@ pub mod static_instruction_limit {
 }
 
 pub mod discard_unexpected_data_complete_shreds {
-    solana_pubkey::declare_id!("shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU");
+    solana_pubkey::declare_id!("dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os");
 }
 
 pub mod vote_state_v4 {

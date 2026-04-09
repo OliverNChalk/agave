@@ -3370,9 +3370,15 @@ impl AccountsDb {
             &empty_ancestors
         };
 
+        // Bound max_root by ancestors.min_slot() so that roots from slots
+        // beyond the querying bank's ancestor chain are not visible.
+        let mut max_root = scan_guard.max_root();
+        if let Some(min) = ancestors.min_slot() {
+            max_root = max_root.min(min);
+        }
         self.accounts_index.scan_accounts(
             ancestors,
-            scan_guard.max_root(),
+            max_root,
             |pubkey, (account_info, slot)| {
                 let mut account_accessor =
                     self.get_account_accessor(slot, pubkey, &account_info.storage_location());
@@ -3438,7 +3444,14 @@ impl AccountsDb {
             &empty_ancestors
         };
 
-        let max_root = scan_guard.max_root();
+        // Bound max_root by ancestors.min_slot() so that roots from slots
+        // beyond the querying bank's ancestor chain are not visible. A root
+        // between min_slot and max_slot that is not an ancestor belongs to a
+        // different fork and should not appear in scan results.
+        let mut max_root = scan_guard.max_root();
+        if let Some(min) = ancestors.min_slot() {
+            max_root = max_root.min(min);
+        }
         for pubkey in self.accounts_index.get_index_key_pubkeys(&index_key) {
             if config.is_aborted() {
                 break;
@@ -3585,10 +3598,15 @@ impl AccountsDb {
         pubkey: &'a Pubkey,
         clone_in_lock: bool,
     ) -> Option<(Slot, StorageLocation, Option<LoadedAccountAccessor<'a>>)> {
+        // Bound the root search to ancestors.min_slot() so that roots from
+        // slots beyond the querying bank's ancestor chain are not visible.
+        // min_slot is more correct than max_slot because a root between min
+        // and max that is not an ancestor belongs to a different fork.
+        let max_root_slot = ancestors.min_slot();
         self.accounts_index.get_with_and_then(
             pubkey,
             Some(ancestors),
-            None,
+            max_root_slot,
             true,
             |(slot, account_info)| {
                 let storage_location = account_info.storage_location();
