@@ -33,5 +33,8 @@ pub fn spawn_orchestrator(bin: &Path, config_path: &Path) -> UnixStream {
         bin.display(),
     );
 
+    // NB: We don't wait on child because we have UDS for exit monitoring.
+    drop(child);
+
     validator_fd
 }
