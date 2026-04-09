@@ -337,7 +337,7 @@ fn recv_session(stream: &UnixStream) -> (SessionHeader, Vec<File>) {
     let fds = match cmsgs_iter.next() {
         Some(ControlMessageOwned::ScmRights(fds)) => fds,
         Some(msg) => panic!("unexpected cmsg: {msg:?}"),
-        None => panic!("no SCM_RIGHTS received"),
+        None => panic!("no SCM_RIGHTS received, orchestrator shutdown?"),
     };
     let _ = cmsgs_iter;
     let _ = msg;

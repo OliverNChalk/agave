@@ -2,6 +2,7 @@ use {crate::SchedulerTopology, serde::Deserialize, std::path::PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    pub fallback: Option<PathBuf>,
     pub topology: TopologyConfig,
     pub orchestrator: OrchestratorConfig,
     pub scheduler: SchedulerConfig,

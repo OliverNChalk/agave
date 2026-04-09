@@ -13,6 +13,7 @@ use {
             fd::{AsFd, FromRawFd},
             unix::net::UnixStream,
         },
+        path::Path,
         process::Stdio,
     },
     tokio::{
@@ -99,7 +100,7 @@ impl ControlThread {
                 },
                 _ = sighup.recv() => {
                     log::info!("SIGHUP caught, reloading config");
-                    if let Err(err) = self.reload().await {
+                    if let Err(err) = self.reload(&self.args.config.clone()).await {
                         log::error!("Failed to reload; err={err}");
                     }
                 },
@@ -113,10 +114,16 @@ impl ControlThread {
                     let role = opt.unwrap();
                     log::error!("Component exited unexpectedly; role={role:?}");
 
-                    // NB: Shutting down the validator is a massive pain until the
-                    // validator becomes our child. So we panic which causes agave
-                    // to abort.
-                    panic!("Can't shutdown our parent");
+                    match self.config.fallback.clone() {
+                        Some(fallback) => {
+                            log::info!("Falling back; fallback={}", fallback.display());
+                            self.reload(&fallback).await.unwrap();
+                        },
+                        // NB: Shutting down the validator is a massive pain until the
+                        // validator becomes our child. So we panic which causes agave
+                        // to abort.
+                        None => panic!("Can't shutdown our parent"),
+                    }
                 },
             };
         }
@@ -126,9 +133,9 @@ impl ControlThread {
         log::info!("Exiting");
     }
 
-    async fn reload(&mut self) -> anyhow::Result<()> {
+    async fn reload(&mut self, config: &Path) -> anyhow::Result<()> {
         // Load config.
-        let config_bytes = std::fs::read(&self.args.config)?;
+        let config_bytes = std::fs::read(config)?;
         self.config = toml::from_slice(&config_bytes)?;
 
         // Tear down existing components.
