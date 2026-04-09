@@ -310,11 +310,23 @@ impl Tpu {
         // If orchestrator is present, block on receiving the external scheduler session.
         // This ensures the banking stage starts directly in external mode.
         #[cfg(unix)]
-        let initial_scheduler_msg = match &orchestrator_stream {
-            Some(stream) => {
+        let initial_scheduler_msg = match orchestrator_stream {
+            Some(mut stream) => {
+                use std::io::Write;
+
+                // Signal that we are now ready to receive shmem.
+                match stream.write_all(&[0x01]) {
+                    Ok(()) => log::info!("Sent readiness signal to orchestrator"),
+                    Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
+                }
+
+                // Recv shmem.
                 let timeout = std::time::Duration::from_secs(1);
-                let session = agave_orchestrator::recv_agave_session(stream, timeout);
+                let session = agave_orchestrator::recv_agave_session(&stream, timeout);
                 log::info!("Received external scheduler session from orchestrator");
+
+                // TODO: Spawn thread to handle future cycling.
+                core::mem::forget(stream);
 
                 BankingControlMsg::External { session }
             }
@@ -348,22 +360,6 @@ impl Tpu {
             bank_forks.clone(),
             prioritization_fee_cache,
         );
-
-        // Signal readiness to orchestrator now that banking stage is running external.
-        #[cfg(unix)]
-        if let Some(mut stream) = orchestrator_stream {
-            use std::io::Write;
-
-            match stream.write_all(&[0x01]) {
-                Ok(()) => log::info!("Sent readiness signal to orchestrator"),
-                Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
-            }
-
-            // NB: Forget the stream so orchestrator can observe our process
-            //     exit (if we dropped the stream here it would think we've
-            //     exited prematurely).
-            core::mem::forget(stream);
-        }
 
         let SpawnForwardingStageResult {
             join_handle: forwarding_stage,

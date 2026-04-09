@@ -44,6 +44,5 @@ impl Future for Component {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Role {
-    Validator,
     Scheduler,
 }

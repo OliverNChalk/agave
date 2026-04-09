@@ -6,13 +6,21 @@ use {
     nix::unistd::Pid,
     std::{
         io::Read,
-        os::{fd::FromRawFd, unix::net::UnixStream},
+        os::{
+            fd::{AsFd, FromRawFd},
+            unix::net::UnixStream,
+        },
         process::Stdio,
     },
-    tokio::{net::UnixStream as TokioUnixStream, process::Command, signal::unix::SignalKind},
+    tokio::{
+        io::AsyncReadExt, net::UnixStream as TokioUnixStream, process::Command,
+        signal::unix::SignalKind,
+    },
 };
 
 pub(crate) struct ControlThread {
+    config: Config,
+    validator_rx: TokioUnixStream,
     components: FuturesUnordered<Component>,
 }
 
@@ -28,14 +36,6 @@ impl ControlThread {
     }
 
     async fn setup(config: Config) -> Self {
-        // Grab scheduler topology.
-        let topology = &config.topology.scheduler;
-        let header = SessionHeader::new(
-            topology.worker_count,
-            topology.allocator_handles,
-            topology.flags,
-        );
-
         // SAFETY: FD 3 was mapped by the parent process via command-fds.
         let mut validator_rx =
             unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
@@ -47,15 +47,7 @@ impl ControlThread {
         )
         .expect("set CLOEXEC on validator stream");
 
-        // Allocate all shared memory regions.
-        let files = agave_orchestrator::create_session(topology);
-        log::info!("Created shmem; fds={}", files.len());
-
-        // Send shmem FDs to agave.
-        agave_orchestrator::send_session(&validator_rx, &files, header);
-        log::info!("Sent session to validator");
-
-        // Wait for agave readiness (banking stage has switched to external mode).
+        // Wait for agave readiness (banking is ready to start accepting shmem).
         let mut buf = [0u8; 1];
         validator_rx
             .read_exact(&mut buf)
@@ -63,31 +55,22 @@ impl ControlThread {
         assert_eq!(buf[0], 0x01, "unexpected readiness byte");
         log::info!("Validator is ready");
 
-        // Create a fresh UDS pair for orchestrator <> scheduler communication.
-        let (scheduler_rx, scheduler_tx) =
-            UnixStream::pair().expect("create orchestrator <> scheduler UDS pair");
-
-        // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-        let scheduler_pid = Self::spawn_scheduler(&config, scheduler_tx);
-        log::info!("Spawned scheduler; pid={scheduler_pid}");
-
-        // Send shmem FDs to scheduler.
-        agave_orchestrator::send_session(&scheduler_rx, &files, header);
-        log::info!("Sent session to scheduler");
-
-        // Convert both streams to async for monitoring.
+        // Wrap validator stream.
         validator_rx.set_nonblocking(true).unwrap();
-        scheduler_rx.set_nonblocking(true).unwrap();
         let validator_rx = TokioUnixStream::from_std(validator_rx).unwrap();
-        let scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
-        let validator_pid = nix::unistd::getppid();
 
-        ControlThread {
-            components: FuturesUnordered::from_iter([
-                Component::new(Role::Validator, validator_pid, validator_rx),
-                Component::new(Role::Scheduler, scheduler_pid, scheduler_rx),
-            ]),
-        }
+        // Setup thread structure.
+        let mut thread = ControlThread {
+            config,
+            validator_rx,
+            components: FuturesUnordered::new(),
+        };
+
+        // Spawn initial topology.
+        thread.spawn_components();
+
+        // Le go.
+        thread
     }
 
     async fn run(mut self) {
@@ -101,6 +84,10 @@ impl ControlThread {
             _ = sigint.recv() => {
                 log::info!("SIGINT caught, stopping");
             },
+
+            () = Self::read_until_eof(&mut self.validator_rx) => {
+                log::error!("Validator exited unexpectedly");
+            },
             opt = self.components.next() => {
                 let role = opt.unwrap();
                 log::error!("Component exited unexpectedly; role={role:?}");
@@ -108,9 +95,7 @@ impl ControlThread {
                 // NB: Shutting down the validator is a massive pain until the
                 // validator becomes our child. So we panic which causes agave
                 // to abort.
-                if matches!(role, Role::Scheduler) {
-                    panic!("Can't shutdown our parent");
-                }
+                panic!("Can't shutdown our parent");
             },
         };
 
@@ -125,6 +110,45 @@ impl ControlThread {
         }
 
         log::info!("Exiting");
+    }
+
+    fn spawn_components(&mut self) {
+        assert!(self.components.is_empty());
+
+        // Grab scheduler topology.
+        let header = SessionHeader::new(
+            self.config.topology.scheduler.worker_count,
+            self.config.topology.scheduler.allocator_handles,
+            self.config.topology.scheduler.flags,
+        );
+
+        // Allocate all shared memory regions.
+        let files = agave_orchestrator::create_session(&self.config.topology.scheduler);
+        log::info!("Created shmem; fds={}", files.len());
+
+        // Send shmem FDs to agave.
+        agave_orchestrator::send_session(self.validator_rx.as_fd(), &files, header);
+        log::info!("Sent session to validator");
+
+        // Create a fresh UDS pair for orchestrator <> scheduler communication.
+        let (scheduler_rx, scheduler_tx) =
+            UnixStream::pair().expect("create orchestrator <> scheduler UDS pair");
+
+        // Spawn the external scheduler, passing the scheduler end at the well-known fd.
+        let scheduler_pid = Self::spawn_scheduler(&self.config, scheduler_tx);
+        log::info!("Spawned scheduler; pid={scheduler_pid}");
+
+        // Send shmem FDs to scheduler.
+        agave_orchestrator::send_session(scheduler_rx.as_fd(), &files, header);
+        log::info!("Sent session to scheduler");
+
+        // Convert both streams to async for monitoring.
+        scheduler_rx.set_nonblocking(true).unwrap();
+        let scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
+
+        // Store all components for monitoring.
+        self.components
+            .extend([Component::new(Role::Scheduler, scheduler_pid, scheduler_rx)]);
     }
 
     fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> Pid {
@@ -162,5 +186,19 @@ impl ControlThread {
         let pid = child.id().expect("we haven't polled to completion");
 
         Pid::from_raw(pid as i32)
+    }
+
+    async fn read_until_eof(stream: &mut TokioUnixStream) {
+        let mut buf = [0u8; 64];
+        loop {
+            match stream.read(&mut buf).await {
+                Ok(0) => return,
+                Ok(_) => continue,
+                Err(err) => {
+                    eprintln!("[orchestrator] UDS read error; err={err}");
+                    return;
+                }
+            }
+        }
     }
 }

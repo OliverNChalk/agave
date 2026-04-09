@@ -10,7 +10,7 @@ use {
         fs::File,
         io::IoSlice,
         os::{
-            fd::{AsRawFd, FromRawFd},
+            fd::{AsRawFd, BorrowedFd, FromRawFd},
             unix::net::UnixStream,
         },
     },
@@ -166,7 +166,7 @@ pub fn create_session(topology: &SchedulerTopology) -> Vec<File> {
 }
 
 /// Sends a session header + shmem FDs over a UDS via SCM_RIGHTS.
-pub fn send_session(stream: &UnixStream, files: &[File], header: SessionHeader) {
+pub fn send_session(stream: BorrowedFd, files: &[File], header: SessionHeader) {
     let fds_raw: Vec<_> = files.iter().map(|file| file.as_raw_fd()).collect();
     let header_bytes = header.to_bytes();
     let iov = [IoSlice::new(&header_bytes)];
