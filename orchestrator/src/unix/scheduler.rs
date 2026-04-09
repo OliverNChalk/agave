@@ -188,6 +188,7 @@ pub fn recv_agave_session(
 ) -> AgaveSession {
     stream.set_read_timeout(timeout).expect("set_read_timeout");
     let (header, files) = recv_session(stream);
+
     join_agave_session(&header, &files)
 }
 
