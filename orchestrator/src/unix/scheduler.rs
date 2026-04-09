@@ -215,12 +215,7 @@ pub fn join_agave_session(header: &SessionHeader, files: &[File]) -> AgaveSessio
     let worker_count = header.worker_count as usize;
 
     let (global_files, worker_files) = files.split_at(GLOBAL_SHMEM);
-    let [
-        ref allocator_file,
-        ref tpu_to_pack_file,
-        ref progress_tracker_file,
-    ] = global_files
-    else {
+    let [allocator_file, tpu_to_pack_file, progress_tracker_file] = global_files else {
         unreachable!();
     };
 
@@ -235,8 +230,8 @@ pub fn join_agave_session(header: &SessionHeader, files: &[File]) -> AgaveSessio
     assert_eq!(worker_files.len(), worker_count * 2);
     let workers = worker_files
         .chunks(2)
-        .map(|window| {
-            let [ref pack_to_worker_file, ref worker_to_pack_file] = window else {
+        .map(|chunk| {
+            let [pack_to_worker_file, worker_to_pack_file] = chunk else {
                 panic!();
             };
             let allocator = Allocator::join(allocator_file).expect("worker allocator join");
@@ -272,12 +267,7 @@ pub fn join_client_session(header: &SessionHeader, files: &[File]) -> ClientSess
     let allocator_handles = header.allocator_handles as usize;
 
     let (global_files, worker_files) = files.split_at(GLOBAL_SHMEM);
-    let [
-        ref allocator_file,
-        ref tpu_to_pack_file,
-        ref progress_tracker_file,
-    ] = global_files
-    else {
+    let [allocator_file, tpu_to_pack_file, progress_tracker_file] = global_files else {
         unreachable!();
     };
 
@@ -296,8 +286,8 @@ pub fn join_client_session(header: &SessionHeader, files: &[File]) -> ClientSess
     assert_eq!(worker_files.len(), worker_count * 2);
     let workers = worker_files
         .chunks(2)
-        .map(|window| {
-            let [ref pack_to_worker_file, ref worker_to_pack_file] = window else {
+        .map(|chunk| {
+            let [pack_to_worker_file, worker_to_pack_file] = chunk else {
                 panic!();
             };
             let pack_to_worker = unsafe { shaq::spsc::Producer::join(pack_to_worker_file) }
