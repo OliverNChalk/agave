@@ -8,10 +8,7 @@ use {
     futures::{StreamExt, future::OptionFuture, stream::FuturesUnordered},
     std::{
         io::Read,
-        os::{
-            fd::{AsFd, FromRawFd},
-            unix::net::UnixStream,
-        },
+        os::{fd::AsFd, unix::net::UnixStream},
         path::Path,
         process::Stdio,
         time::Duration,
@@ -44,9 +41,10 @@ impl ControlThread {
     }
 
     async fn setup(args: Args, config: Config) -> Self {
-        // SAFETY: FD 3 was mapped by the parent process via command-fds.
-        let mut validator_rx =
-            unsafe { UnixStream::from_raw_fd(agave_orchestrator::ORCHESTRATOR_FD) };
+        // SAFETY:
+        // - FD 3 was mapped by the parent process via command-fds.
+        // - `orchestrator_uds` validates it is an open socket.
+        let mut validator_rx = unsafe { agave_orchestrator::orchestrator_uds() };
 
         // Set CLOEXEC so the scheduler child does not inherit this FD.
         nix::fcntl::fcntl(
