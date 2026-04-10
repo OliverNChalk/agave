@@ -327,6 +327,7 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror 2.0.18",
+ "wincode",
  "zstd",
 ]
 
@@ -9731,9 +9732,9 @@ dependencies = [
 
 [[package]]
 name = "solana-reward-info"
-version = "6.1.0"
+version = "6.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8044bc87e5b9a22f543fae851e1aae5b082bbe469a20480ee9f6b35ca920a969"
+checksum = "dc553b782111862cd6c56bdeba696dcba9722a42154ef1248c5a06ca1d983797"
 dependencies = [
  "serde",
  "serde_derive",
@@ -10026,7 +10027,7 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "dashmap",
- "im",
+ "imbl",
  "itertools 0.14.0",
  "libc",
  "libsecp256k1",
@@ -10183,9 +10184,9 @@ checksum = "dcf09694a0fc14e5ffb18f9b7b7c0f15ecb6eac5b5610bf76a1853459d19daf9"
 
 [[package]]
 name = "solana-sbpf"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd96c15a4cb8884e9b660cb71796d1bca8d3eb6d38e68067508ce37dc66874bc"
+checksum = "0ae39fc6751e42572cec386b5691acd516b208ae457dbf59dd2002093b22288c"
 dependencies = [
  "byteorder",
  "combine 3.8.1",
@@ -12297,9 +12298,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.51.0"
+version = "1.51.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd1c4c0fc4a7ab90fc15ef6daaa3ec3b893f004f915f2392557ed23237820cd"
+checksum = "f66bf9585cda4b724d3e78ab34b73fb2bbaba9011b9bfdf69dc836382ea13b8c"
 dependencies = [
  "bytes",
  "libc",
