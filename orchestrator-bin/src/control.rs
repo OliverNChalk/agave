@@ -208,8 +208,11 @@ impl ControlThread {
         let scheduler_rx = TokioUnixStream::from_std(scheduler_rx).unwrap();
 
         // Store all components for monitoring.
-        self.components
-            .extend([Component::new(Role::Scheduler, scheduler, scheduler_rx)]);
+        self.components.extend([Component::new(
+            Role::BlockProductionScheduler,
+            scheduler,
+            scheduler_rx,
+        )]);
 
         Ok(())
     }
