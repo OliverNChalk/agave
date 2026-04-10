@@ -11,7 +11,7 @@ use {
         io::Read,
         os::{
             fd::{AsFd, FromRawFd},
-            unix::{net::UnixStream, process::CommandExt},
+            unix::net::UnixStream,
         },
         path::Path,
         process::Stdio,
@@ -231,6 +231,8 @@ impl ControlThread {
             // Clone into a Vec owned by the closure (no allocations in pre_exec).
             let cores = cores.clone();
             unsafe {
+                use std::os::unix::process::CommandExt;
+
                 cmd.pre_exec(move || {
                     // Setup our affinity mask.
                     let mut set: libc::cpu_set_t = std::mem::zeroed();
