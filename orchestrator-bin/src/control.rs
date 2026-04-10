@@ -99,8 +99,16 @@ impl ControlThread {
                 },
                 _ = sighup.recv() => {
                     log::info!("SIGHUP caught, reloading config");
-                    if let Err(err) = self.reload(&self.args.config.clone()).await {
-                        log::error!("Failed to reload; err={err}");
+                    if let Err(err) = self.load_config(&self.args.config.clone()).await {
+                        log::error!("Failed to reload config; err={err}");
+
+                        continue;
+                    }
+
+                    if let Err(err) = self.cycle().await {
+                        log::error!("Failed to cycle components; err={err}");
+
+                        self.fallback().await;
                     }
                 },
 
@@ -113,16 +121,8 @@ impl ControlThread {
                     let (role, status) = opt.unwrap();
                     log::error!("Component exited unexpectedly; role={role:?}; status={status}");
 
-                    match self.config.fallback.clone() {
-                        Some(fallback) => {
-                            log::info!("Falling back; fallback={}", fallback.display());
-                            self.reload(&fallback).await.unwrap();
-                        },
-                        // NB: Shutting down the validator is a massive pain until the
-                        // validator becomes our child. So we panic which causes agave
-                        // to abort.
-                        None => panic!("Can't shutdown our parent"),
-                    }
+                    // Fallback until we're okay or we run out of fallbacks.
+                    self.fallback().await;
                 },
             };
         }
@@ -132,11 +132,35 @@ impl ControlThread {
         log::info!("Exiting");
     }
 
-    async fn reload(&mut self, config: &Path) -> anyhow::Result<()> {
-        // Load config.
-        let config_bytes = std::fs::read(config)?;
-        self.config = toml::from_slice(&config_bytes)?;
+    async fn fallback(&mut self) {
+        loop {
+            // Load the next generation.
+            let Some(fallback) = self.config.fallback.clone() else {
+                panic!("No additional fallbacks configured");
+            };
+            self.load_config(&fallback)
+                .await
+                .expect("fallback config failed to load");
 
+            // Try to fallback.
+            log::info!("Falling back; fallback={}", fallback.display());
+            if let Err(err) = self.cycle().await {
+                log::warn!("Fallback failed to cycle; err={err}");
+
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    async fn load_config(&mut self, config: &Path) -> anyhow::Result<()> {
+        self.config = toml::from_slice(&std::fs::read(config)?)?;
+
+        Ok(())
+    }
+
+    async fn cycle(&mut self) -> anyhow::Result<()> {
         // Tear down existing components.
         self.shutdown_components().await;
 
