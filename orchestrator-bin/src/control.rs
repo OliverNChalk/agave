@@ -79,7 +79,6 @@ impl ControlThread {
         // Spawn initial topology.
         thread.spawn_components().unwrap();
 
-        // Le go.
         thread
     }
 
