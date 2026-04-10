@@ -215,32 +215,37 @@ impl ControlThread {
     }
 
     fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> anyhow::Result<TokioChild> {
-        let bin = &config.scheduler.bin;
-        let mut cmd = std::process::Command::new(bin);
-
-        // Don't inherit stdout/stderr.
-        cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::null());
-
-        // Set config if provided.
+        let mut cmd = std::process::Command::new(&config.scheduler.bin);
         if let Some(cfg) = &config.scheduler.config {
             cmd.args(["--config", &cfg.to_string_lossy()]);
         }
 
-        // Map the scheduler end of the UDS pair to the well-known fd in the child.
+        Self::spawn_component(cmd, scheduler_tx, config.scheduler.affinity.as_deref())
+    }
+
+    fn spawn_component(
+        mut cmd: std::process::Command,
+        child_uds: UnixStream,
+        affinity: Option<&[usize]>,
+    ) -> anyhow::Result<TokioChild> {
+        // Don't inherit stdout/stderr.
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+
+        // Map the child end of the UDS pair to the well-known fd.
         cmd.fd_mappings(vec![FdMapping {
-            parent_fd: scheduler_tx.into(),
+            parent_fd: child_uds.into(),
             child_fd: agave_orchestrator::ORCHESTRATOR_FD,
         }])
         .unwrap();
 
         // Apply CPU affinity if configured.
         #[cfg(target_os = "linux")]
-        if let Some(cores) = &config.scheduler.affinity {
+        if let Some(cores) = affinity {
             validate_affinity(cores)?;
 
             // Clone into a Vec owned by the closure (no allocations in pre_exec).
-            let cores = cores.clone();
+            let cores = cores.to_vec();
             unsafe {
                 use std::os::unix::process::CommandExt;
 
@@ -262,18 +267,11 @@ impl ControlThread {
             }
         }
         #[cfg(not(target_os = "linux"))]
-        if config.scheduler.affinity.is_some() {
-            return Err(anyhow::anyhow!("Affinity is linux only"));
+        if affinity.is_some() {
+            log::warn!("Affinity is Linux only, ignoring");
         }
 
-        let child = Command::from(cmd).spawn().unwrap_or_else(|err| {
-            panic!(
-                "failed to spawn scheduler; bin={}; err={err}",
-                bin.display()
-            )
-        });
-
-        Ok(child)
+        Ok(Command::from(cmd).spawn()?)
     }
 
     async fn read_until_eof(stream: &mut TokioUnixStream) {
