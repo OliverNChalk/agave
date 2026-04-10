@@ -222,9 +222,6 @@ impl ControlThread {
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::null());
 
-        // Set the log path.
-        cmd.args(["--logs", &config.scheduler.log.to_string_lossy()]);
-
         // Set config if provided.
         if let Some(cfg) = &config.scheduler.config {
             cmd.args(["--config", &cfg.to_string_lossy()]);

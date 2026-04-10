@@ -25,7 +25,6 @@ log = "/path/to/logs/orchestrator.log"
 
 [scheduler]
 bin = "/path/to/agave-scheduler"
-log = "/path/to/logs/scheduler.log"
 # affinity = [4, 5, 6, 7]  # optional, Linux only
 ```
 

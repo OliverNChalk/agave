@@ -22,7 +22,6 @@ pub struct OrchestratorConfig {
 #[derive(Debug, Deserialize)]
 pub struct SchedulerConfig {
     pub bin: PathBuf,
-    pub log: PathBuf,
     pub config: Option<PathBuf>,
     pub affinity: Option<Vec<usize>>,
 }
