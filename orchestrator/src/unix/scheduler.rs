@@ -342,6 +342,8 @@ fn recv_session(stream: &UnixStream) -> (SessionHeader, Vec<File>) {
     let _ = cmsgs_iter;
     let _ = msg;
 
+    // Cast header.
+    assert_eq!(msg.bytes, buf.len());
     let header = SessionHeader::from_bytes(&buf).expect("invalid session header");
 
     let expected_count = GLOBAL_SHMEM
