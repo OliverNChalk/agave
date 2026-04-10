@@ -45,11 +45,11 @@ impl Component {
         let pid = self
             .child
             .id()
-            .expect("shutdown should not be called after future completes");
+            .expect("kill should not be called after future completes");
         log::info!("Sending SIGKILL; role={:?}; pid={pid}", self.role);
         if let Err(err) = signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGKILL) {
             if err != nix::errno::Errno::ESRCH {
-                panic!("sifkill failed; err={err}");
+                panic!("sigkill failed; err={err}");
             }
         }
     }
