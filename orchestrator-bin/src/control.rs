@@ -11,7 +11,7 @@ use {
         io::Read,
         os::{
             fd::{AsFd, FromRawFd},
-            unix::net::UnixStream,
+            unix::{net::UnixStream, process::CommandExt},
         },
         path::Path,
         process::Stdio,
@@ -75,7 +75,7 @@ impl ControlThread {
         };
 
         // Spawn initial topology.
-        thread.spawn_components();
+        thread.spawn_components().unwrap();
 
         // Le go.
         thread
@@ -142,7 +142,7 @@ impl ControlThread {
         self.shutdown_components().await;
 
         // Spawn new components.
-        self.spawn_components();
+        self.spawn_components()?;
 
         Ok(())
     }
@@ -159,7 +159,7 @@ impl ControlThread {
         }
     }
 
-    fn spawn_components(&mut self) {
+    fn spawn_components(&mut self) -> anyhow::Result<()> {
         assert!(self.components.is_empty());
 
         // Grab scheduler topology.
@@ -182,7 +182,7 @@ impl ControlThread {
             UnixStream::pair().expect("create orchestrator <> scheduler UDS pair");
 
         // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-        let scheduler_pid = Self::spawn_scheduler(&self.config, scheduler_tx);
+        let scheduler_pid = Self::spawn_scheduler(&self.config, scheduler_tx)?;
         log::info!("Spawned scheduler; pid={scheduler_pid}");
 
         // Send shmem FDs to scheduler.
@@ -196,9 +196,11 @@ impl ControlThread {
         // Store all components for monitoring.
         self.components
             .extend([Component::new(Role::Scheduler, scheduler_pid, scheduler_rx)]);
+
+        Ok(())
     }
 
-    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> Pid {
+    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> anyhow::Result<Pid> {
         let bin = &config.scheduler.bin;
         let mut cmd = std::process::Command::new(bin);
 
@@ -221,6 +223,31 @@ impl ControlThread {
         }])
         .unwrap();
 
+        // Apply CPU affinity if configured.
+        if let Some(cores) = &config.scheduler.affinity {
+            validate_affinity(cores)?;
+
+            // Clone into a Vec owned by the closure (no allocations in pre_exec).
+            let cores = cores.clone();
+            unsafe {
+                cmd.pre_exec(move || {
+                    // Setup our affinity mask.
+                    let mut set: libc::cpu_set_t = std::mem::zeroed();
+                    libc::CPU_ZERO(&mut set);
+                    for &core in &cores {
+                        libc::CPU_SET(core, &mut set);
+                    }
+
+                    // Set our new process's affinity.
+                    if libc::sched_setaffinity(0, std::mem::size_of_val(&set), &set) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+
+                    Ok(())
+                });
+            }
+        }
+
         let child = Command::from(cmd).spawn().unwrap_or_else(|err| {
             panic!(
                 "failed to spawn scheduler; bin={}; err={err}",
@@ -232,7 +259,7 @@ impl ControlThread {
         // It's None only after the process has been reaped (to prevent PID reuse bugs).
         let pid = child.id().expect("we haven't polled to completion");
 
-        Pid::from_raw(pid as i32)
+        Ok(Pid::from_raw(pid as i32))
     }
 
     async fn read_until_eof(stream: &mut TokioUnixStream) {
@@ -248,4 +275,41 @@ impl ControlThread {
             }
         }
     }
+}
+
+/// Checks that the requested affinity cores are all present in our own affinity mask.
+///
+/// Runs in the parent process (no signal-safety constraints).
+fn validate_affinity(cores: &[usize]) -> anyhow::Result<()> {
+    if cores.is_empty() {
+        anyhow::bail!("empty affinity mask");
+    }
+
+    // SAFETY:
+    // - `cpu_set_t` is valid when zeroed.
+    // - `sched_getaffinity` writes into it.
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::sched_getaffinity(
+            0, // current process
+            std::mem::size_of_val(&set),
+            &mut set,
+        )
+    };
+    if rc != 0 {
+        anyhow::bail!(
+            "sched_getaffinity failed; err={}",
+            std::io::Error::last_os_error()
+        );
+    }
+
+    for &core in cores {
+        // SAFETY: CPU_ISSET is safe for any initialized cpu_set_t.
+        let in_set = unsafe { libc::CPU_ISSET(core, &set) };
+        if !in_set {
+            anyhow::bail!("core not in orchestrator's affinity mask; core={core}");
+        }
+    }
+
+    Ok(())
 }

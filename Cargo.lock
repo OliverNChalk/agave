@@ -217,6 +217,7 @@ dependencies = [
  "clap 4.5.31",
  "command-fds",
  "futures 0.3.32",
+ "libc",
  "log",
  "nix 0.31.2",
  "serde",
