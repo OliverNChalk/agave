@@ -33,7 +33,7 @@ impl Component {
             .child
             .id()
             .expect("shutdown should not be called after future completes");
-        log::info!("Sending SIGTERM; role={:?}; pid={pid}", pid,);
+        log::info!("Sending SIGTERM; role={:?}; pid={pid}", self.role);
         if let Err(err) = signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGTERM) {
             if err != nix::errno::Errno::ESRCH {
                 panic!("sigterm failed; err={err}");
@@ -46,7 +46,7 @@ impl Component {
             .child
             .id()
             .expect("shutdown should not be called after future completes");
-        log::info!("Sending SIGKILL; role={:?}; pid={pid}", pid,);
+        log::info!("Sending SIGKILL; role={:?}; pid={pid}", self.role);
         if let Err(err) = signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGKILL) {
             if err != nix::errno::Errno::ESRCH {
                 panic!("sifkill failed; err={err}");
