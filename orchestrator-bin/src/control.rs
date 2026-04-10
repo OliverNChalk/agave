@@ -198,13 +198,13 @@ impl ControlThread {
         let (scheduler_rx, scheduler_tx) =
             UnixStream::pair().expect("create orchestrator <> scheduler UDS pair");
 
-        // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-        let scheduler = Self::spawn_scheduler(&self.config, scheduler_tx)?;
-        log::info!("Spawned scheduler; pid={}", scheduler.id().unwrap());
-
         // Send shmem FDs to scheduler.
         agave_orchestrator::scheduler::send_session(scheduler_rx.as_fd(), &files, header);
         log::info!("Sent session to scheduler");
+
+        // Spawn the external scheduler, passing the scheduler end at the well-known fd.
+        let scheduler = Self::spawn_scheduler(&self.config, scheduler_tx)?;
+        log::info!("Spawned scheduler; pid={}", scheduler.id().unwrap());
 
         // Convert both streams to async for monitoring.
         scheduler_rx.set_nonblocking(true).unwrap();
