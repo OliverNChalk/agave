@@ -224,6 +224,7 @@ impl ControlThread {
         .unwrap();
 
         // Apply CPU affinity if configured.
+        #[cfg(target_os = "linux")]
         if let Some(cores) = &config.scheduler.affinity {
             validate_affinity(cores)?;
 
@@ -246,6 +247,10 @@ impl ControlThread {
                     Ok(())
                 });
             }
+        }
+        #[cfg(not(target_os = "linux"))]
+        if config.scheduler.affinity.is_some() {
+            return Err(anyhow::anyhow!("Affinity is linux only"));
         }
 
         let child = Command::from(cmd).spawn().unwrap_or_else(|err| {
@@ -280,6 +285,7 @@ impl ControlThread {
 /// Checks that the requested affinity cores are all present in our own affinity mask.
 ///
 /// Runs in the parent process (no signal-safety constraints).
+#[cfg(target_os = "linux")]
 fn validate_affinity(cores: &[usize]) -> anyhow::Result<()> {
     if cores.is_empty() {
         anyhow::bail!("empty affinity mask");
