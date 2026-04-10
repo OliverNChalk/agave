@@ -6,7 +6,6 @@ use {
     agave_orchestrator::{Config, scheduler},
     command_fds::{CommandFdExt, FdMapping},
     futures::{StreamExt, stream::FuturesUnordered},
-    nix::unistd::Pid,
     std::{
         io::Read,
         os::{
@@ -17,7 +16,9 @@ use {
         process::Stdio,
     },
     tokio::{
-        io::AsyncReadExt, net::UnixStream as TokioUnixStream, process::Command,
+        io::AsyncReadExt,
+        net::UnixStream as TokioUnixStream,
+        process::{Child as TokioChild, Command},
         signal::unix::SignalKind,
     },
 };
@@ -111,8 +112,8 @@ impl ControlThread {
                     break;
                 },
                 opt = self.components.next() => {
-                    let role = opt.unwrap();
-                    log::error!("Component exited unexpectedly; role={role:?}");
+                    let (role, status) = opt.unwrap();
+                    log::error!("Component exited unexpectedly; role={role:?}; status={status}");
 
                     match self.config.fallback.clone() {
                         Some(fallback) => {
@@ -154,8 +155,8 @@ impl ControlThread {
         }
 
         // Wait for remaining components to exit.
-        while let Some(role) = self.components.next().await {
-            log::info!("Component exited; role={role:?}");
+        while let Some((role, status)) = self.components.next().await {
+            log::info!("Component exited; role={role:?}; status={status}");
         }
     }
 
@@ -182,8 +183,8 @@ impl ControlThread {
             UnixStream::pair().expect("create orchestrator <> scheduler UDS pair");
 
         // Spawn the external scheduler, passing the scheduler end at the well-known fd.
-        let scheduler_pid = Self::spawn_scheduler(&self.config, scheduler_tx)?;
-        log::info!("Spawned scheduler; pid={scheduler_pid}");
+        let scheduler = Self::spawn_scheduler(&self.config, scheduler_tx)?;
+        log::info!("Spawned scheduler; pid={}", scheduler.id().unwrap());
 
         // Send shmem FDs to scheduler.
         agave_orchestrator::scheduler::send_session(scheduler_rx.as_fd(), &files, header);
@@ -195,12 +196,12 @@ impl ControlThread {
 
         // Store all components for monitoring.
         self.components
-            .extend([Component::new(Role::Scheduler, scheduler_pid, scheduler_rx)]);
+            .extend([Component::new(Role::Scheduler, scheduler, scheduler_rx)]);
 
         Ok(())
     }
 
-    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> anyhow::Result<Pid> {
+    fn spawn_scheduler(config: &Config, scheduler_tx: UnixStream) -> anyhow::Result<TokioChild> {
         let bin = &config.scheduler.bin;
         let mut cmd = std::process::Command::new(bin);
 
@@ -262,11 +263,7 @@ impl ControlThread {
             )
         });
 
-        // SAFETY: We just spawned and haven't polled to completion, so id() is always Some.
-        // It's None only after the process has been reaped (to prevent PID reuse bugs).
-        let pid = child.id().expect("we haven't polled to completion");
-
-        Ok(Pid::from_raw(pid as i32))
+        Ok(child)
     }
 
     async fn read_until_eof(stream: &mut TokioUnixStream) {
