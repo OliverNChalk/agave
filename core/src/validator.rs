@@ -1692,12 +1692,16 @@ impl Validator {
             config.enable_block_production_forwarding,
             config.generator_config.clone(),
             key_notifiers.clone(),
-            banking_control_sender.clone(),
             banking_control_receiver,
-            orchestrator_stream,
             cancel,
             votor_event_sender,
         );
+
+        // Now that TPU is spawned, spawn orchestrator server & signal readiness.
+        #[cfg(unix)]
+        if let Some(stream) = orchestrator_stream {
+            crate::orchestrator_server::spawn(stream, banking_control_sender.clone());
+        };
 
         datapoint_info!(
             "validator-new",

@@ -68,8 +68,6 @@ pub mod qos_service;
 pub mod vote_storage;
 
 mod consume_worker;
-#[cfg(unix)]
-pub(crate) mod orchestrator_server;
 mod vote_worker;
 
 #[cfg(feature = "dev-context-only-utils")]

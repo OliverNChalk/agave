@@ -24,7 +24,6 @@ use {
         tpu_entry_notifier::TpuEntryNotifier,
         validator::{BlockProductionMethod, GeneratorConfig},
     },
-    agave_orchestrator::OrchestratorStream,
     agave_votor::event::VotorEventSender,
     crossbeam_channel::{Receiver, bounded, unbounded},
     solana_clock::Slot,
@@ -147,9 +146,7 @@ impl Tpu {
         enable_block_production_forwarding: bool,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
         key_notifiers: Arc<RwLock<KeyUpdaters>>,
-        banking_control_sender: mpsc::Sender<BankingControlMsg>,
         banking_control_receiver: mpsc::Receiver<BankingControlMsg>,
-        orchestrator_stream: Option<OrchestratorStream>,
         cancel: CancellationToken,
         votor_event_sender: VotorEventSender,
     ) -> Self {
@@ -308,47 +305,11 @@ impl Tpu {
             duplicate_confirmed_slot_sender,
         );
 
-        // If orchestrator is present, block on receiving the external scheduler session.
-        // This ensures the banking stage starts directly in external mode.
-        #[cfg(unix)]
-        let initial_scheduler_msg = match orchestrator_stream {
-            Some(mut stream) => {
-                use std::io::Write;
-
-                // Signal that we are now ready to receive shmem.
-                match stream.write_all(&[0x01]) {
-                    Ok(()) => log::info!("Sent readiness signal to orchestrator"),
-                    Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
-                }
-
-                // Recv shmem.
-                let timeout = std::time::Duration::from_secs(1);
-                let session =
-                    agave_orchestrator::scheduler::recv_agave_session(&stream, Some(timeout));
-                log::info!("Received external scheduler session from orchestrator");
-
-                // Spawn the listener thread to handle future hot-swap sessions.
-                crate::banking_stage::orchestrator_server::spawn(
-                    stream,
-                    banking_control_sender.clone(),
-                );
-
-                BankingControlMsg::External { session }
-            }
-            None => BankingControlMsg::Internal {
-                block_production_method,
-                num_workers: block_production_num_workers,
-                config: block_production_scheduler_config,
-            },
-        };
-        #[cfg(not(unix))]
-        let initial_scheduler_msg = {
-            assert!(orchestrator_stream.is_none());
-            BankingControlMsg::Internal {
-                block_production_method,
-                num_workers: block_production_num_workers,
-                config: block_production_scheduler_config,
-            }
+        // Always start as internal until orchestrator signal us to switch.
+        let initial_scheduler_msg = BankingControlMsg::Internal {
+            block_production_method,
+            num_workers: block_production_num_workers,
+            config: block_production_scheduler_config,
         };
 
         let banking_stage = BankingStage::new_num_threads(

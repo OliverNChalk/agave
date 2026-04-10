@@ -1,6 +1,6 @@
 use {
     crate::banking_stage::BankingControlMsg, agave_orchestrator::OrchestratorStream,
-    tokio::sync::mpsc,
+    std::io::Write, tokio::sync::mpsc,
 };
 
 /// Listens on the orchestrator UDS for hot-swap scheduling sessions.
@@ -19,9 +19,15 @@ pub(crate) fn spawn(
         .unwrap();
 }
 
-fn run(stream: OrchestratorStream, banking_control_sender: mpsc::Sender<BankingControlMsg>) {
+fn run(mut stream: OrchestratorStream, banking_control_sender: mpsc::Sender<BankingControlMsg>) {
+    // Signal that we are now ready to receive shmem.
+    match stream.write_all(&[0x01]) {
+        Ok(()) => log::info!("Sent readiness signal to orchestrator"),
+        Err(err) => log::error!("Failed to send readiness to orchestrator: {err}"),
+    }
+
     loop {
-        // NB: Blocking read with no timeout — thread parks on recvmsg until
+        // NB: Blocking read with no timeout - thread parks on recvmsg until
         //     orchestrator sends a new session or the UDS closes.
         let session = agave_orchestrator::scheduler::recv_agave_session(&stream, None);
         log::info!("Received hot-swap scheduling session from orchestrator");
