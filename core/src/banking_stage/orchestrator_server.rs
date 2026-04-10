@@ -23,7 +23,7 @@ fn run(stream: OrchestratorStream, banking_control_sender: mpsc::Sender<BankingC
     loop {
         // NB: Blocking read with no timeout — thread parks on recvmsg until
         //     orchestrator sends a new session or the UDS closes.
-        let session = agave_orchestrator::recv_agave_session(&stream, None);
+        let session = agave_orchestrator::scheduler::recv_agave_session(&stream, None);
         log::info!("Received hot-swap scheduling session from orchestrator");
 
         if banking_control_sender

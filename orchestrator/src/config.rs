@@ -1,4 +1,4 @@
-use {crate::SchedulerTopology, serde::Deserialize, std::path::PathBuf};
+use {crate::scheduler::SchedulerTopology, serde::Deserialize, std::path::PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {

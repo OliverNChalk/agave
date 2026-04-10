@@ -3,7 +3,7 @@ use {
         args::Args,
         component::{Component, Role},
     },
-    agave_orchestrator::{Config, SessionHeader},
+    agave_orchestrator::{Config, scheduler},
     command_fds::{CommandFdExt, FdMapping},
     futures::{StreamExt, stream::FuturesUnordered},
     nix::unistd::Pid,
@@ -163,18 +163,18 @@ impl ControlThread {
         assert!(self.components.is_empty());
 
         // Grab scheduler topology.
-        let header = SessionHeader::new(
+        let header = scheduler::SessionHeader::new(
             self.config.topology.scheduler.worker_count,
             self.config.topology.scheduler.allocator_handles,
             self.config.topology.scheduler.flags,
         );
 
         // Allocate all shared memory regions.
-        let files = agave_orchestrator::create_session(&self.config.topology.scheduler);
+        let files = agave_orchestrator::scheduler::create_session(&self.config.topology.scheduler);
         log::info!("Created shmem; fds={}", files.len());
 
         // Send shmem FDs to agave.
-        agave_orchestrator::send_session(self.validator_rx.as_fd(), &files, header);
+        agave_orchestrator::scheduler::send_session(self.validator_rx.as_fd(), &files, header);
         log::info!("Sent session to validator");
 
         // Create a fresh UDS pair for orchestrator <> scheduler communication.
@@ -186,7 +186,7 @@ impl ControlThread {
         log::info!("Spawned scheduler; pid={scheduler_pid}");
 
         // Send shmem FDs to scheduler.
-        agave_orchestrator::send_session(scheduler_rx.as_fd(), &files, header);
+        agave_orchestrator::scheduler::send_session(scheduler_rx.as_fd(), &files, header);
         log::info!("Sent session to scheduler");
 
         // Convert both streams to async for monitoring.

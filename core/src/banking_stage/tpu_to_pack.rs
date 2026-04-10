@@ -3,7 +3,7 @@
 
 use {
     agave_banking_stage_ingress_types::BankingPacketReceiver,
-    agave_orchestrator::AgaveTpuToPackSession,
+    agave_orchestrator::scheduler::AgaveTpuToPackSession,
     agave_scheduler_bindings::{SharableTransactionRegion, TpuToPackMessage, tpu_message_flags},
     rts_alloc::Allocator,
     solana_packet::PacketFlags,

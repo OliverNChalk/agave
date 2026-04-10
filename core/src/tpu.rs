@@ -323,7 +323,8 @@ impl Tpu {
 
                 // Recv shmem.
                 let timeout = std::time::Duration::from_secs(1);
-                let session = agave_orchestrator::recv_agave_session(&stream, Some(timeout));
+                let session =
+                    agave_orchestrator::scheduler::recv_agave_session(&stream, Some(timeout));
                 log::info!("Received external scheduler session from orchestrator");
 
                 // Spawn the listener thread to handle future hot-swap sessions.

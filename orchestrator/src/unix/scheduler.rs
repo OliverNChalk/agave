@@ -196,7 +196,7 @@ pub fn recv_agave_session(
 ///
 /// # Safety
 ///
-/// - The caller must uphold [`crate::orchestrator_uds`] safety requirements.
+/// - The caller must uphold `crate::orchestrator_uds` safety requirements.
 pub unsafe fn recv_client_session() -> ClientSession {
     // SAFETY: Caller upholds `orchestrator_uds` safety requirements.
     let stream = unsafe { crate::orchestrator_uds() };

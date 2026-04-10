@@ -714,7 +714,7 @@ mod external {
     use {
         super::*,
         crate::banking_stage::consume_worker::external::ExternalWorker,
-        agave_orchestrator::{AgaveSession, AgaveWorkerSession},
+        agave_orchestrator::scheduler::{AgaveSession, AgaveWorkerSession},
         tpu_to_pack::BankingPacketReceivers,
     };
 
@@ -831,7 +831,7 @@ pub enum BankingControlMsg {
     },
     #[cfg(unix)]
     External {
-        session: agave_orchestrator::AgaveSession,
+        session: agave_orchestrator::scheduler::AgaveSession,
     },
 }
 
