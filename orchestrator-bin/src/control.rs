@@ -5,7 +5,7 @@ use {
     },
     agave_orchestrator::{Config, scheduler},
     command_fds::{CommandFdExt, FdMapping},
-    futures::{StreamExt, stream::FuturesUnordered},
+    futures::{StreamExt, future::OptionFuture, stream::FuturesUnordered},
     std::{
         io::Read,
         os::{
@@ -14,6 +14,7 @@ use {
         },
         path::Path,
         process::Stdio,
+        time::Duration,
     },
     tokio::{
         io::AsyncReadExt,
@@ -155,8 +156,23 @@ impl ControlThread {
         }
 
         // Wait for remaining components to exit.
-        while let Some((role, status)) = self.components.next().await {
-            log::info!("Component exited; role={role:?}; status={status}");
+        let mut timeout = Some(Box::pin(tokio::time::sleep(Duration::from_secs(5))));
+        loop {
+            tokio::select! {
+                biased;
+
+                opt = self.components.next() => match opt {
+                    Some((role, status)) => log::info!("Component exited; role={role:?}; status={status}"),
+                    None => break,
+                },
+                Some(_) = OptionFuture::from(timeout.as_mut()) => {
+                    timeout = None;
+                    log::warn!("Timed out waiting for shutdown, killing remaining");
+                    for component in self.components.iter_mut() {
+                        component.kill();
+                    }
+                }
+            }
         }
     }
 

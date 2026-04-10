@@ -31,7 +31,15 @@ libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["fs", "signal"] }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "process", "rt", "signal", "io-util"] }
+tokio = { workspace = true, features = [
+  "macros",
+  "net",
+  "process",
+  "rt",
+  "signal",
+  "time",
+  "io-util",
+] }
 toml = { workspace = true }
 
 [lints]
